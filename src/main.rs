@@ -1,7 +1,9 @@
 use clap::{Parser, Subcommand};
 mod commands;
+use commands::asset::AssetCommands;
 use commands::config::ConfigCommands;
 use commands::user::UserCommands;
+
 mod client;
 mod config;
 
@@ -18,15 +20,19 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// User management commands
-    User {
+    Asset {
         #[command(subcommand)]
-        user_command: UserCommands,
+        asset_command: AssetCommands,
     },
     /// Config management commands
     Config {
         #[command(subcommand)]
         config_command: ConfigCommands,
+    },
+    /// User management commands
+    User {
+        #[command(subcommand)]
+        user_command: UserCommands,
     },
 }
 
@@ -41,12 +47,15 @@ async fn main() {
         client::NominalClient::from_profile(profile).expect("Failed to create Nominal client");
 
     match cli.command {
-        Commands::User { user_command } => {
-            commands::user::handle(user_command, client).await;
+        Commands::Asset { asset_command } => {
+            commands::asset::handle(asset_command, client).await;
         }
         Commands::Config { config_command } => {
             // You may want to pass a config path here
             commands::config::handle(config_command, None);
+        }
+        Commands::User { user_command } => {
+            commands::user::handle(user_command, client).await;
         }
     }
 }

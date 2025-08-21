@@ -9,12 +9,12 @@ pub enum UserCommands {
     GetProfile,
 }
 
-pub async fn handle(user_command: UserCommands, client: NominalClient) {
-    match user_command {
+pub async fn handle(cmd: UserCommands, client: NominalClient) {
+    match cmd {
         UserCommands::GetProfile => {
-            let auth_service = AuthenticationServiceV2AsyncClient::new(client.client);
-            let response = auth_service.get_my_profile(&client.token).await;
-            println!("User profile: {:?}", response);
+            let service = AuthenticationServiceV2AsyncClient::new(client.client);
+            let response = service.get_my_profile(&client.token).await;
+            println!("{:#?}\n", response);
         }
     }
 }

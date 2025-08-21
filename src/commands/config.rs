@@ -27,8 +27,8 @@ pub enum ProfileCommands {
     Remove { name: String },
 }
 
-pub fn handle(subcommand: ConfigCommands, config_path: Option<PathBuf>) {
-    match subcommand {
+pub fn handle(cmd: ConfigCommands, config_path: Option<PathBuf>) {
+    match cmd {
         ConfigCommands::Profile { profile_command } => match profile_command {
             ProfileCommands::Add {
                 name,
