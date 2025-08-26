@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::client::NominalClient;
 use clap::Subcommand;
 use conjure_http::client::AsyncService;
