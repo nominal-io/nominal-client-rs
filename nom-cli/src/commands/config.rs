@@ -1,4 +1,4 @@
-use crate::config::{Config, Profile};
+use nominal_client::{Config, Profile};
 use clap::Subcommand;
 use std::path::PathBuf;
 

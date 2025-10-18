@@ -1,0 +1,13 @@
+[package]
+name = "nominal-client"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+conjure-error = "4.15.0"
+conjure-http = "4.15.0"
+conjure-object = "4.15.0"
+conjure-runtime = "6.2.0"
+nominal-api = "*"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_yaml = "0.9.34"

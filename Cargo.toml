@@ -1,18 +1,4 @@
-[package]
-name = "nom-cli"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = ["nominal-client", "nom-cli"]
+resolver = "2"
 
-[dependencies]
-
-clap = { version = "4", features = ["derive"] }
-conjure-error = "4.15.0"
-conjure-http = "4.15.0"
-conjure-object = "4.15.0"
-conjure-runtime = "6.2.0"
-nominal-api = "*"
-reqwest = { version = "0.12.23", features = ["blocking"] }
-serde = "1.0.219"
-serde_yaml = "0.9.34"
-tokio = "1.47.1"
-url = "2.5.4"

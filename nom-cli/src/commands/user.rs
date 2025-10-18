@@ -1,4 +1,4 @@
-use crate::client::NominalClient;
+use nominal_client::NominalClient;
 use clap::Subcommand;
 use conjure_http::client::AsyncService;
 use nominal_api::authentication::api::AuthenticationServiceV2AsyncClient;
