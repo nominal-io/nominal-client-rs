@@ -90,7 +90,7 @@ impl NominalClient {
     /// Get a run by RID
     pub async fn get_run(&self, rid: &str) -> Result<Run, Box<dyn std::error::Error>> {
         let service = RunServiceAsyncClient::new(self.client.clone());
-        let run_rid: nominal_api::scout::run::api::RunRid = parse_rid(rid)?;
+        let run_rid = parse_rid(rid)?;
 
         let response = service
             .get_run(&self.token, &run_rid)

@@ -56,11 +56,14 @@ impl AssetUpdate {
             request_builder = request_builder.description(d);
         }
         if let Some(p) = properties {
-            let props: BTreeMap<_, _> = p.into_iter().map(|(k, v)| (k.into(), v.into())).collect();
+            let props = p
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect::<BTreeMap<_, _>>();
             request_builder = request_builder.properties(props);
         }
         if let Some(l) = labels {
-            let labels_set: BTreeSet<_> = l.into_iter().map(|s| s.into()).collect();
+            let labels_set = l.into_iter().map(|s| s.into()).collect::<BTreeSet<_>>();
             request_builder = request_builder.labels(labels_set);
         }
 
@@ -179,13 +182,13 @@ impl Asset {
         client: &NominalClient,
         asset: nominal_api::scout::asset::api::Asset,
     ) -> Self {
-        let properties: HashMap<String, String> = asset
+        let properties = asset
             .properties()
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
 
-        let labels: Vec<String> = asset.labels().iter().map(|l| l.to_string()).collect();
+        let labels = asset.labels().iter().map(|l| l.to_string()).collect();
 
         let description = asset
             .description()

@@ -74,11 +74,14 @@ impl RunUpdate {
             request_builder = request_builder.description(d);
         }
         if let Some(p) = properties {
-            let props: BTreeMap<_, _> = p.into_iter().map(|(k, v)| (k.into(), v.into())).collect();
+            let props = p
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect::<BTreeMap<_, _>>();
             request_builder = request_builder.properties(props);
         }
         if let Some(l) = labels {
-            let labels_set: BTreeSet<_> = l.into_iter().map(|s| s.into()).collect();
+            let labels_set = l.into_iter().map(|s| s.into()).collect::<BTreeSet<_>>();
             request_builder = request_builder.labels(labels_set);
         }
         if let Some(s) = start {
@@ -217,7 +220,7 @@ impl Run {
 
         let service = RunServiceAsyncClient::new(self.client.client.clone());
 
-        let data_sources: BTreeMap<_, _> = datasets
+        let data_sources = datasets
             .into_iter()
             .map(|(ref_name, dataset_rid)| {
                 parse_rid(&dataset_rid).map(|rid| {
@@ -229,7 +232,7 @@ impl Run {
                     )
                 })
             })
-            .collect::<Result<_, _>>()?;
+            .collect::<Result<BTreeMap<_, _>, _>>()?;
 
         let rid = parse_rid(&self.rid)?;
 
@@ -375,15 +378,15 @@ impl Run {
         let start = api_timestamp_to_utc_or_panic(run.start_time());
         let end = run.end_time().map(api_timestamp_to_utc_or_panic);
 
-        let properties: HashMap<String, String> = run
+        let properties = run
             .properties()
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
 
-        let labels: Vec<String> = run.labels().iter().map(|l| l.to_string()).collect();
+        let labels = run.labels().iter().map(|l| l.to_string()).collect();
 
-        let assets: Vec<String> = run.assets().iter().map(rid_to_string).collect();
+        let assets = run.assets().iter().map(rid_to_string).collect();
 
         Self {
             rid: rid_to_string(run.rid()),

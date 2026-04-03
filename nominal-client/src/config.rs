@@ -23,7 +23,7 @@ impl Config {
             PathBuf::from(format!("{}/.config/nominal/config.yml", home))
         });
         let contents = fs::read_to_string(path)?;
-        let config: Config = serde_yaml::from_str(&contents)?;
+        let config = serde_yaml::from_str(&contents)?;
         Ok(config)
     }
 

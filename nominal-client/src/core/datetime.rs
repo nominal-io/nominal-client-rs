@@ -105,11 +105,10 @@ mod tests {
             .single()
             .expect("valid timestamp");
 
-        let ts: UtcTimestamp = NominalDateTime::try_from(dt)
+        let ts = NominalDateTime::try_from(dt)
             .expect("convert to nominal")
             .into();
-        let got: DateTime<Utc> =
-            DateTime::<Utc>::try_from(NominalDateTime(ts)).expect("convert to chrono");
+        let got = DateTime::<Utc>::try_from(NominalDateTime(ts)).expect("convert to chrono");
 
         assert_eq!(got, dt);
     }
