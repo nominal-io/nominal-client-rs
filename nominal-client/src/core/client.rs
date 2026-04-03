@@ -1,10 +1,11 @@
-use super::{Asset, Run};
+use super::{Asset, Run, User};
 use crate::config::Profile;
 use crate::core::rid::parse_rid;
 use crate::{Error, Result};
 use conjure_http::client::AsyncService;
 use conjure_object::BearerToken;
 use conjure_runtime::{Agent, Client, UserAgent};
+use nominal_api::authentication::api::AuthenticationServiceV2AsyncClient;
 use nominal_api::scout::RunServiceAsyncClient;
 use nominal_api::scout::asset::api::{
     AssetSortOptions, SearchAssetsQuery, SearchAssetsRequest, SortField, SortKey,
@@ -64,6 +65,16 @@ impl NominalClient {
 
     pub(crate) fn bearer_token(&self) -> &BearerToken {
         &self.token
+    }
+
+    /// Get the profile of the authenticated user.
+    pub async fn get_my_profile(&self) -> Result<User> {
+        let service = AuthenticationServiceV2AsyncClient::new(self.client.clone());
+        let response = service
+            .get_my_profile(&self.token)
+            .await
+            .map_err(Error::from)?;
+        Ok(User::from_conjure(response))
     }
 
     /// Get an asset by RID

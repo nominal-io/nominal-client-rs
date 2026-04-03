@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 mod commands;
 use commands::asset::AssetCommands;
 use commands::config::ConfigCommands;
+use commands::user::UserCommands;
 
 use nominal_client::{Config, NominalClient};
 
@@ -27,6 +28,11 @@ enum Commands {
         #[command(subcommand)]
         config_command: ConfigCommands,
     },
+    /// User management commands
+    User {
+        #[command(subcommand)]
+        user_command: UserCommands,
+    },
 }
 
 #[tokio::main]
@@ -43,6 +49,9 @@ async fn main() {
         Commands::Config { config_command } => {
             // You may want to pass a config path here
             commands::config::handle(config_command, None);
+        }
+        Commands::User { user_command } => {
+            commands::user::handle(user_command, client).await;
         }
     }
 }
