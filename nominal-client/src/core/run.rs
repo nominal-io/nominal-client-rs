@@ -229,44 +229,6 @@ impl Run {
         Ok(())
     }
 
-    /// Add a connection to this run.
-    ///
-    /// Ref_name maps "ref name" (the name within the run) to a Connection.
-    /// The same type of connection should use the same ref name across runs.
-    ///
-    /// # Arguments
-    /// * `ref_name` - Logical name for the connection within the run
-    /// * `connection_rid` - Connection RID to add to the run
-    pub async fn add_connection(
-        &self,
-        ref_name: &str,
-        connection_rid: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        use conjure_http::client::AsyncService;
-        use nominal_api::scout::RunServiceAsyncClient;
-        use nominal_api::scout::run::api::{CreateRunDataSource, DataSource};
-        use std::collections::BTreeMap;
-
-        let service = RunServiceAsyncClient::new(self.client.client.clone());
-
-        let rid = parse_rid(connection_rid)?;
-        let data_sources = BTreeMap::from([(
-            ref_name.to_string().into(),
-            CreateRunDataSource::builder()
-                .data_source(DataSource::Connection(rid))
-                .build(),
-        )]);
-
-        let rid = parse_rid(&self.rid)?;
-
-        service
-            .add_data_sources_to_run(&self.client.token, &rid, &data_sources)
-            .await
-            .map_err(|e| format!("Failed to add connection to run: {:?}", e))?;
-
-        Ok(())
-    }
-
     /// Add attachments that have already been uploaded to this run.
     ///
     /// # Arguments
