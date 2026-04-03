@@ -87,6 +87,13 @@ pub(crate) fn api_timestamp_to_utc(
     DateTime::<Utc>::try_from(NominalDateTime(*ts))
 }
 
+/// Convert an API `UtcTimestamp` to chrono `DateTime<Utc>`, panicking on invalid input.
+///
+/// Use this only when invalid API timestamps represent a hard contract violation.
+pub(crate) fn api_timestamp_to_utc_or_panic(ts: &UtcTimestamp) -> DateTime<Utc> {
+    api_timestamp_to_utc(ts).unwrap_or_else(|e| panic!("API returned invalid timestamp: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

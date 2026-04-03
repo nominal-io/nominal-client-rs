@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 
 use crate::core::{
-    datetime::{NominalDateTime, api_timestamp_to_utc},
+    datetime::{NominalDateTime, api_timestamp_to_utc_or_panic},
     rid::{parse_rid, rid_to_string},
     utils::api_base_url_to_app_base_url,
 };
@@ -363,11 +363,8 @@ impl Run {
         client: &NominalClient,
         run: nominal_api::scout::run::api::Run,
     ) -> Self {
-        let start = api_timestamp_to_utc(run.start_time())
-            .expect("API returned invalid start_time timestamp");
-        let end = run
-            .end_time()
-            .map(|et| api_timestamp_to_utc(et).expect("API returned invalid end_time timestamp"));
+        let start = api_timestamp_to_utc_or_panic(run.start_time());
+        let end = run.end_time().map(api_timestamp_to_utc_or_panic);
 
         let properties: HashMap<String, String> = run
             .properties()
