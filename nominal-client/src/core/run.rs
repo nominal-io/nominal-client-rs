@@ -15,7 +15,7 @@ use crate::{Error, Result};
 use super::NominalClient;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct RunUpdate {
     name: Option<String>,
     description: Option<String>,
@@ -26,35 +26,42 @@ pub struct RunUpdate {
 }
 
 impl RunUpdate {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    #[must_use]
     pub fn name(mut self, value: impl Into<String>) -> Self {
         self.name = Some(value.into());
         self
     }
 
+    #[must_use]
     pub fn description(mut self, value: impl Into<String>) -> Self {
         self.description = Some(value.into());
         self
     }
 
+    #[must_use]
     pub fn properties(mut self, value: HashMap<String, String>) -> Self {
         self.properties = Some(value);
         self
     }
 
+    #[must_use]
     pub fn labels(mut self, value: Vec<String>) -> Self {
         self.labels = Some(value);
         self
     }
 
+    #[must_use]
     pub fn start(mut self, value: DateTime<Utc>) -> Self {
         self.start = Some(value);
         self
     }
 
+    #[must_use]
     pub fn end(mut self, value: DateTime<Utc>) -> Self {
         self.end = Some(value);
         self
@@ -106,7 +113,7 @@ impl RunUpdate {
 ///
 /// Runs are executions of tests, simulations, or analyses within an asset.
 /// They contain datasets, events, and other time-series data.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Run {
     /// The resource identifier (RID) for this run
     rid: String,

@@ -11,7 +11,7 @@ use super::NominalClient;
 use chrono::{DateTime, Utc};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct AssetUpdate {
     name: Option<String>,
     description: Option<String>,
@@ -20,25 +20,30 @@ pub struct AssetUpdate {
 }
 
 impl AssetUpdate {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    #[must_use]
     pub fn name(mut self, value: impl Into<String>) -> Self {
         self.name = Some(value.into());
         self
     }
 
+    #[must_use]
     pub fn description(mut self, value: impl Into<String>) -> Self {
         self.description = Some(value.into());
         self
     }
 
+    #[must_use]
     pub fn properties(mut self, value: HashMap<String, String>) -> Self {
         self.properties = Some(value);
         self
     }
 
+    #[must_use]
     pub fn labels(mut self, value: Vec<String>) -> Self {
         self.labels = Some(value);
         self
@@ -80,7 +85,7 @@ impl AssetUpdate {
 ///
 /// Assets are the top-level organizational unit in Nominal, containing datasets, videos,
 /// connections, and attachments related to a specific test, flight, or analysis.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Asset {
     /// The resource identifier (RID) for this asset
     rid: String,

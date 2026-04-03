@@ -19,6 +19,15 @@ pub struct NominalClient {
     base_url: String,
 }
 
+impl std::fmt::Debug for NominalClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NominalClient")
+            .field("workspace_rid", &self.workspace_rid)
+            .field("base_url", &self.base_url)
+            .finish_non_exhaustive()
+    }
+}
+
 impl NominalClient {
     pub fn new(base_url: String, token: String, workspace_rid: Option<String>) -> Result<Self> {
         let bearer_token = BearerToken::new(&token).map_err(|e| Error::InvalidBearerToken {
