@@ -7,6 +7,16 @@ pub(crate) struct RidConversionError {
     reason: String,
 }
 
+impl RidConversionError {
+    pub(crate) fn rid(&self) -> &str {
+        &self.rid
+    }
+
+    pub(crate) fn reason(&self) -> &str {
+        &self.reason
+    }
+}
+
 impl fmt::Display for RidConversionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "invalid RID '{}': {}", self.rid, self.reason)

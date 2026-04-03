@@ -21,8 +21,9 @@ pub struct NominalClient {
 
 impl NominalClient {
     pub fn new(base_url: String, token: String, workspace_rid: Option<String>) -> Result<Self> {
-        let bearer_token =
-            BearerToken::new(&token).map_err(|e| Error::InvalidBearerToken(e.to_string()))?;
+        let bearer_token = BearerToken::new(&token).map_err(|e| Error::InvalidBearerToken {
+            reason: e.to_string(),
+        })?;
         let client = create_client(&base_url)?;
         Ok(NominalClient {
             client,
@@ -69,7 +70,9 @@ impl NominalClient {
         let asset = response
             .into_iter()
             .next()
-            .ok_or_else(|| Error::NotFound("asset with given RID".to_string()))?
+            .ok_or(Error::NotFound {
+                resource: "asset with given RID",
+            })?
             .1;
 
         Ok(Asset::from_conjure(self, asset))
@@ -140,9 +143,10 @@ impl NominalClient {
 }
 
 fn create_client(url: &str) -> Result<Client> {
-    let uri = url
-        .try_into()
-        .map_err(|e| Error::InvalidServiceUrl(format!("{e:?}")))?;
+    let uri = url.try_into().map_err(|e| Error::InvalidServiceUrl {
+        url: url.to_string(),
+        reason: format!("{e:?}"),
+    })?;
 
     Client::builder()
         .service("nom-cli-rs")

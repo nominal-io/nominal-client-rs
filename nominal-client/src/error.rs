@@ -4,6 +4,7 @@ use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+#[non_exhaustive]
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("I/O error: {0}")]
@@ -15,39 +16,56 @@ pub enum Error {
     #[error("YAML parse error: {0}")]
     Yaml(#[from] serde_yaml::Error),
 
-    #[error("Conjure error: {0}")]
-    Conjure(String),
+    #[error("Conjure error: {details}")]
+    Conjure { details: String },
 
-    #[error("RID conversion error: {0}")]
-    Rid(String),
+    #[error("RID conversion error: invalid RID '{rid}': {reason}")]
+    Rid { rid: String, reason: String },
 
-    #[error("timestamp conversion error: {0}")]
-    Timestamp(String),
+    #[error("seconds_since_epoch out of range: {0}")]
+    TimestampSecondsOutOfRange(i64),
 
-    #[error("invalid bearer token: {0}")]
-    InvalidBearerToken(String),
+    #[error("offset_nanoseconds out of range: {0}")]
+    TimestampNanosOutOfRange(i64),
 
-    #[error("invalid service URL: {0}")]
-    InvalidServiceUrl(String),
+    #[error("invalid timestamp: seconds={seconds}, nanos={nanos}")]
+    InvalidTimestamp { seconds: i64, nanos: i64 },
 
-    #[error("resource not found: {0}")]
-    NotFound(String),
+    #[error("invalid bearer token: {reason}")]
+    InvalidBearerToken { reason: String },
+
+    #[error("invalid service URL '{url}': {reason}")]
+    InvalidServiceUrl { url: String, reason: String },
+
+    #[error("resource not found: {resource}")]
+    NotFound { resource: &'static str },
 }
 
 impl From<RidConversionError> for Error {
     fn from(value: RidConversionError) -> Self {
-        Self::Rid(value.to_string())
+        Self::Rid {
+            rid: value.rid().to_string(),
+            reason: value.reason().to_string(),
+        }
     }
 }
 
 impl From<NominalDateTimeError> for Error {
     fn from(value: NominalDateTimeError) -> Self {
-        Self::Timestamp(value.to_string())
+        match value {
+            NominalDateTimeError::SecondsOutOfRange(v) => Self::TimestampSecondsOutOfRange(v),
+            NominalDateTimeError::NanosOutOfRange(v) => Self::TimestampNanosOutOfRange(v),
+            NominalDateTimeError::InvalidTimestamp { seconds, nanos } => {
+                Self::InvalidTimestamp { seconds, nanos }
+            }
+        }
     }
 }
 
 impl From<conjure_error::Error> for Error {
     fn from(value: conjure_error::Error) -> Self {
-        Self::Conjure(format!("{value:?}"))
+        Self::Conjure {
+            details: format!("{value:?}"),
+        }
     }
 }
