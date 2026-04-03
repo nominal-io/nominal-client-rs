@@ -9,6 +9,95 @@ use crate::core::{
 use super::NominalClient;
 use std::collections::HashMap;
 
+#[derive(Default, Clone)]
+pub struct RunUpdate {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub properties: Option<HashMap<String, String>>,
+    pub labels: Option<Vec<String>>,
+    pub start: Option<DateTime<Utc>>,
+    pub end: Option<DateTime<Utc>>,
+}
+
+impl RunUpdate {
+    pub fn name(mut self, value: impl Into<String>) -> Self {
+        self.name = Some(value.into());
+        self
+    }
+
+    pub fn description(mut self, value: impl Into<String>) -> Self {
+        self.description = Some(value.into());
+        self
+    }
+
+    pub fn properties(mut self, value: HashMap<String, String>) -> Self {
+        self.properties = Some(value);
+        self
+    }
+
+    pub fn labels(mut self, value: Vec<String>) -> Self {
+        self.labels = Some(value);
+        self
+    }
+
+    pub fn start(mut self, value: DateTime<Utc>) -> Self {
+        self.start = Some(value);
+        self
+    }
+
+    pub fn end(mut self, value: DateTime<Utc>) -> Self {
+        self.end = Some(value);
+        self
+    }
+
+    pub(crate) fn into_request(
+        self,
+    ) -> Result<nominal_api::scout::run::api::UpdateRunRequest, Box<dyn std::error::Error>> {
+        use nominal_api::scout::run::api::UpdateRunRequest;
+        use std::collections::{BTreeMap, BTreeSet};
+
+        let RunUpdate {
+            name,
+            description,
+            properties,
+            labels,
+            start,
+            end,
+        } = self;
+
+        let mut request_builder = UpdateRunRequest::builder();
+
+        if let Some(n) = name {
+            request_builder = request_builder.title(n);
+        }
+        if let Some(d) = description {
+            request_builder = request_builder.description(d);
+        }
+        if let Some(p) = properties {
+            let props: BTreeMap<_, _> = p.into_iter().map(|(k, v)| (k.into(), v.into())).collect();
+            request_builder = request_builder.properties(props);
+        }
+        if let Some(l) = labels {
+            let labels_set: BTreeSet<_> = l.into_iter().map(|s| s.into()).collect();
+            request_builder = request_builder.labels(labels_set);
+        }
+        if let Some(s) = start {
+            let s_ts = NominalDateTime::try_from(s)
+                .map_err(|e| format!("Invalid start timestamp: {e}"))?
+                .into();
+            request_builder = request_builder.start_time(Some(s_ts));
+        }
+        if let Some(e) = end {
+            let e_ts = NominalDateTime::try_from(e)
+                .map_err(|e| format!("Invalid end timestamp: {e}"))?
+                .into();
+            request_builder = request_builder.end_time(Some(e_ts));
+        }
+
+        Ok(request_builder.assets(vec![]).build())
+    }
+}
+
 /// Represents a run in Nominal.
 ///
 /// Runs are executions of tests, simulations, or analyses within an asset.
@@ -62,63 +151,21 @@ impl Run {
     ///
     /// # Example
     /// ```no_run
+    /// # use nominal_client::RunUpdate;
     /// # async fn example(mut run: nominal_client::Run) -> Result<(), Box<dyn std::error::Error>> {
     /// run.update(
-    ///     Some("New Name".to_string()),
-    ///     Some("New description".to_string()),
-    ///     None,  // properties unchanged
-    ///     Some(vec!["label1".to_string(), "label2".to_string()]),
-    ///     None,  // start unchanged
-    ///     None,  // end unchanged
+    ///     RunUpdate::default()
+    ///         .name("New Name")
+    ///         .description("New description")
+    ///         .labels(vec!["label1".to_string(), "label2".to_string()]),
     /// ).await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn update(
-        &mut self,
-        name: Option<String>,
-        description: Option<String>,
-        properties: Option<HashMap<String, String>>,
-        labels: Option<Vec<String>>,
-        start: Option<DateTime<Utc>>,
-        end: Option<DateTime<Utc>>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn update(&mut self, update: RunUpdate) -> Result<(), Box<dyn std::error::Error>> {
         use conjure_http::client::AsyncService;
         use nominal_api::scout::RunServiceAsyncClient;
-        use nominal_api::scout::run::api::UpdateRunRequest;
-        use std::collections::BTreeMap;
-
-        let mut request_builder = UpdateRunRequest::builder();
-
-        if let Some(n) = name {
-            request_builder = request_builder.title(n);
-        }
-        if let Some(d) = description {
-            request_builder = request_builder.description(d);
-        }
-        if let Some(p) = properties {
-            let props: BTreeMap<_, _> = p.into_iter().map(|(k, v)| (k.into(), v.into())).collect();
-            request_builder = request_builder.properties(props);
-        }
-        if let Some(l) = labels {
-            let labels_set: std::collections::BTreeSet<_> =
-                l.into_iter().map(|s| s.into()).collect();
-            request_builder = request_builder.labels(labels_set);
-        }
-        if let Some(s) = start {
-            let s_ts = NominalDateTime::try_from(s)
-                .map_err(|e| format!("Invalid start timestamp: {e}"))?
-                .into();
-            request_builder = request_builder.start_time(Some(s_ts));
-        }
-        if let Some(e) = end {
-            let e_ts = NominalDateTime::try_from(e)
-                .map_err(|e| format!("Invalid end timestamp: {e}"))?
-                .into();
-            request_builder = request_builder.end_time(Some(e_ts));
-        }
-
-        let request = request_builder.assets(vec![]).build();
+        let request = update.into_request()?;
         let service = RunServiceAsyncClient::new(self.client.client.clone());
 
         let rid = parse_rid(&self.rid)?;

@@ -7,4 +7,4 @@ mod utils;
 
 pub use asset::Asset;
 pub use client::NominalClient;
-pub use run::Run;
+pub use run::{Run, RunUpdate};
