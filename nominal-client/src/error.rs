@@ -9,6 +9,9 @@ pub enum Error {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("could not determine home directory")]
+    HomeDirNotFound,
+
     #[error("YAML parse error: {0}")]
     Yaml(#[from] serde_yaml::Error),
 

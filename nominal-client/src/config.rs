@@ -19,10 +19,13 @@ pub struct Profile {
 
 impl Config {
     pub fn from_file(path: Option<PathBuf>) -> Result<Self> {
-        let path = path.unwrap_or_else(|| {
-            let home = std::env::var("HOME").expect("Failed to get HOME environment variable");
-            PathBuf::from(format!("{}/.config/nominal/config.yml", home))
-        });
+        let path = match path {
+            Some(path) => path,
+            None => {
+                let home = dirs::home_dir().ok_or(crate::Error::HomeDirNotFound)?;
+                home.join(".config").join("nominal").join("config.yml")
+            }
+        };
         let contents = fs::read_to_string(path)?;
         let config = serde_yaml::from_str(&contents)?;
         Ok(config)

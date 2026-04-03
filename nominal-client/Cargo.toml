@@ -9,6 +9,7 @@ conjure-error = "4.15.0"
 conjure-http = "4.15.0"
 conjure-object = "4.15.0"
 conjure-runtime = "6.2.0"
+dirs = "5"
 nominal-api = "*"
 regex = "1.11"
 serde = { version = "1.0.219", features = ["derive"] }
