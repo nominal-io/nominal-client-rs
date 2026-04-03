@@ -42,8 +42,7 @@ async fn main() {
     let cli = Cli::parse();
     let config = Config::from_file(None).expect("Failed to load config");
     let profile = config.get_profile(&cli.profile).expect("Profile not found");
-    let client =
-        NominalClient::from_profile(profile).expect("Failed to create Nominal client");
+    let client = NominalClient::from_profile(profile).expect("Failed to create Nominal client");
 
     match cli.command {
         Commands::Asset { asset_command } => {

@@ -1,7 +1,8 @@
 use super::{Asset, Run};
 use crate::config::Profile;
+use crate::core::rid::parse_rid;
 use conjure_http::client::AsyncService;
-use conjure_object::{BearerToken, ResourceIdentifier};
+use conjure_object::BearerToken;
 use conjure_runtime::{Agent, Client, UserAgent};
 use nominal_api::scout::RunServiceAsyncClient;
 use nominal_api::scout::asset::api::{
@@ -48,9 +49,7 @@ impl NominalClient {
     /// Get an asset by RID
     pub async fn get_asset(&self, rid: &str) -> Result<Asset, Box<dyn std::error::Error>> {
         let service = AssetServiceAsyncClient::new(self.client.clone());
-        let resource_id =
-            ResourceIdentifier::new(rid).map_err(|e| format!("Invalid RID: {:?}", e))?;
-        let asset_rid: nominal_api::scout::rids::api::AssetRid = resource_id.into();
+        let asset_rid: nominal_api::scout::rids::api::AssetRid = parse_rid(rid)?;
         let rid_set = std::collections::BTreeSet::from([asset_rid]);
         let response = service
             .get_assets(&self.token, &rid_set)
@@ -91,9 +90,7 @@ impl NominalClient {
     /// Get a run by RID
     pub async fn get_run(&self, rid: &str) -> Result<Run, Box<dyn std::error::Error>> {
         let service = RunServiceAsyncClient::new(self.client.clone());
-        let resource_id =
-            ResourceIdentifier::new(rid).map_err(|e| format!("Invalid RID: {:?}", e))?;
-        let run_rid: nominal_api::scout::run::api::RunRid = resource_id.into();
+        let run_rid: nominal_api::scout::run::api::RunRid = parse_rid(rid)?;
 
         let response = service
             .get_run(&self.token, &run_rid)
@@ -128,7 +125,7 @@ impl NominalClient {
             .results()
             .iter()
             .map(|run| Run::from_conjure(self, run.clone()))
-            .collect())
+            .collect::<Vec<_>>())
     }
 }
 

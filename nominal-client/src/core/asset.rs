@@ -1,6 +1,7 @@
-use crate::core::utils::api_base_url_to_app_base_url;
+use crate::core::{rid::{parse_rid, rid_to_string}, utils::api_base_url_to_app_base_url};
 
 use super::NominalClient;
+use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 
 /// Represents an asset in Nominal.
@@ -24,8 +25,8 @@ pub struct Asset {
     /// Labels for categorizing and filtering assets
     pub labels: Vec<String>,
 
-    /// Creation timestamp in nanoseconds since Unix epoch
-    pub created_at: i64,
+    /// Creation timestamp
+    pub created_at: DateTime<Utc>,
 
     /// Reference to the client for API calls
     client: NominalClient,
@@ -56,7 +57,6 @@ impl Asset {
         labels: Option<Vec<String>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         use conjure_http::client::AsyncService;
-        use conjure_object::ResourceIdentifier;
         use nominal_api::scout::asset::api::UpdateAssetRequest;
         use nominal_api::scout::assets::AssetServiceAsyncClient;
         use std::collections::BTreeMap;
@@ -70,12 +70,10 @@ impl Asset {
             request_builder = request_builder.description(d);
         }
         if let Some(p) = properties {
-            // Convert HashMap to the API's expected types
             let props: BTreeMap<_, _> = p.into_iter().map(|(k, v)| (k.into(), v.into())).collect();
             request_builder = request_builder.properties(props);
         }
         if let Some(l) = labels {
-            // Convert Vec<String> to BTreeSet<Label>
             let labels_set: std::collections::BTreeSet<_> =
                 l.into_iter().map(|s| s.into()).collect();
             request_builder = request_builder.labels(labels_set);
@@ -84,17 +82,13 @@ impl Asset {
         let request = request_builder.build();
         let service = AssetServiceAsyncClient::new(self.client.client.clone());
 
-        // Convert RID string to AssetRid
-        let resource_id =
-            ResourceIdentifier::new(&self.rid).map_err(|e| format!("Invalid RID: {:?}", e))?;
-        let asset_rid: nominal_api::scout::rids::api::AssetRid = resource_id.into();
+        let asset_rid: nominal_api::scout::rids::api::AssetRid = parse_rid(&self.rid)?;
 
         let response = service
             .update_asset(&self.client.token, &asset_rid, &request)
             .await
             .map_err(|e| format!("Failed to update asset: {:?}", e))?;
 
-        // Update self with the response
         *self = Self::from_conjure(&self.client, response);
 
         Ok(())
@@ -111,15 +105,11 @@ impl Asset {
     /// Archived assets are not deleted, but are hidden from the UI.
     pub async fn archive(&self) -> Result<(), Box<dyn std::error::Error>> {
         use conjure_http::client::AsyncService;
-        use conjure_object::ResourceIdentifier;
         use nominal_api::scout::assets::AssetServiceAsyncClient;
 
         let service = AssetServiceAsyncClient::new(self.client.client.clone());
 
-        // Convert RID string to AssetRid
-        let resource_id =
-            ResourceIdentifier::new(&self.rid).map_err(|e| format!("Invalid RID: {:?}", e))?;
-        let asset_rid: nominal_api::scout::rids::api::AssetRid = resource_id.into();
+        let asset_rid: nominal_api::scout::rids::api::AssetRid = parse_rid(&self.rid)?;
 
         service
             .archive(&self.client.token, &asset_rid, None)
@@ -132,15 +122,11 @@ impl Asset {
     /// Unarchive this asset, allowing it to be viewed in the UI.
     pub async fn unarchive(&self) -> Result<(), Box<dyn std::error::Error>> {
         use conjure_http::client::AsyncService;
-        use conjure_object::ResourceIdentifier;
         use nominal_api::scout::assets::AssetServiceAsyncClient;
 
         let service = AssetServiceAsyncClient::new(self.client.client.clone());
 
-        // Convert RID string to AssetRid
-        let resource_id =
-            ResourceIdentifier::new(&self.rid).map_err(|e| format!("Invalid RID: {:?}", e))?;
-        let asset_rid: nominal_api::scout::rids::api::AssetRid = resource_id.into();
+        let asset_rid: nominal_api::scout::rids::api::AssetRid = parse_rid(&self.rid)?;
 
         service
             .unarchive(&self.client.token, &asset_rid, None)
@@ -155,32 +141,26 @@ impl Asset {
         client: &NominalClient,
         asset: nominal_api::scout::asset::api::Asset,
     ) -> Self {
-        // Convert created_at from DateTime to nanoseconds
-        let created_at_nanos = asset.created_at().timestamp_nanos_opt().unwrap_or(0);
-
-        // Convert properties from BTreeMap<PropertyName, PropertyValue> to HashMap<String, String>
         let properties: HashMap<String, String> = asset
             .properties()
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
 
-        // Convert labels from BTreeSet<Label> to Vec<String>
         let labels: Vec<String> = asset.labels().iter().map(|l| l.to_string()).collect();
 
-        // Handle optional description
         let description = asset
             .description()
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
 
         Self {
-            rid: asset.rid().to_string(),
+            rid: rid_to_string(asset.rid()),
             name: asset.title().to_string(),
             description,
             properties,
             labels,
-            created_at: created_at_nanos,
+            created_at: asset.created_at().to_utc(),
             client: client.clone(),
         }
     }

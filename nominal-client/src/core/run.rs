@@ -1,4 +1,10 @@
-use crate::core::utils::api_base_url_to_app_base_url;
+use chrono::{DateTime, Utc};
+
+use crate::core::{
+    datetime::{NominalDateTime, api_timestamp_to_utc},
+    rid::{parse_rid, rid_to_string},
+    utils::api_base_url_to_app_base_url,
+};
 
 use super::NominalClient;
 use std::collections::HashMap;
@@ -24,11 +30,11 @@ pub struct Run {
     /// Labels for categorizing and filtering runs
     pub labels: Vec<String>,
 
-    /// Start timestamp in nanoseconds since Unix epoch
-    pub start: i64,
+    /// Start timestamp
+    pub start: DateTime<Utc>,
 
-    /// End timestamp in nanoseconds since Unix epoch (optional)
-    pub end: Option<i64>,
+    /// End timestamp
+    pub end: Option<DateTime<Utc>>,
 
     /// Run number (display identifier)
     pub run_number: i64,
@@ -37,7 +43,7 @@ pub struct Run {
     pub assets: Vec<String>,
 
     /// Creation timestamp in nanoseconds since Unix epoch
-    pub created_at: i64,
+    pub created_at: DateTime<Utc>,
 
     /// Reference to the client for API calls
     client: NominalClient,
@@ -74,13 +80,12 @@ impl Run {
         description: Option<String>,
         properties: Option<HashMap<String, String>>,
         labels: Option<Vec<String>>,
-        start: Option<i64>,
-        end: Option<i64>,
+        start: Option<DateTime<Utc>>,
+        end: Option<DateTime<Utc>>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         use conjure_http::client::AsyncService;
-        use conjure_object::ResourceIdentifier;
         use nominal_api::scout::RunServiceAsyncClient;
-        use nominal_api::scout::run::api::{UpdateRunRequest, UtcTimestamp};
+        use nominal_api::scout::run::api::UpdateRunRequest;
         use std::collections::BTreeMap;
 
         let mut request_builder = UpdateRunRequest::builder();
@@ -92,51 +97,34 @@ impl Run {
             request_builder = request_builder.description(d);
         }
         if let Some(p) = properties {
-            // Convert HashMap to the API's expected types
             let props: BTreeMap<_, _> = p.into_iter().map(|(k, v)| (k.into(), v.into())).collect();
             request_builder = request_builder.properties(props);
         }
         if let Some(l) = labels {
-            // Convert Vec<String> to BTreeSet<Label>
             let labels_set: std::collections::BTreeSet<_> =
                 l.into_iter().map(|s| s.into()).collect();
             request_builder = request_builder.labels(labels_set);
         }
         if let Some(s) = start {
-            // Convert nanoseconds to UtcTimestamp (seconds + offset nanos)
-            use conjure_object::SafeLong;
-            let seconds = s / 1_000_000_000;
-            let nanos = s % 1_000_000_000;
-            request_builder = request_builder.start_time(
-                UtcTimestamp::builder()
-                    .seconds_since_epoch(SafeLong::new(seconds).unwrap())
-                    .offset_nanoseconds(SafeLong::new(nanos).unwrap())
-                    .build(),
-            );
+            let s_ts = NominalDateTime::try_from(s)
+                .map_err(|e| format!("Invalid start timestamp: {e}"))?
+                .into();
+            request_builder = request_builder.start_time(Some(s_ts));
         }
         if let Some(e) = end {
-            // Convert nanoseconds to UtcTimestamp (seconds + offset nanos)
-            use conjure_object::SafeLong;
-            let seconds = e / 1_000_000_000;
-            let nanos = e % 1_000_000_000;
-            request_builder = request_builder.end_time(
-                UtcTimestamp::builder()
-                    .seconds_since_epoch(SafeLong::new(seconds).unwrap())
-                    .offset_nanoseconds(SafeLong::new(nanos).unwrap())
-                    .build(),
-            );
+            let e_ts = NominalDateTime::try_from(e)
+                .map_err(|e| format!("Invalid end timestamp: {e}"))?
+                .into();
+            request_builder = request_builder.end_time(Some(e_ts));
         }
 
         let request = request_builder.assets(vec![]).build();
         let service = RunServiceAsyncClient::new(self.client.client.clone());
 
-        // Convert RID string to RunRid
-        let resource_id =
-            ResourceIdentifier::new(&self.rid).map_err(|e| format!("Invalid RID: {:?}", e))?;
-        let run_rid: nominal_api::scout::run::api::RunRid = resource_id.into();
+        let rid = parse_rid(&self.rid)?;
 
         let response = service
-            .update_run(&self.client.token, &run_rid, &request)
+            .update_run(&self.client.token, &rid, &request)
             .await
             .map_err(|e| format!("Failed to update run: {:?}", e))?;
 
@@ -160,9 +148,11 @@ impl Run {
         ref_name: &str,
         dataset_rid: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut datasets = HashMap::new();
-        datasets.insert(ref_name.to_string(), dataset_rid.to_string());
-        self.add_datasets(datasets).await
+        self.add_datasets(HashMap::from([(
+            ref_name.to_string(),
+            dataset_rid.to_string(),
+        )]))
+        .await
     }
 
     /// Add multiple datasets to this run.
@@ -174,34 +164,30 @@ impl Run {
         datasets: HashMap<String, String>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         use conjure_http::client::AsyncService;
-        use conjure_object::ResourceIdentifier;
         use nominal_api::scout::RunServiceAsyncClient;
         use nominal_api::scout::run::api::{CreateRunDataSource, DataSource};
         use std::collections::BTreeMap;
 
         let service = RunServiceAsyncClient::new(self.client.client.clone());
 
-        // Convert datasets to data sources
-        let mut data_sources = BTreeMap::new();
-        for (ref_name, dataset_rid) in datasets {
-            let ds_rid = ResourceIdentifier::new(&dataset_rid)
-                .map_err(|e| format!("Invalid dataset RID: {:?}", e))?;
+        let data_sources: BTreeMap<_, _> = datasets
+            .into_iter()
+            .map(|(ref_name, dataset_rid)| {
+                parse_rid(&dataset_rid).map(|rid| {
+                    (
+                        ref_name.into(),
+                        CreateRunDataSource::builder()
+                            .data_source(DataSource::Dataset(rid))
+                            .build(),
+                    )
+                })
+            })
+            .collect::<Result<_, _>>()?;
 
-            let dataset_rid_typed: nominal_api::api::rids::DatasetRid = ds_rid.into();
-            data_sources.insert(
-                ref_name.into(),
-                CreateRunDataSource::builder()
-                    .data_source(DataSource::Dataset(dataset_rid_typed))
-                    .build(),
-            );
-        }
-
-        let run_rid =
-            ResourceIdentifier::new(&self.rid).map_err(|e| format!("Invalid RID: {:?}", e))?;
-        let run_rid_typed: nominal_api::scout::run::api::RunRid = run_rid.into();
+        let rid = parse_rid(&self.rid)?;
 
         service
-            .add_data_sources_to_run(&self.client.token, &run_rid_typed, &data_sources)
+            .add_data_sources_to_run(&self.client.token, &rid, &data_sources)
             .await
             .map_err(|e| format!("Failed to add datasets to run: {:?}", e))?;
 
@@ -219,31 +205,24 @@ impl Run {
         video_rid: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
         use conjure_http::client::AsyncService;
-        use conjure_object::ResourceIdentifier;
         use nominal_api::scout::RunServiceAsyncClient;
         use nominal_api::scout::run::api::{CreateRunDataSource, DataSource};
         use std::collections::BTreeMap;
 
         let service = RunServiceAsyncClient::new(self.client.client.clone());
 
-        let vid_rid = ResourceIdentifier::new(video_rid)
-            .map_err(|e| format!("Invalid video RID: {:?}", e))?;
-
-        let video_rid_typed: nominal_api::api::rids::VideoRid = vid_rid.into();
-        let mut data_sources = BTreeMap::new();
-        data_sources.insert(
+        let rid = parse_rid(video_rid)?;
+        let data_sources = BTreeMap::from([(
             ref_name.to_string().into(),
             CreateRunDataSource::builder()
-                .data_source(DataSource::Video(video_rid_typed))
+                .data_source(DataSource::Video(rid))
                 .build(),
-        );
+        )]);
 
-        let run_rid =
-            ResourceIdentifier::new(&self.rid).map_err(|e| format!("Invalid RID: {:?}", e))?;
-        let run_rid_typed: nominal_api::scout::run::api::RunRid = run_rid.into();
+        let rid = parse_rid(&self.rid)?;
 
         service
-            .add_data_sources_to_run(&self.client.token, &run_rid_typed, &data_sources)
+            .add_data_sources_to_run(&self.client.token, &rid, &data_sources)
             .await
             .map_err(|e| format!("Failed to add video to run: {:?}", e))?;
 
@@ -264,31 +243,24 @@ impl Run {
         connection_rid: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
         use conjure_http::client::AsyncService;
-        use conjure_object::ResourceIdentifier;
         use nominal_api::scout::RunServiceAsyncClient;
         use nominal_api::scout::run::api::{CreateRunDataSource, DataSource};
         use std::collections::BTreeMap;
 
         let service = RunServiceAsyncClient::new(self.client.client.clone());
 
-        let conn_rid = ResourceIdentifier::new(connection_rid)
-            .map_err(|e| format!("Invalid connection RID: {:?}", e))?;
-
-        let connection_rid_typed: nominal_api::scout::run::api::ConnectionRid = conn_rid.into();
-        let mut data_sources = BTreeMap::new();
-        data_sources.insert(
+        let rid = parse_rid(connection_rid)?;
+        let data_sources = BTreeMap::from([(
             ref_name.to_string().into(),
             CreateRunDataSource::builder()
-                .data_source(DataSource::Connection(connection_rid_typed))
+                .data_source(DataSource::Connection(rid))
                 .build(),
-        );
+        )]);
 
-        let run_rid =
-            ResourceIdentifier::new(&self.rid).map_err(|e| format!("Invalid RID: {:?}", e))?;
-        let run_rid_typed: nominal_api::scout::run::api::RunRid = run_rid.into();
+        let rid = parse_rid(&self.rid)?;
 
         service
-            .add_data_sources_to_run(&self.client.token, &run_rid_typed, &data_sources)
+            .add_data_sources_to_run(&self.client.token, &rid, &data_sources)
             .await
             .map_err(|e| format!("Failed to add connection to run: {:?}", e))?;
 
@@ -304,32 +276,25 @@ impl Run {
         attachment_rids: Vec<String>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         use conjure_http::client::AsyncService;
-        use conjure_object::ResourceIdentifier;
         use nominal_api::scout::RunServiceAsyncClient;
         use nominal_api::scout::run::api::UpdateAttachmentsRequest;
 
         let service = RunServiceAsyncClient::new(self.client.client.clone());
 
-        // Convert string RIDs to AttachmentRid
-        let mut attachments_to_add = Vec::new();
-        for rid_str in attachment_rids {
-            let rid = ResourceIdentifier::new(&rid_str)
-                .map_err(|e| format!("Invalid attachment RID: {:?}", e))?;
-            let attachment_rid: nominal_api::api::rids::AttachmentRid = rid.into();
-            attachments_to_add.push(attachment_rid);
-        }
+        let attachments_to_add = attachment_rids
+            .into_iter()
+            .map(|rid| parse_rid(&rid))
+            .collect::<Result<Vec<_>, _>>()?;
 
         let request = UpdateAttachmentsRequest::builder()
             .attachments_to_add(attachments_to_add)
             .attachments_to_remove(vec![])
             .build();
 
-        let run_rid =
-            ResourceIdentifier::new(&self.rid).map_err(|e| format!("Invalid RID: {:?}", e))?;
-        let run_rid_typed: nominal_api::scout::run::api::RunRid = run_rid.into();
+        let rid = parse_rid(&self.rid)?;
 
         service
-            .update_run_attachment(&self.client.token, &run_rid_typed, &request)
+            .update_run_attachment(&self.client.token, &rid, &request)
             .await
             .map_err(|e| format!("Failed to add attachments to run: {:?}", e))?;
 
@@ -346,32 +311,25 @@ impl Run {
         attachment_rids: Vec<String>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         use conjure_http::client::AsyncService;
-        use conjure_object::ResourceIdentifier;
         use nominal_api::scout::RunServiceAsyncClient;
         use nominal_api::scout::run::api::UpdateAttachmentsRequest;
 
         let service = RunServiceAsyncClient::new(self.client.client.clone());
 
-        // Convert string RIDs to AttachmentRid
-        let mut attachments_to_remove = Vec::new();
-        for rid_str in attachment_rids {
-            let rid = ResourceIdentifier::new(&rid_str)
-                .map_err(|e| format!("Invalid attachment RID: {:?}", e))?;
-            let attachment_rid: nominal_api::api::rids::AttachmentRid = rid.into();
-            attachments_to_remove.push(attachment_rid);
-        }
+        let attachments_to_remove = attachment_rids
+            .into_iter()
+            .map(|rid| parse_rid(&rid))
+            .collect::<Result<Vec<_>, _>>()?;
 
         let request = UpdateAttachmentsRequest::builder()
             .attachments_to_add(vec![])
             .attachments_to_remove(attachments_to_remove)
             .build();
 
-        let run_rid =
-            ResourceIdentifier::new(&self.rid).map_err(|e| format!("Invalid RID: {:?}", e))?;
-        let run_rid_typed: nominal_api::scout::run::api::RunRid = run_rid.into();
+        let rid = parse_rid(&self.rid)?;
 
         service
-            .update_run_attachment(&self.client.token, &run_rid_typed, &request)
+            .update_run_attachment(&self.client.token, &rid, &request)
             .await
             .map_err(|e| format!("Failed to remove attachments from run: {:?}", e))?;
 
@@ -384,18 +342,14 @@ impl Run {
     /// NOTE: currently, it is not possible (yet) to unarchive a run once archived.
     pub async fn archive(&self) -> Result<(), Box<dyn std::error::Error>> {
         use conjure_http::client::AsyncService;
-        use conjure_object::ResourceIdentifier;
         use nominal_api::scout::RunServiceAsyncClient;
 
         let service = RunServiceAsyncClient::new(self.client.client.clone());
 
-        // Convert RID string to RunRid
-        let resource_id =
-            ResourceIdentifier::new(&self.rid).map_err(|e| format!("Invalid RID: {:?}", e))?;
-        let run_rid: nominal_api::scout::run::api::RunRid = resource_id.into();
+        let rid = parse_rid(&self.rid)?;
 
         service
-            .archive_run(&self.client.token, &run_rid, None)
+            .archive_run(&self.client.token, &rid, None)
             .await
             .map_err(|e| format!("Failed to archive run: {:?}", e))?;
 
@@ -403,44 +357,30 @@ impl Run {
     }
 
     /// Internal method to construct a Run from the Conjure API type.
+    ///
+    /// Panics if any timestamp conversion fails, which indicates corrupted API data.
     pub(crate) fn from_conjure(
         client: &NominalClient,
         run: nominal_api::scout::run::api::Run,
     ) -> Self {
-        // Convert created_at from DateTime to nanoseconds
-        let created_at_nanos = run.created_at().timestamp_nanos_opt().unwrap_or(0);
+        let start = api_timestamp_to_utc(run.start_time())
+            .expect("API returned invalid start_time timestamp");
+        let end = run
+            .end_time()
+            .map(|et| api_timestamp_to_utc(et).expect("API returned invalid end_time timestamp"));
 
-        // Convert start time (seconds + offset nanos to total nanos)
-        let start_seconds = *run.start_time().seconds_since_epoch() * 1_000_000_000;
-        let start_nanos = run
-            .start_time()
-            .offset_nanoseconds()
-            .map(|n| *n)
-            .unwrap_or(0);
-        let start = start_seconds + start_nanos;
-
-        // Convert end time if present
-        let end = run.end_time().map(|et| {
-            let end_seconds = *et.seconds_since_epoch() * 1_000_000_000;
-            let end_nanos = et.offset_nanoseconds().map(|n| *n).unwrap_or(0);
-            end_seconds + end_nanos
-        });
-
-        // Convert properties from BTreeMap to HashMap
         let properties: HashMap<String, String> = run
             .properties()
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
 
-        // Convert labels from Vec to Vec
         let labels: Vec<String> = run.labels().iter().map(|l| l.to_string()).collect();
 
-        // Convert assets from Vec to Vec
-        let assets: Vec<String> = run.assets().iter().map(|a| a.to_string()).collect();
+        let assets: Vec<String> = run.assets().iter().map(rid_to_string).collect();
 
         Self {
-            rid: run.rid().to_string(),
+            rid: rid_to_string(run.rid()),
             name: run.title().to_string(),
             description: run.description().to_string(),
             properties,
@@ -449,7 +389,7 @@ impl Run {
             end,
             run_number: *run.run_number(),
             assets,
-            created_at: created_at_nanos,
+            created_at: run.created_at().to_utc(),
             client: client.clone(),
         }
     }
