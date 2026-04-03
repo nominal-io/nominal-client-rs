@@ -119,12 +119,12 @@ impl Asset {
     /// ```
     pub async fn update(&mut self, update: AssetUpdate) -> Result<()> {
         let request = update.into_request();
-        let service = AssetServiceAsyncClient::new(self.client.client.clone());
+        let service = AssetServiceAsyncClient::new(self.client.service_client());
 
         let rid = parse_rid(&self.rid)?;
 
         let response = service
-            .update_asset(&self.client.token, &rid, &request)
+            .update_asset(self.client.bearer_token(), &rid, &request)
             .await
             .map_err(Error::from)?;
 
@@ -143,12 +143,12 @@ impl Asset {
     ///
     /// Archived assets are not deleted, but are hidden from the UI.
     pub async fn archive(&self) -> Result<()> {
-        let service = AssetServiceAsyncClient::new(self.client.client.clone());
+        let service = AssetServiceAsyncClient::new(self.client.service_client());
 
         let rid = parse_rid(&self.rid)?;
 
         service
-            .archive(&self.client.token, &rid, None)
+            .archive(self.client.bearer_token(), &rid, None)
             .await
             .map_err(Error::from)?;
 
@@ -157,12 +157,12 @@ impl Asset {
 
     /// Unarchive this asset, allowing it to be viewed in the UI.
     pub async fn unarchive(&self) -> Result<()> {
-        let service = AssetServiceAsyncClient::new(self.client.client.clone());
+        let service = AssetServiceAsyncClient::new(self.client.service_client());
 
         let rid = parse_rid(&self.rid)?;
 
         service
-            .unarchive(&self.client.token, &rid, None)
+            .unarchive(self.client.bearer_token(), &rid, None)
             .await
             .map_err(Error::from)?;
 

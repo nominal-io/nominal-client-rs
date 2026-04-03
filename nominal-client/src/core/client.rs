@@ -13,9 +13,9 @@ use nominal_api::scout::assets::AssetServiceAsyncClient;
 
 #[derive(Clone)]
 pub struct NominalClient {
-    pub client: Client,
-    pub token: BearerToken,
-    pub workspace_rid: Option<String>,
+    client: Client,
+    token: BearerToken,
+    workspace_rid: Option<String>,
     base_url: String,
 }
 
@@ -42,6 +42,18 @@ impl NominalClient {
 
     pub fn base_url(&self) -> &str {
         &self.base_url
+    }
+
+    pub fn workspace_rid(&self) -> Option<&str> {
+        self.workspace_rid.as_deref()
+    }
+
+    pub(crate) fn service_client(&self) -> Client {
+        self.client.clone()
+    }
+
+    pub(crate) fn bearer_token(&self) -> &BearerToken {
+        &self.token
     }
 
     /// Get an asset by RID

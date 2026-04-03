@@ -164,12 +164,12 @@ impl Run {
     /// ```
     pub async fn update(&mut self, update: RunUpdate) -> Result<()> {
         let request = update.into_request()?;
-        let service = RunServiceAsyncClient::new(self.client.client.clone());
+        let service = RunServiceAsyncClient::new(self.client.service_client());
 
         let rid = parse_rid(&self.rid)?;
 
         let response = service
-            .update_run(&self.client.token, &rid, &request)
+            .update_run(self.client.bearer_token(), &rid, &request)
             .await
             .map_err(Error::from)?;
 
@@ -201,7 +201,7 @@ impl Run {
     /// # Arguments
     /// * `datasets` - Mapping of logical names to dataset RIDs to add to the run
     pub async fn add_datasets(&self, datasets: HashMap<String, String>) -> Result<()> {
-        let service = RunServiceAsyncClient::new(self.client.client.clone());
+        let service = RunServiceAsyncClient::new(self.client.service_client());
 
         let data_sources = datasets
             .into_iter()
@@ -222,7 +222,7 @@ impl Run {
         let rid = parse_rid(&self.rid)?;
 
         service
-            .add_data_sources_to_run(&self.client.token, &rid, &data_sources)
+            .add_data_sources_to_run(self.client.bearer_token(), &rid, &data_sources)
             .await
             .map_err(Error::from)?;
 
@@ -235,7 +235,7 @@ impl Run {
     /// * `ref_name` - Logical name for the video within the run
     /// * `video_rid` - Video RID to add to the run
     pub async fn add_video(&self, ref_name: &str, video_rid: &str) -> Result<()> {
-        let service = RunServiceAsyncClient::new(self.client.client.clone());
+        let service = RunServiceAsyncClient::new(self.client.service_client());
 
         let rid = parse_rid(video_rid)?;
         let data_sources = BTreeMap::from([(
@@ -248,7 +248,7 @@ impl Run {
         let rid = parse_rid(&self.rid)?;
 
         service
-            .add_data_sources_to_run(&self.client.token, &rid, &data_sources)
+            .add_data_sources_to_run(self.client.bearer_token(), &rid, &data_sources)
             .await
             .map_err(Error::from)?;
 
@@ -260,7 +260,7 @@ impl Run {
     /// # Arguments
     /// * `attachment_rids` - List of attachment RIDs to add
     pub async fn add_attachments(&self, attachment_rids: Vec<String>) -> Result<()> {
-        let service = RunServiceAsyncClient::new(self.client.client.clone());
+        let service = RunServiceAsyncClient::new(self.client.service_client());
 
         let attachments_to_add = attachment_rids
             .into_iter()
@@ -275,7 +275,7 @@ impl Run {
         let rid = parse_rid(&self.rid)?;
 
         service
-            .update_run_attachment(&self.client.token, &rid, &request)
+            .update_run_attachment(self.client.bearer_token(), &rid, &request)
             .await
             .map_err(Error::from)?;
 
@@ -288,7 +288,7 @@ impl Run {
     /// # Arguments
     /// * `attachment_rids` - List of attachment RIDs to remove
     pub async fn remove_attachments(&self, attachment_rids: Vec<String>) -> Result<()> {
-        let service = RunServiceAsyncClient::new(self.client.client.clone());
+        let service = RunServiceAsyncClient::new(self.client.service_client());
 
         let attachments_to_remove = attachment_rids
             .into_iter()
@@ -303,7 +303,7 @@ impl Run {
         let rid = parse_rid(&self.rid)?;
 
         service
-            .update_run_attachment(&self.client.token, &rid, &request)
+            .update_run_attachment(self.client.bearer_token(), &rid, &request)
             .await
             .map_err(Error::from)?;
 
@@ -315,12 +315,12 @@ impl Run {
     /// Archived runs are not deleted, but are hidden from the UI.
     /// NOTE: currently, it is not possible (yet) to unarchive a run once archived.
     pub async fn archive(&self) -> Result<()> {
-        let service = RunServiceAsyncClient::new(self.client.client.clone());
+        let service = RunServiceAsyncClient::new(self.client.service_client());
 
         let rid = parse_rid(&self.rid)?;
 
         service
-            .archive_run(&self.client.token, &rid, None)
+            .archive_run(self.client.bearer_token(), &rid, None)
             .await
             .map_err(Error::from)?;
 
