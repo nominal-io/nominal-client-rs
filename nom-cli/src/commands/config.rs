@@ -39,14 +39,14 @@ pub fn handle(cmd: ConfigCommands, config_path: Option<PathBuf>) {
                 let mut config =
                     Config::from_file(config_path.clone()).expect("Failed to load config");
                 config.add_profile(name.clone(), Profile::new(url, token, workspace_rid));
-                // Save config (not implemented yet)
+                // TODO: Save config (not implemented yet)
                 println!("Profile '{}' added.", name);
             }
             ProfileCommands::Remove { name } => {
                 let mut config =
                     Config::from_file(config_path.clone()).expect("Failed to load config");
                 config.remove_profile(&name);
-                // Save config (not implemented yet)
+                // TODO: Save config (not implemented yet)
                 println!("Profile '{}' removed.", name);
             }
         },
