@@ -1,4 +1,8 @@
-# `nom` cli
+## `nominal-client-rs` library
+
+The canonical Nominal Rust SDK.
+
+## `nom` cli
 
 A CLI to take any action on Nominal's APIs.
 
