@@ -40,7 +40,9 @@ pub fn handle(cmd: ConfigCommands, config_path: Option<PathBuf>) -> Result<(), c
                     super::clap_error(ErrorKind::Io, format!("Failed to load config: {e}"))
                 })?;
                 config.add_profile(name.clone(), Profile::new(url, token, workspace_rid));
-                // TODO: Save config (not implemented yet)
+                config.to_file(config_path).map_err(|e| {
+                    super::clap_error(ErrorKind::Io, format!("Failed to save config: {e}"))
+                })?;
                 println!("Profile '{}' added.", name);
             }
             ProfileCommands::Remove { name } => {
@@ -53,8 +55,10 @@ pub fn handle(cmd: ConfigCommands, config_path: Option<PathBuf>) -> Result<(), c
                         format!("Profile '{}' not found", name),
                     )
                 })?;
+                config.to_file(config_path).map_err(|e| {
+                    super::clap_error(ErrorKind::Io, format!("Failed to save config: {e}"))
+                })?;
                 println!("Profile '{}' removed.", name);
-                // TODO: Save config (not implemented yet)
             }
         },
     }

@@ -1,16 +1,16 @@
 use crate::Result;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
     profiles: HashMap<String, Profile>,
     version: u32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Profile {
     base_url: String,
     token: String,
@@ -71,5 +71,21 @@ impl Config {
 
     pub fn remove_profile(&mut self, name: &str) -> Option<Profile> {
         self.profiles.remove(name)
+    }
+
+    pub fn to_file(&self, path: Option<PathBuf>) -> Result<()> {
+        let path = match path {
+            Some(path) => path,
+            None => {
+                let home = dirs::home_dir().ok_or(crate::Error::HomeDirNotFound)?;
+                home.join(".config").join("nominal").join("config.yml")
+            }
+        };
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let contents = serde_yaml::to_string(self)?;
+        fs::write(path, contents)?;
+        Ok(())
     }
 }
