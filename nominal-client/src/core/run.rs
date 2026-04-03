@@ -5,6 +5,7 @@ use crate::core::{
     rid::{parse_rid, rid_to_string},
     utils::api_base_url_to_app_base_url,
 };
+use crate::{Error, Result};
 
 use super::NominalClient;
 use std::collections::HashMap;
@@ -50,9 +51,7 @@ impl RunUpdate {
         self
     }
 
-    pub(crate) fn into_request(
-        self,
-    ) -> Result<nominal_api::scout::run::api::UpdateRunRequest, Box<dyn std::error::Error>> {
+    pub(crate) fn into_request(self) -> Result<nominal_api::scout::run::api::UpdateRunRequest> {
         use nominal_api::scout::run::api::UpdateRunRequest;
         use std::collections::{BTreeMap, BTreeSet};
 
@@ -85,15 +84,11 @@ impl RunUpdate {
             request_builder = request_builder.labels(labels_set);
         }
         if let Some(s) = start {
-            let s_ts = NominalDateTime::try_from(s)
-                .map_err(|e| format!("Invalid start timestamp: {e}"))?
-                .into();
+            let s_ts = NominalDateTime::try_from(s)?.into();
             request_builder = request_builder.start_time(Some(s_ts));
         }
         if let Some(e) = end {
-            let e_ts = NominalDateTime::try_from(e)
-                .map_err(|e| format!("Invalid end timestamp: {e}"))?
-                .into();
+            let e_ts = NominalDateTime::try_from(e)?.into();
             request_builder = request_builder.end_time(Some(e_ts));
         }
 
@@ -155,7 +150,7 @@ impl Run {
     /// # Example
     /// ```no_run
     /// # use nominal_client::RunUpdate;
-    /// # async fn example(mut run: nominal_client::Run) -> Result<(), Box<dyn std::error::Error>> {
+    /// # async fn example(mut run: nominal_client::Run) -> nominal_client::Result<()> {
     /// run.update(
     ///     RunUpdate::default()
     ///         .name("New Name")
@@ -165,7 +160,7 @@ impl Run {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn update(&mut self, update: RunUpdate) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn update(&mut self, update: RunUpdate) -> Result<()> {
         use conjure_http::client::AsyncService;
         use nominal_api::scout::RunServiceAsyncClient;
         let request = update.into_request()?;
@@ -176,7 +171,7 @@ impl Run {
         let response = service
             .update_run(&self.client.token, &rid, &request)
             .await
-            .map_err(|e| format!("Failed to update run: {:?}", e))?;
+            .map_err(Error::from)?;
 
         // Update self with the response
         *self = Self::from_conjure(&self.client, response);
@@ -193,11 +188,7 @@ impl Run {
     /// # Arguments
     /// * `ref_name` - Logical name for the data scope within the run
     /// * `dataset_rid` - Dataset RID to add to the run
-    pub async fn add_dataset(
-        &self,
-        ref_name: &str,
-        dataset_rid: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn add_dataset(&self, ref_name: &str, dataset_rid: &str) -> Result<()> {
         self.add_datasets(HashMap::from([(
             ref_name.to_string(),
             dataset_rid.to_string(),
@@ -209,10 +200,7 @@ impl Run {
     ///
     /// # Arguments
     /// * `datasets` - Mapping of logical names to dataset RIDs to add to the run
-    pub async fn add_datasets(
-        &self,
-        datasets: HashMap<String, String>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn add_datasets(&self, datasets: HashMap<String, String>) -> Result<()> {
         use conjure_http::client::AsyncService;
         use nominal_api::scout::RunServiceAsyncClient;
         use nominal_api::scout::run::api::{CreateRunDataSource, DataSource};
@@ -239,7 +227,7 @@ impl Run {
         service
             .add_data_sources_to_run(&self.client.token, &rid, &data_sources)
             .await
-            .map_err(|e| format!("Failed to add datasets to run: {:?}", e))?;
+            .map_err(Error::from)?;
 
         Ok(())
     }
@@ -249,11 +237,7 @@ impl Run {
     /// # Arguments
     /// * `ref_name` - Logical name for the video within the run
     /// * `video_rid` - Video RID to add to the run
-    pub async fn add_video(
-        &self,
-        ref_name: &str,
-        video_rid: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn add_video(&self, ref_name: &str, video_rid: &str) -> Result<()> {
         use conjure_http::client::AsyncService;
         use nominal_api::scout::RunServiceAsyncClient;
         use nominal_api::scout::run::api::{CreateRunDataSource, DataSource};
@@ -274,7 +258,7 @@ impl Run {
         service
             .add_data_sources_to_run(&self.client.token, &rid, &data_sources)
             .await
-            .map_err(|e| format!("Failed to add video to run: {:?}", e))?;
+            .map_err(Error::from)?;
 
         Ok(())
     }
@@ -283,10 +267,7 @@ impl Run {
     ///
     /// # Arguments
     /// * `attachment_rids` - List of attachment RIDs to add
-    pub async fn add_attachments(
-        &self,
-        attachment_rids: Vec<String>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn add_attachments(&self, attachment_rids: Vec<String>) -> Result<()> {
         use conjure_http::client::AsyncService;
         use nominal_api::scout::RunServiceAsyncClient;
         use nominal_api::scout::run::api::UpdateAttachmentsRequest;
@@ -308,7 +289,7 @@ impl Run {
         service
             .update_run_attachment(&self.client.token, &rid, &request)
             .await
-            .map_err(|e| format!("Failed to add attachments to run: {:?}", e))?;
+            .map_err(Error::from)?;
 
         Ok(())
     }
@@ -318,10 +299,7 @@ impl Run {
     ///
     /// # Arguments
     /// * `attachment_rids` - List of attachment RIDs to remove
-    pub async fn remove_attachments(
-        &self,
-        attachment_rids: Vec<String>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn remove_attachments(&self, attachment_rids: Vec<String>) -> Result<()> {
         use conjure_http::client::AsyncService;
         use nominal_api::scout::RunServiceAsyncClient;
         use nominal_api::scout::run::api::UpdateAttachmentsRequest;
@@ -343,7 +321,7 @@ impl Run {
         service
             .update_run_attachment(&self.client.token, &rid, &request)
             .await
-            .map_err(|e| format!("Failed to remove attachments from run: {:?}", e))?;
+            .map_err(Error::from)?;
 
         Ok(())
     }
@@ -352,7 +330,7 @@ impl Run {
     ///
     /// Archived runs are not deleted, but are hidden from the UI.
     /// NOTE: currently, it is not possible (yet) to unarchive a run once archived.
-    pub async fn archive(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn archive(&self) -> Result<()> {
         use conjure_http::client::AsyncService;
         use nominal_api::scout::RunServiceAsyncClient;
 
@@ -363,7 +341,7 @@ impl Run {
         service
             .archive_run(&self.client.token, &rid, None)
             .await
-            .map_err(|e| format!("Failed to archive run: {:?}", e))?;
+            .map_err(Error::from)?;
 
         Ok(())
     }

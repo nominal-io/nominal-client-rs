@@ -1,3 +1,4 @@
+use crate::Result;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
@@ -17,7 +18,7 @@ pub struct Profile {
 }
 
 impl Config {
-    pub fn from_file(path: Option<PathBuf>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_file(path: Option<PathBuf>) -> Result<Self> {
         let path = path.unwrap_or_else(|| {
             let home = std::env::var("HOME").expect("Failed to get HOME environment variable");
             PathBuf::from(format!("{}/.config/nominal/config.yml", home))

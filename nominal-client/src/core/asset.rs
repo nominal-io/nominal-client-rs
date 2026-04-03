@@ -2,6 +2,7 @@ use crate::core::{
     rid::{parse_rid, rid_to_string},
     utils::api_base_url_to_app_base_url,
 };
+use crate::{Error, Result};
 
 use super::NominalClient;
 use chrono::{DateTime, Utc};
@@ -107,7 +108,7 @@ impl Asset {
     /// # Example
     /// ```no_run
     /// # use nominal_client::AssetUpdate;
-    /// # async fn example(mut asset: nominal_client::Asset) -> Result<(), Box<dyn std::error::Error>> {
+    /// # async fn example(mut asset: nominal_client::Asset) -> nominal_client::Result<()> {
     /// asset.update(
     ///     AssetUpdate::default()
     ///         .name("New Name")
@@ -116,7 +117,7 @@ impl Asset {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn update(&mut self, update: AssetUpdate) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn update(&mut self, update: AssetUpdate) -> Result<()> {
         use conjure_http::client::AsyncService;
         use nominal_api::scout::assets::AssetServiceAsyncClient;
 
@@ -128,7 +129,7 @@ impl Asset {
         let response = service
             .update_asset(&self.client.token, &rid, &request)
             .await
-            .map_err(|e| format!("Failed to update asset: {:?}", e))?;
+            .map_err(Error::from)?;
 
         *self = Self::from_conjure(&self.client, response);
 
@@ -144,7 +145,7 @@ impl Asset {
     /// Archive this asset.
     ///
     /// Archived assets are not deleted, but are hidden from the UI.
-    pub async fn archive(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn archive(&self) -> Result<()> {
         use conjure_http::client::AsyncService;
         use nominal_api::scout::assets::AssetServiceAsyncClient;
 
@@ -155,13 +156,13 @@ impl Asset {
         service
             .archive(&self.client.token, &rid, None)
             .await
-            .map_err(|e| format!("Failed to archive asset: {:?}", e))?;
+            .map_err(Error::from)?;
 
         Ok(())
     }
 
     /// Unarchive this asset, allowing it to be viewed in the UI.
-    pub async fn unarchive(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn unarchive(&self) -> Result<()> {
         use conjure_http::client::AsyncService;
         use nominal_api::scout::assets::AssetServiceAsyncClient;
 
@@ -172,7 +173,7 @@ impl Asset {
         service
             .unarchive(&self.client.token, &rid, None)
             .await
-            .map_err(|e| format!("Failed to unarchive asset: {:?}", e))?;
+            .map_err(Error::from)?;
 
         Ok(())
     }

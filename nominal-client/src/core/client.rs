@@ -1,6 +1,7 @@
 use super::{Asset, Run};
 use crate::config::Profile;
 use crate::core::rid::parse_rid;
+use crate::{Error, Result};
 use conjure_http::client::AsyncService;
 use conjure_object::BearerToken;
 use conjure_runtime::{Agent, Client, UserAgent};
@@ -19,13 +20,10 @@ pub struct NominalClient {
 }
 
 impl NominalClient {
-    pub fn new(
-        base_url: String,
-        token: String,
-        workspace_rid: Option<String>,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        let bearer_token = BearerToken::new(&token).unwrap();
-        let client = create_client(&base_url).unwrap();
+    pub fn new(base_url: String, token: String, workspace_rid: Option<String>) -> Result<Self> {
+        let bearer_token =
+            BearerToken::new(&token).map_err(|e| Error::InvalidBearerToken(e.to_string()))?;
+        let client = create_client(&base_url)?;
         Ok(NominalClient {
             client,
             token: bearer_token,
@@ -34,7 +32,7 @@ impl NominalClient {
         })
     }
 
-    pub fn from_profile(profile: &Profile) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_profile(profile: &Profile) -> Result<Self> {
         NominalClient::new(
             profile.base_url.clone(),
             profile.token.clone(),
@@ -47,26 +45,26 @@ impl NominalClient {
     }
 
     /// Get an asset by RID
-    pub async fn get_asset(&self, rid: &str) -> Result<Asset, Box<dyn std::error::Error>> {
+    pub async fn get_asset(&self, rid: &str) -> Result<Asset> {
         let service = AssetServiceAsyncClient::new(self.client.clone());
         let rid = parse_rid(rid)?;
         let rid_set = std::collections::BTreeSet::from([rid]);
         let response = service
             .get_assets(&self.token, &rid_set)
             .await
-            .map_err(|e| format!("Failed to get assets: {:?}", e))?;
+            .map_err(Error::from)?;
 
         let asset = response
             .into_iter()
             .next()
-            .ok_or("No asset found with that RID")?
+            .ok_or_else(|| Error::NotFound("asset with given RID".to_string()))?
             .1;
 
         Ok(Asset::from_conjure(self, asset))
     }
 
     /// List/search assets
-    pub async fn list_assets(&self) -> Result<Vec<Asset>, Box<dyn std::error::Error>> {
+    pub async fn list_assets(&self) -> Result<Vec<Asset>> {
         let service = AssetServiceAsyncClient::new(self.client.clone());
         let request = SearchAssetsRequest::new(
             AssetSortOptions::builder()
@@ -78,7 +76,7 @@ impl NominalClient {
         let response = service
             .search_assets(&self.token, &request)
             .await
-            .map_err(|e| format!("Failed to search assets: {:?}", e))?;
+            .map_err(Error::from)?;
 
         Ok(response
             .results()
@@ -88,20 +86,20 @@ impl NominalClient {
     }
 
     /// Get a run by RID
-    pub async fn get_run(&self, rid: &str) -> Result<Run, Box<dyn std::error::Error>> {
+    pub async fn get_run(&self, rid: &str) -> Result<Run> {
         let service = RunServiceAsyncClient::new(self.client.clone());
         let run_rid = parse_rid(rid)?;
 
         let response = service
             .get_run(&self.token, &run_rid)
             .await
-            .map_err(|e| format!("Failed to get run: {:?}", e))?;
+            .map_err(Error::from)?;
 
         Ok(Run::from_conjure(self, response))
     }
 
     /// List/search runs
-    pub async fn list_runs(&self) -> Result<Vec<Run>, Box<dyn std::error::Error>> {
+    pub async fn list_runs(&self) -> Result<Vec<Run>> {
         use nominal_api::scout::run::api::{
             SearchQuery, SearchRunsRequest, SortField, SortKey, SortOptions,
         };
@@ -119,7 +117,7 @@ impl NominalClient {
         let response = service
             .search_runs(&self.token, &request)
             .await
-            .map_err(|e| format!("Failed to search runs: {:?}", e))?;
+            .map_err(Error::from)?;
 
         Ok(response
             .results()
@@ -129,10 +127,15 @@ impl NominalClient {
     }
 }
 
-fn create_client(url: &str) -> Result<Client, conjure_error::Error> {
+fn create_client(url: &str) -> Result<Client> {
+    let uri = url
+        .try_into()
+        .map_err(|e| Error::InvalidServiceUrl(format!("{e:?}")))?;
+
     Client::builder()
         .service("nom-cli-rs")
         .user_agent(UserAgent::new(Agent::new("nom-cli-rs", "0.0")))
-        .uri(url.try_into().unwrap())
+        .uri(uri)
         .build()
+        .map_err(Error::from)
 }

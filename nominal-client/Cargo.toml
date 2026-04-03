@@ -13,3 +13,4 @@ nominal-api = "*"
 regex = "1.11"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_yaml = "0.9.34"
+thiserror = "2"
