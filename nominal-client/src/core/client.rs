@@ -31,9 +31,7 @@ impl std::fmt::Debug for NominalClient {
 
 impl NominalClient {
     pub fn new(base_url: String, token: String, workspace_rid: Option<String>) -> Result<Self> {
-        let bearer_token = BearerToken::new(&token).map_err(|e| Error::InvalidBearerToken {
-            reason: e.to_string(),
-        })?;
+        let bearer_token = create_bearer_token(&token)?;
         let client = create_client(&base_url)?;
         Ok(NominalClient {
             client,
@@ -44,7 +42,7 @@ impl NominalClient {
     }
 
     pub fn from_profile(profile: &Profile) -> Result<Self> {
-        NominalClient::new(
+        Self::new(
             profile.base_url().to_string(),
             profile.token().to_string(),
             profile.workspace_rid().map(ToString::to_string),
@@ -160,6 +158,12 @@ impl NominalClient {
             .map(|run| Run::from_conjure(self, run.clone()))
             .collect::<Vec<_>>())
     }
+}
+
+fn create_bearer_token(token: &str) -> Result<BearerToken> {
+    BearerToken::new(token).map_err(|e| Error::InvalidBearerToken {
+        reason: e.to_string(),
+    })
 }
 
 fn create_client(url: &str) -> Result<Client> {

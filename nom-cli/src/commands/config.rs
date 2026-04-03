@@ -1,4 +1,4 @@
-use clap::Subcommand;
+use clap::{Subcommand, error::ErrorKind};
 use nominal_client::{Config, Profile};
 use std::path::PathBuf;
 
@@ -27,7 +27,7 @@ pub enum ProfileCommands {
     Remove { name: String },
 }
 
-pub fn handle(cmd: ConfigCommands, config_path: Option<PathBuf>) {
+pub fn handle(cmd: ConfigCommands, config_path: Option<PathBuf>) -> Result<(), clap::Error> {
     match cmd {
         ConfigCommands::Profile { profile_command } => match profile_command {
             ProfileCommands::Add {
@@ -36,19 +36,28 @@ pub fn handle(cmd: ConfigCommands, config_path: Option<PathBuf>) {
                 token,
                 workspace_rid,
             } => {
-                let mut config =
-                    Config::from_file(config_path.clone()).expect("Failed to load config");
+                let mut config = Config::from_file(config_path.clone()).map_err(|e| {
+                    super::clap_error(ErrorKind::Io, format!("Failed to load config: {e}"))
+                })?;
                 config.add_profile(name.clone(), Profile::new(url, token, workspace_rid));
                 // TODO: Save config (not implemented yet)
                 println!("Profile '{}' added.", name);
             }
             ProfileCommands::Remove { name } => {
-                let mut config =
-                    Config::from_file(config_path.clone()).expect("Failed to load config");
-                config.remove_profile(&name);
-                // TODO: Save config (not implemented yet)
+                let mut config = Config::from_file(config_path.clone()).map_err(|e| {
+                    super::clap_error(ErrorKind::Io, format!("Failed to load config: {e}"))
+                })?;
+                config.remove_profile(&name).ok_or_else(|| {
+                    super::clap_error(
+                        ErrorKind::InvalidValue,
+                        format!("Profile '{}' not found", name),
+                    )
+                })?;
                 println!("Profile '{}' removed.", name);
+                // TODO: Save config (not implemented yet)
             }
         },
     }
+
+    Ok(())
 }

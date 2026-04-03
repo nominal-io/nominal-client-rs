@@ -7,13 +7,13 @@ pub enum UserCommands {
     GetProfile,
 }
 
-pub async fn handle(cmd: UserCommands, client: NominalClient) {
+pub async fn handle(cmd: UserCommands, client: NominalClient) -> Result<(), clap::Error> {
     match cmd {
         UserCommands::GetProfile => {
             let user = client
                 .get_my_profile()
                 .await
-                .expect("Failed to get profile");
+                .map_err(|e| super::client_error("Failed to get profile", e))?;
 
             println!("RID: {}", user.rid());
             println!("Org RID: {}", user.org_rid());
@@ -21,4 +21,6 @@ pub async fn handle(cmd: UserCommands, client: NominalClient) {
             println!("Display Name: {}", user.display_name());
         }
     }
+
+    Ok(())
 }

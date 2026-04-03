@@ -12,17 +12,23 @@ pub enum AssetCommands {
     },
 }
 
-pub async fn handle(cmd: AssetCommands, client: NominalClient) {
+pub async fn handle(cmd: AssetCommands, client: NominalClient) -> Result<(), clap::Error> {
     match cmd {
         AssetCommands::List => {
-            let assets = client.list_assets().await.expect("Failed to list assets");
+            let assets = client
+                .list_assets()
+                .await
+                .map_err(|e| super::client_error("Failed to list assets", e))?;
 
             for asset in assets {
                 println!("{}", asset.rid());
             }
         }
         AssetCommands::Get { rid } => {
-            let asset = client.get_asset(&rid).await.expect("Failed to get asset");
+            let asset = client
+                .get_asset(&rid)
+                .await
+                .map_err(|e| super::client_error(format!("Failed to get asset '{rid}'"), e))?;
 
             println!("RID: {}", asset.rid());
             println!("Name: {}", asset.name());
@@ -42,4 +48,6 @@ pub async fn handle(cmd: AssetCommands, client: NominalClient) {
             println!("URL: {}", asset.nominal_url());
         }
     }
+
+    Ok(())
 }
