@@ -34,9 +34,9 @@ impl NominalClient {
 
     pub fn from_profile(profile: &Profile) -> Result<Self> {
         NominalClient::new(
-            profile.base_url.clone(),
-            profile.token.clone(),
-            profile.workspace_rid.clone(),
+            profile.base_url().to_string(),
+            profile.token().to_string(),
+            profile.workspace_rid().map(ToString::to_string),
         )
     }
 

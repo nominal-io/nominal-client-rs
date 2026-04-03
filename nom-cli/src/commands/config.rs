@@ -1,5 +1,5 @@
-use nominal_client::{Config, Profile};
 use clap::Subcommand;
+use nominal_client::{Config, Profile};
 use std::path::PathBuf;
 
 #[derive(Subcommand, Clone)]
@@ -38,21 +38,14 @@ pub fn handle(cmd: ConfigCommands, config_path: Option<PathBuf>) {
             } => {
                 let mut config =
                     Config::from_file(config_path.clone()).expect("Failed to load config");
-                config.profiles.insert(
-                    name.clone(),
-                    Profile {
-                        base_url: url,
-                        token,
-                        workspace_rid,
-                    },
-                );
+                config.add_profile(name.clone(), Profile::new(url, token, workspace_rid));
                 // Save config (not implemented yet)
                 println!("Profile '{}' added.", name);
             }
             ProfileCommands::Remove { name } => {
                 let mut config =
                     Config::from_file(config_path.clone()).expect("Failed to load config");
-                config.profiles.remove(&name);
+                config.remove_profile(&name);
                 // Save config (not implemented yet)
                 println!("Profile '{}' removed.", name);
             }
