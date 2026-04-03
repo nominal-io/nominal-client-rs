@@ -18,17 +18,17 @@ pub async fn handle(cmd: AssetCommands, client: NominalClient) {
             let assets = client.list_assets().await.expect("Failed to list assets");
 
             for asset in assets {
-                println!("RID: {}", asset.rid);
-                println!("Name: {}", asset.name);
-                if let Some(description) = &asset.description {
+                println!("RID: {}", asset.rid());
+                println!("Name: {}", asset.name());
+                if let Some(description) = asset.description() {
                     println!("Description: {}", description);
                 }
-                if !asset.labels.is_empty() {
-                    println!("Labels: {}", asset.labels.join(", "));
+                if !asset.labels().is_empty() {
+                    println!("Labels: {}", asset.labels().join(", "));
                 }
-                if !asset.properties.is_empty() {
+                if !asset.properties().is_empty() {
                     println!("Properties:");
-                    for (key, value) in &asset.properties {
+                    for (key, value) in asset.properties() {
                         println!("  {}: {}", key, value);
                     }
                 }
@@ -39,21 +39,21 @@ pub async fn handle(cmd: AssetCommands, client: NominalClient) {
         AssetCommands::Get { rid } => {
             let asset = client.get_asset(&rid).await.expect("Failed to get asset");
 
-            println!("RID: {}", asset.rid);
-            println!("Name: {}", asset.name);
-            if let Some(description) = &asset.description {
+            println!("RID: {}", asset.rid());
+            println!("Name: {}", asset.name());
+            if let Some(description) = asset.description() {
                 println!("Description: {}", description);
             }
-            if !asset.labels.is_empty() {
-                println!("Labels: {}", asset.labels.join(", "));
+            if !asset.labels().is_empty() {
+                println!("Labels: {}", asset.labels().join(", "));
             }
-            if !asset.properties.is_empty() {
+            if !asset.properties().is_empty() {
                 println!("Properties:");
-                for (key, value) in &asset.properties {
+                for (key, value) in asset.properties() {
                     println!("  {}: {}", key, value);
                 }
             }
-            println!("Created: {} ns", asset.created_at);
+            println!("Created: {} ns", asset.created_at());
             println!("URL: {}", asset.nominal_url());
         }
     }

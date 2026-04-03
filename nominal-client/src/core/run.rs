@@ -17,15 +17,19 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 #[derive(Default, Clone)]
 pub struct RunUpdate {
-    pub name: Option<String>,
-    pub description: Option<String>,
-    pub properties: Option<HashMap<String, String>>,
-    pub labels: Option<Vec<String>>,
-    pub start: Option<DateTime<Utc>>,
-    pub end: Option<DateTime<Utc>>,
+    name: Option<String>,
+    description: Option<String>,
+    properties: Option<HashMap<String, String>>,
+    labels: Option<Vec<String>>,
+    start: Option<DateTime<Utc>>,
+    end: Option<DateTime<Utc>>,
 }
 
 impl RunUpdate {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     pub fn name(mut self, value: impl Into<String>) -> Self {
         self.name = Some(value.into());
         self
@@ -105,40 +109,80 @@ impl RunUpdate {
 #[derive(Clone)]
 pub struct Run {
     /// The resource identifier (RID) for this run
-    pub rid: String,
+    rid: String,
 
     /// The display name of the run
-    pub name: String,
+    name: String,
 
     /// Description of the run
-    pub description: String,
+    description: String,
 
     /// Key-value properties for custom metadata
-    pub properties: HashMap<String, String>,
+    properties: HashMap<String, String>,
 
     /// Labels for categorizing and filtering runs
-    pub labels: Vec<String>,
+    labels: Vec<String>,
 
     /// Start timestamp
-    pub start: DateTime<Utc>,
+    start: DateTime<Utc>,
 
     /// End timestamp
-    pub end: Option<DateTime<Utc>>,
+    end: Option<DateTime<Utc>>,
 
     /// Run number (display identifier)
-    pub run_number: i64,
+    run_number: i64,
 
     /// Asset RIDs associated with this run
-    pub assets: Vec<String>,
+    assets: Vec<String>,
 
     /// Creation timestamp in nanoseconds since Unix epoch
-    pub created_at: DateTime<Utc>,
+    created_at: DateTime<Utc>,
 
     /// Reference to the client for API calls
     client: NominalClient,
 }
 
 impl Run {
+    pub fn rid(&self) -> &str {
+        &self.rid
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn description(&self) -> &str {
+        &self.description
+    }
+
+    pub fn properties(&self) -> &HashMap<String, String> {
+        &self.properties
+    }
+
+    pub fn labels(&self) -> &[String] {
+        &self.labels
+    }
+
+    pub fn start(&self) -> &DateTime<Utc> {
+        &self.start
+    }
+
+    pub fn end(&self) -> Option<&DateTime<Utc>> {
+        self.end.as_ref()
+    }
+
+    pub fn run_number(&self) -> i64 {
+        self.run_number
+    }
+
+    pub fn assets(&self) -> &[String] {
+        &self.assets
+    }
+
+    pub fn created_at(&self) -> &DateTime<Utc> {
+        &self.created_at
+    }
+
     /// Get the URL to view this run in the Nominal web app.
     pub fn nominal_url(&self) -> String {
         let app_base_url = api_base_url_to_app_base_url(self.client.base_url());

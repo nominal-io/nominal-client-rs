@@ -13,13 +13,17 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 #[derive(Default, Clone)]
 pub struct AssetUpdate {
-    pub name: Option<String>,
-    pub description: Option<String>,
-    pub properties: Option<HashMap<String, String>>,
-    pub labels: Option<Vec<String>>,
+    name: Option<String>,
+    description: Option<String>,
+    properties: Option<HashMap<String, String>>,
+    labels: Option<Vec<String>>,
 }
 
 impl AssetUpdate {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     pub fn name(mut self, value: impl Into<String>) -> Self {
         self.name = Some(value.into());
         self
@@ -79,28 +83,52 @@ impl AssetUpdate {
 #[derive(Clone)]
 pub struct Asset {
     /// The resource identifier (RID) for this asset
-    pub rid: String,
+    rid: String,
 
     /// The display name of the asset
-    pub name: String,
+    name: String,
 
     /// Optional description of the asset
-    pub description: Option<String>,
+    description: Option<String>,
 
     /// Key-value properties for custom metadata
-    pub properties: HashMap<String, String>,
+    properties: HashMap<String, String>,
 
     /// Labels for categorizing and filtering assets
-    pub labels: Vec<String>,
+    labels: Vec<String>,
 
     /// Creation timestamp
-    pub created_at: DateTime<Utc>,
+    created_at: DateTime<Utc>,
 
     /// Reference to the client for API calls
     client: NominalClient,
 }
 
 impl Asset {
+    pub fn rid(&self) -> &str {
+        &self.rid
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+
+    pub fn properties(&self) -> &HashMap<String, String> {
+        &self.properties
+    }
+
+    pub fn labels(&self) -> &[String] {
+        &self.labels
+    }
+
+    pub fn created_at(&self) -> &DateTime<Utc> {
+        &self.created_at
+    }
+
     /// Update asset metadata.
     ///
     /// Only the metadata passed in will be replaced, the rest will remain untouched.
