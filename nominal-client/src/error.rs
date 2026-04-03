@@ -13,7 +13,7 @@ pub enum Error {
     Yaml(#[from] serde_yaml::Error),
 
     #[error("Conjure error: {0}")]
-    Conjure(#[from] conjure_error::Error),
+    Conjure(String),
 
     #[error("RID conversion error: {0}")]
     Rid(String),
@@ -40,5 +40,11 @@ impl From<RidConversionError> for Error {
 impl From<NominalDateTimeError> for Error {
     fn from(value: NominalDateTimeError) -> Self {
         Self::Timestamp(value.to_string())
+    }
+}
+
+impl From<conjure_error::Error> for Error {
+    fn from(value: conjure_error::Error) -> Self {
+        Self::Conjure(format!("{value:?}"))
     }
 }

@@ -1,7 +1,7 @@
 pub mod asset;
 pub mod client;
-mod datetime;
-mod rid;
+pub(crate) mod datetime;
+pub(crate) mod rid;
 pub mod run;
 mod utils;
 

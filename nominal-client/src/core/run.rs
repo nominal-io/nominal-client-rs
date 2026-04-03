@@ -211,16 +211,18 @@ impl Run {
         let data_sources = datasets
             .into_iter()
             .map(|(ref_name, dataset_rid)| {
-                parse_rid(&dataset_rid).map(|rid| {
-                    (
-                        ref_name.into(),
-                        CreateRunDataSource::builder()
-                            .data_source(DataSource::Dataset(rid))
-                            .build(),
-                    )
-                })
+                parse_rid(&dataset_rid)
+                    .map(|rid| {
+                        (
+                            ref_name.into(),
+                            CreateRunDataSource::builder()
+                                .data_source(DataSource::Dataset(rid))
+                                .build(),
+                        )
+                    })
+                    .map_err(Error::from)
             })
-            .collect::<Result<BTreeMap<_, _>, _>>()?;
+            .collect::<std::result::Result<BTreeMap<_, _>, _>>()?;
 
         let rid = parse_rid(&self.rid)?;
 
@@ -276,8 +278,8 @@ impl Run {
 
         let attachments_to_add = attachment_rids
             .into_iter()
-            .map(|rid| parse_rid(&rid))
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|rid| parse_rid(&rid).map_err(Error::from))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
 
         let request = UpdateAttachmentsRequest::builder()
             .attachments_to_add(attachments_to_add)
@@ -308,8 +310,8 @@ impl Run {
 
         let attachments_to_remove = attachment_rids
             .into_iter()
-            .map(|rid| parse_rid(&rid))
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|rid| parse_rid(&rid).map_err(Error::from))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
 
         let request = UpdateAttachmentsRequest::builder()
             .attachments_to_add(vec![])
