@@ -3,10 +3,13 @@ use crate::core::{
     utils::api_base_url_to_app_base_url,
 };
 use crate::{Error, Result};
+use conjure_http::client::AsyncService;
+use nominal_api::scout::asset::api::UpdateAssetRequest;
+use nominal_api::scout::assets::AssetServiceAsyncClient;
 
 use super::NominalClient;
 use chrono::{DateTime, Utc};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 #[derive(Default, Clone)]
 pub struct AssetUpdate {
@@ -38,9 +41,6 @@ impl AssetUpdate {
     }
 
     pub(crate) fn into_request(self) -> nominal_api::scout::asset::api::UpdateAssetRequest {
-        use nominal_api::scout::asset::api::UpdateAssetRequest;
-        use std::collections::{BTreeMap, BTreeSet};
-
         let AssetUpdate {
             name,
             description,
@@ -118,9 +118,6 @@ impl Asset {
     /// # }
     /// ```
     pub async fn update(&mut self, update: AssetUpdate) -> Result<()> {
-        use conjure_http::client::AsyncService;
-        use nominal_api::scout::assets::AssetServiceAsyncClient;
-
         let request = update.into_request();
         let service = AssetServiceAsyncClient::new(self.client.client.clone());
 
@@ -146,9 +143,6 @@ impl Asset {
     ///
     /// Archived assets are not deleted, but are hidden from the UI.
     pub async fn archive(&self) -> Result<()> {
-        use conjure_http::client::AsyncService;
-        use nominal_api::scout::assets::AssetServiceAsyncClient;
-
         let service = AssetServiceAsyncClient::new(self.client.client.clone());
 
         let rid = parse_rid(&self.rid)?;
@@ -163,9 +157,6 @@ impl Asset {
 
     /// Unarchive this asset, allowing it to be viewed in the UI.
     pub async fn unarchive(&self) -> Result<()> {
-        use conjure_http::client::AsyncService;
-        use nominal_api::scout::assets::AssetServiceAsyncClient;
-
         let service = AssetServiceAsyncClient::new(self.client.client.clone());
 
         let rid = parse_rid(&self.rid)?;

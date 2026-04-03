@@ -1,4 +1,9 @@
 use chrono::{DateTime, Utc};
+use conjure_http::client::AsyncService;
+use nominal_api::scout::RunServiceAsyncClient;
+use nominal_api::scout::run::api::{
+    CreateRunDataSource, DataSource, UpdateAttachmentsRequest, UpdateRunRequest,
+};
 
 use crate::core::{
     datetime::{NominalDateTime, api_timestamp_to_utc_or_panic},
@@ -8,7 +13,7 @@ use crate::core::{
 use crate::{Error, Result};
 
 use super::NominalClient;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 #[derive(Default, Clone)]
 pub struct RunUpdate {
@@ -52,9 +57,6 @@ impl RunUpdate {
     }
 
     pub(crate) fn into_request(self) -> Result<nominal_api::scout::run::api::UpdateRunRequest> {
-        use nominal_api::scout::run::api::UpdateRunRequest;
-        use std::collections::{BTreeMap, BTreeSet};
-
         let RunUpdate {
             name,
             description,
@@ -161,8 +163,6 @@ impl Run {
     /// # }
     /// ```
     pub async fn update(&mut self, update: RunUpdate) -> Result<()> {
-        use conjure_http::client::AsyncService;
-        use nominal_api::scout::RunServiceAsyncClient;
         let request = update.into_request()?;
         let service = RunServiceAsyncClient::new(self.client.client.clone());
 
@@ -201,11 +201,6 @@ impl Run {
     /// # Arguments
     /// * `datasets` - Mapping of logical names to dataset RIDs to add to the run
     pub async fn add_datasets(&self, datasets: HashMap<String, String>) -> Result<()> {
-        use conjure_http::client::AsyncService;
-        use nominal_api::scout::RunServiceAsyncClient;
-        use nominal_api::scout::run::api::{CreateRunDataSource, DataSource};
-        use std::collections::BTreeMap;
-
         let service = RunServiceAsyncClient::new(self.client.client.clone());
 
         let data_sources = datasets
@@ -240,11 +235,6 @@ impl Run {
     /// * `ref_name` - Logical name for the video within the run
     /// * `video_rid` - Video RID to add to the run
     pub async fn add_video(&self, ref_name: &str, video_rid: &str) -> Result<()> {
-        use conjure_http::client::AsyncService;
-        use nominal_api::scout::RunServiceAsyncClient;
-        use nominal_api::scout::run::api::{CreateRunDataSource, DataSource};
-        use std::collections::BTreeMap;
-
         let service = RunServiceAsyncClient::new(self.client.client.clone());
 
         let rid = parse_rid(video_rid)?;
@@ -270,10 +260,6 @@ impl Run {
     /// # Arguments
     /// * `attachment_rids` - List of attachment RIDs to add
     pub async fn add_attachments(&self, attachment_rids: Vec<String>) -> Result<()> {
-        use conjure_http::client::AsyncService;
-        use nominal_api::scout::RunServiceAsyncClient;
-        use nominal_api::scout::run::api::UpdateAttachmentsRequest;
-
         let service = RunServiceAsyncClient::new(self.client.client.clone());
 
         let attachments_to_add = attachment_rids
@@ -302,10 +288,6 @@ impl Run {
     /// # Arguments
     /// * `attachment_rids` - List of attachment RIDs to remove
     pub async fn remove_attachments(&self, attachment_rids: Vec<String>) -> Result<()> {
-        use conjure_http::client::AsyncService;
-        use nominal_api::scout::RunServiceAsyncClient;
-        use nominal_api::scout::run::api::UpdateAttachmentsRequest;
-
         let service = RunServiceAsyncClient::new(self.client.client.clone());
 
         let attachments_to_remove = attachment_rids
@@ -333,9 +315,6 @@ impl Run {
     /// Archived runs are not deleted, but are hidden from the UI.
     /// NOTE: currently, it is not possible (yet) to unarchive a run once archived.
     pub async fn archive(&self) -> Result<()> {
-        use conjure_http::client::AsyncService;
-        use nominal_api::scout::RunServiceAsyncClient;
-
         let service = RunServiceAsyncClient::new(self.client.client.clone());
 
         let rid = parse_rid(&self.rid)?;
