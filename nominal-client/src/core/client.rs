@@ -49,8 +49,8 @@ impl NominalClient {
     /// Get an asset by RID
     pub async fn get_asset(&self, rid: &str) -> Result<Asset, Box<dyn std::error::Error>> {
         let service = AssetServiceAsyncClient::new(self.client.clone());
-        let asset_rid: nominal_api::scout::rids::api::AssetRid = parse_rid(rid)?;
-        let rid_set = std::collections::BTreeSet::from([asset_rid]);
+        let rid = parse_rid(rid)?;
+        let rid_set = std::collections::BTreeSet::from([rid]);
         let response = service
             .get_assets(&self.token, &rid_set)
             .await

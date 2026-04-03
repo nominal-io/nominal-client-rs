@@ -1,8 +1,72 @@
-use crate::core::{rid::{parse_rid, rid_to_string}, utils::api_base_url_to_app_base_url};
+use crate::core::{
+    rid::{parse_rid, rid_to_string},
+    utils::api_base_url_to_app_base_url,
+};
 
 use super::NominalClient;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
+
+#[derive(Default, Clone)]
+pub struct AssetUpdate {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub properties: Option<HashMap<String, String>>,
+    pub labels: Option<Vec<String>>,
+}
+
+impl AssetUpdate {
+    pub fn name(mut self, value: impl Into<String>) -> Self {
+        self.name = Some(value.into());
+        self
+    }
+
+    pub fn description(mut self, value: impl Into<String>) -> Self {
+        self.description = Some(value.into());
+        self
+    }
+
+    pub fn properties(mut self, value: HashMap<String, String>) -> Self {
+        self.properties = Some(value);
+        self
+    }
+
+    pub fn labels(mut self, value: Vec<String>) -> Self {
+        self.labels = Some(value);
+        self
+    }
+
+    pub(crate) fn into_request(self) -> nominal_api::scout::asset::api::UpdateAssetRequest {
+        use nominal_api::scout::asset::api::UpdateAssetRequest;
+        use std::collections::{BTreeMap, BTreeSet};
+
+        let AssetUpdate {
+            name,
+            description,
+            properties,
+            labels,
+        } = self;
+
+        let mut request_builder = UpdateAssetRequest::builder();
+
+        if let Some(n) = name {
+            request_builder = request_builder.title(n);
+        }
+        if let Some(d) = description {
+            request_builder = request_builder.description(d);
+        }
+        if let Some(p) = properties {
+            let props: BTreeMap<_, _> = p.into_iter().map(|(k, v)| (k.into(), v.into())).collect();
+            request_builder = request_builder.properties(props);
+        }
+        if let Some(l) = labels {
+            let labels_set: BTreeSet<_> = l.into_iter().map(|s| s.into()).collect();
+            request_builder = request_builder.labels(labels_set);
+        }
+
+        request_builder.build()
+    }
+}
 
 /// Represents an asset in Nominal.
 ///
@@ -39,53 +103,27 @@ impl Asset {
     ///
     /// # Example
     /// ```no_run
+    /// # use nominal_client::AssetUpdate;
     /// # async fn example(mut asset: nominal_client::Asset) -> Result<(), Box<dyn std::error::Error>> {
     /// asset.update(
-    ///     Some("New Name".to_string()),
-    ///     None,  // description unchanged
-    ///     None,  // properties unchanged
-    ///     Some(vec!["label1".to_string(), "label2".to_string()]),
+    ///     AssetUpdate::default()
+    ///         .name("New Name")
+    ///         .labels(vec!["label1".to_string(), "label2".to_string()]),
     /// ).await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn update(
-        &mut self,
-        name: Option<String>,
-        description: Option<String>,
-        properties: Option<HashMap<String, String>>,
-        labels: Option<Vec<String>>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn update(&mut self, update: AssetUpdate) -> Result<(), Box<dyn std::error::Error>> {
         use conjure_http::client::AsyncService;
-        use nominal_api::scout::asset::api::UpdateAssetRequest;
         use nominal_api::scout::assets::AssetServiceAsyncClient;
-        use std::collections::BTreeMap;
 
-        let mut request_builder = UpdateAssetRequest::builder();
-
-        if let Some(n) = name {
-            request_builder = request_builder.title(n);
-        }
-        if let Some(d) = description {
-            request_builder = request_builder.description(d);
-        }
-        if let Some(p) = properties {
-            let props: BTreeMap<_, _> = p.into_iter().map(|(k, v)| (k.into(), v.into())).collect();
-            request_builder = request_builder.properties(props);
-        }
-        if let Some(l) = labels {
-            let labels_set: std::collections::BTreeSet<_> =
-                l.into_iter().map(|s| s.into()).collect();
-            request_builder = request_builder.labels(labels_set);
-        }
-
-        let request = request_builder.build();
+        let request = update.into_request();
         let service = AssetServiceAsyncClient::new(self.client.client.clone());
 
-        let asset_rid: nominal_api::scout::rids::api::AssetRid = parse_rid(&self.rid)?;
+        let rid = parse_rid(&self.rid)?;
 
         let response = service
-            .update_asset(&self.client.token, &asset_rid, &request)
+            .update_asset(&self.client.token, &rid, &request)
             .await
             .map_err(|e| format!("Failed to update asset: {:?}", e))?;
 
@@ -109,10 +147,10 @@ impl Asset {
 
         let service = AssetServiceAsyncClient::new(self.client.client.clone());
 
-        let asset_rid: nominal_api::scout::rids::api::AssetRid = parse_rid(&self.rid)?;
+        let rid = parse_rid(&self.rid)?;
 
         service
-            .archive(&self.client.token, &asset_rid, None)
+            .archive(&self.client.token, &rid, None)
             .await
             .map_err(|e| format!("Failed to archive asset: {:?}", e))?;
 
@@ -126,10 +164,10 @@ impl Asset {
 
         let service = AssetServiceAsyncClient::new(self.client.client.clone());
 
-        let asset_rid: nominal_api::scout::rids::api::AssetRid = parse_rid(&self.rid)?;
+        let rid = parse_rid(&self.rid)?;
 
         service
-            .unarchive(&self.client.token, &asset_rid, None)
+            .unarchive(&self.client.token, &rid, None)
             .await
             .map_err(|e| format!("Failed to unarchive asset: {:?}", e))?;
 
