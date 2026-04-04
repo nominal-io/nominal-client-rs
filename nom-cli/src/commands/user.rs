@@ -1,3 +1,4 @@
+use anyhow::Context;
 use clap::Subcommand;
 use nominal_client::NominalClient;
 
@@ -7,13 +8,13 @@ pub enum UserCommands {
     GetProfile,
 }
 
-pub async fn handle(cmd: UserCommands, client: NominalClient) -> Result<(), clap::Error> {
+pub async fn handle(cmd: UserCommands, client: NominalClient) -> anyhow::Result<()> {
     match cmd {
         UserCommands::GetProfile => {
             let user = client
                 .get_my_profile()
                 .await
-                .map_err(|e| super::client_error("Failed to get profile", e))?;
+                .context("Failed to get profile")?;
 
             println!("RID: {}", user.rid());
             println!("Org RID: {}", user.org_rid());

@@ -1,3 +1,5 @@
+use anyhow::Context;
+use chrono::SecondsFormat;
 use clap::Subcommand;
 use nominal_client::NominalClient;
 
@@ -12,13 +14,10 @@ pub enum AssetCommands {
     },
 }
 
-pub async fn handle(cmd: AssetCommands, client: NominalClient) -> Result<(), clap::Error> {
+pub async fn handle(cmd: AssetCommands, client: NominalClient) -> anyhow::Result<()> {
     match cmd {
         AssetCommands::List => {
-            let assets = client
-                .list_assets()
-                .await
-                .map_err(|e| super::client_error("Failed to list assets", e))?;
+            let assets = client.list_assets().await.context("Failed to list assets")?;
 
             for asset in assets {
                 println!("{}", asset.rid());
@@ -28,12 +27,12 @@ pub async fn handle(cmd: AssetCommands, client: NominalClient) -> Result<(), cla
             let asset = client
                 .get_asset(&rid)
                 .await
-                .map_err(|e| super::client_error(format!("Failed to get asset '{rid}'"), e))?;
+                .with_context(|| format!("Failed to get asset '{rid}'"))?;
 
             println!("RID: {}", asset.rid());
             println!("Name: {}", asset.name());
             if let Some(description) = asset.description() {
-                println!("Description: {}", description);
+                println!("Description: {description}");
             }
             if !asset.labels().is_empty() {
                 println!("Labels: {}", asset.labels().join(", "));
@@ -41,10 +40,15 @@ pub async fn handle(cmd: AssetCommands, client: NominalClient) -> Result<(), cla
             if !asset.properties().is_empty() {
                 println!("Properties:");
                 for (key, value) in asset.properties() {
-                    println!("  {}: {}", key, value);
+                    println!("  {key}: {value}");
                 }
             }
-            println!("Created: {} ns", asset.created_at());
+            println!(
+                "Created: {}",
+                asset
+                    .created_at()
+                    .to_rfc3339_opts(SecondsFormat::Nanos, true)
+            );
             println!("URL: {}", asset.nominal_url());
         }
     }

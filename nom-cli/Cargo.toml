@@ -9,8 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 nominal-client = { path = "../nominal-client" }
+anyhow = "1"
 clap = { version = "4", features = ["derive"] }
-conjure-http = "4.15.0"
-conjure-object = "4.15.0"
-nominal-api = "*"
-tokio = { version = "1.47.1", features = ["full"] }
+chrono = { version = "0.4" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

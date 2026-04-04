@@ -17,6 +17,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Asset management commands
     Asset {
         #[command(subcommand)]
         asset_command: AssetCommands,
@@ -36,15 +37,16 @@ enum Commands {
 #[tokio::main]
 async fn main() {
     if let Err(err) = run().await {
-        err.exit();
+        eprintln!("error: {err:#}");
+        std::process::exit(1);
     }
 }
 
-async fn run() -> Result<(), clap::Error> {
+async fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Config { config_command } => commands::config::handle(config_command, None),
+        Commands::Config { config_command } => commands::config::handle(config_command),
         Commands::Asset { asset_command } => {
             let client = commands::load_client(&cli.profile)?;
             commands::asset::handle(asset_command, client).await

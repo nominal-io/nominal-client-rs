@@ -1,8 +1,8 @@
-use clap::{Subcommand, error::ErrorKind};
+use anyhow::Context;
+use clap::Subcommand;
 use nominal_client::{Config, Profile};
-use std::path::PathBuf;
 
-#[derive(Subcommand, Clone)]
+#[derive(Subcommand)]
 pub enum ConfigCommands {
     /// Profile management
     Profile {
@@ -11,7 +11,7 @@ pub enum ConfigCommands {
     },
 }
 
-#[derive(Subcommand, Clone)]
+#[derive(Subcommand)]
 pub enum ProfileCommands {
     /// Add a profile
     Add {
@@ -27,7 +27,15 @@ pub enum ProfileCommands {
     Remove { name: String },
 }
 
-pub fn handle(cmd: ConfigCommands, config_path: Option<PathBuf>) -> Result<(), clap::Error> {
+fn load_config() -> anyhow::Result<Config> {
+    Config::from_file(None).context("Failed to load config")
+}
+
+fn save_config(config: Config) -> anyhow::Result<()> {
+    config.to_file(None).context("Failed to save config")
+}
+
+pub fn handle(cmd: ConfigCommands) -> anyhow::Result<()> {
     match cmd {
         ConfigCommands::Profile { profile_command } => match profile_command {
             ProfileCommands::Add {
@@ -36,29 +44,18 @@ pub fn handle(cmd: ConfigCommands, config_path: Option<PathBuf>) -> Result<(), c
                 token,
                 workspace_rid,
             } => {
-                let mut config = Config::from_file(config_path.clone()).map_err(|e| {
-                    super::clap_error(ErrorKind::Io, format!("Failed to load config: {e}"))
-                })?;
+                let mut config = load_config()?;
                 config.add_profile(name.clone(), Profile::new(url, token, workspace_rid));
-                config.to_file(config_path).map_err(|e| {
-                    super::clap_error(ErrorKind::Io, format!("Failed to save config: {e}"))
-                })?;
-                println!("Profile '{}' added.", name);
+                save_config(config)?;
+                println!("Profile '{name}' added.");
             }
             ProfileCommands::Remove { name } => {
-                let mut config = Config::from_file(config_path.clone()).map_err(|e| {
-                    super::clap_error(ErrorKind::Io, format!("Failed to load config: {e}"))
-                })?;
-                config.remove_profile(&name).ok_or_else(|| {
-                    super::clap_error(
-                        ErrorKind::InvalidValue,
-                        format!("Profile '{}' not found", name),
-                    )
-                })?;
-                config.to_file(config_path).map_err(|e| {
-                    super::clap_error(ErrorKind::Io, format!("Failed to save config: {e}"))
-                })?;
-                println!("Profile '{}' removed.", name);
+                let mut config = load_config()?;
+                config
+                    .remove_profile(&name)
+                    .ok_or_else(|| anyhow::anyhow!("Profile '{name}' not found"))?;
+                save_config(config)?;
+                println!("Profile '{name}' removed.");
             }
         },
     }
