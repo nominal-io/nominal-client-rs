@@ -6,7 +6,7 @@ pub mod run;
 pub mod user;
 mod utils;
 
-pub use asset::{Asset, AssetHandle, AssetUpdate, AssetsClient};
+pub use asset::{Asset, AssetUpdate, AssetsClient};
 pub use client::NominalClient;
-pub use run::{Run, RunHandle, RunUpdate, RunsClient};
+pub use run::{Run, RunUpdate, RunsClient};
 pub use user::{User, UsersClient};

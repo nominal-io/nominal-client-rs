@@ -3,8 +3,8 @@ use conjure_runtime::{Agent, Client, UserAgent};
 
 use crate::config::Profile;
 use crate::core::{
-    asset::{AssetHandle, AssetsClient},
-    run::{RunHandle, RunsClient},
+    asset::AssetsClient,
+    run::RunsClient,
     user::UsersClient,
 };
 use crate::{Error, Result};
@@ -62,24 +62,14 @@ impl NominalClient {
 
     // ── Sub-client factories ──────────────────────────────────────────────────
 
-    /// Access run collection operations (get, list).
+    /// Access run operations.
     pub fn runs(&self) -> RunsClient {
         RunsClient::new(self.client.clone(), self.token.clone())
     }
 
-    /// Access operations on a specific run by RID.
-    pub fn run(&self, rid: impl Into<String>) -> RunHandle {
-        RunHandle::new(rid.into(), self.client.clone(), self.token.clone())
-    }
-
-    /// Access asset collection operations (get, list).
+    /// Access asset operations.
     pub fn assets(&self) -> AssetsClient {
         AssetsClient::new(self.client.clone(), self.token.clone())
-    }
-
-    /// Access operations on a specific asset by RID.
-    pub fn asset(&self, rid: impl Into<String>) -> AssetHandle {
-        AssetHandle::new(rid.into(), self.client.clone(), self.token.clone())
     }
 
     /// Access user operations.

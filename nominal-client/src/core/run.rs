@@ -143,7 +143,12 @@ impl RunUpdate {
         K: Into<String>,
         V: Into<String>,
     {
-        self.properties = Some(value.into_iter().map(|(k, v)| (k.into(), v.into())).collect());
+        self.properties = Some(
+            value
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
+        );
         self
     }
 
@@ -255,23 +260,6 @@ impl RunsClient {
             .map(|r| Run::from_conjure(r.clone()))
             .collect())
     }
-}
-
-/// Handle for operations on a specific run.
-pub struct RunHandle {
-    rid: String,
-    service: RunServiceAsyncClient<Client>,
-    token: BearerToken,
-}
-
-impl RunHandle {
-    pub(crate) fn new(rid: String, client: Client, token: BearerToken) -> Self {
-        Self {
-            rid,
-            service: RunServiceAsyncClient::new(client),
-            token,
-        }
-    }
 
     /// Update run metadata. Returns the updated run.
     ///
@@ -281,23 +269,23 @@ impl RunHandle {
     /// ```no_run
     /// # use nominal_client::RunUpdate;
     /// # async fn example(client: nominal_client::NominalClient) -> nominal_client::Result<()> {
-    /// let run = client.run("rid:scout.nominal.run:...")
-    ///     .update(RunUpdate::new().name("New Name").labels(["tag1", "tag2"]))
+    /// let run = client.runs()
+    ///     .update("ri.scout.cerulean-staging.run.<uuid>", RunUpdate::new().name("New Name").labels(["tag1", "tag2"]))
     ///     .await?;
     /// # Ok(()) }
     /// ```
-    pub async fn update(&self, update: RunUpdate) -> Result<Run> {
+    pub async fn update(&self, rid: &str, update: RunUpdate) -> Result<Run> {
         let request = update.into_request()?;
-        let rid = parse_rid(&self.rid)?;
+        let run_rid = parse_rid(rid)?;
         let response = self
             .service
-            .update_run(&self.token, &rid, &request)
+            .update_run(&self.token, &run_rid, &request)
             .await
             .map_err(Error::from)?;
         Ok(Run::from_conjure(response))
     }
 
-    /// Add datasets to this run.
+    /// Add datasets to a run.
     ///
     /// Datasets map "ref names" (their logical name within the run) to a dataset RID.
     /// The same type of dataset should use the same ref name across runs, since checklists
@@ -306,12 +294,12 @@ impl RunHandle {
     /// # Example
     /// ```no_run
     /// # async fn example(client: nominal_client::NominalClient) -> nominal_client::Result<()> {
-    /// client.run("rid:scout.nominal.run:...")
-    ///     .add_datasets([("flight-data", "rid:scout.nominal.dataset:...")])
+    /// client.runs()
+    ///     .add_datasets("ri.scout.cerulean-staging.run.<uuid>", [("flight-data", "ri.catalog.cerulean-staging.dataset.<uuid>")])
     ///     .await?;
     /// # Ok(()) }
     /// ```
-    pub async fn add_datasets<I, K, V>(&self, datasets: I) -> Result<()>
+    pub async fn add_datasets<I, K, V>(&self, rid: &str, datasets: I) -> Result<()>
     where
         I: IntoIterator<Item = (K, V)>,
         K: Into<String>,
@@ -322,11 +310,11 @@ impl RunHandle {
             .map(|(ref_name, dataset_rid)| {
                 let dataset_rid = dataset_rid.into();
                 parse_rid(&dataset_rid)
-                    .map(|rid| {
+                    .map(|parsed| {
                         (
                             ref_name.into().into(),
                             CreateRunDataSource::builder()
-                                .data_source(DataSource::Dataset(rid))
+                                .data_source(DataSource::Dataset(parsed))
                                 .build(),
                         )
                     })
@@ -334,16 +322,16 @@ impl RunHandle {
             })
             .collect::<std::result::Result<BTreeMap<_, _>, _>>()?;
 
-        let rid = parse_rid(&self.rid)?;
+        let run_rid = parse_rid(rid)?;
         self.service
-            .add_data_sources_to_run(&self.token, &rid, &data_sources)
+            .add_data_sources_to_run(&self.token, &run_rid, &data_sources)
             .await
             .map_err(Error::from)?;
         Ok(())
     }
 
-    /// Add a video to this run.
-    pub async fn add_video(&self, ref_name: &str, video_rid: &str) -> Result<()> {
+    /// Add a video to a run.
+    pub async fn add_video(&self, rid: &str, ref_name: &str, video_rid: &str) -> Result<()> {
         let vid_rid = parse_rid(video_rid)?;
         let data_sources = BTreeMap::from([(
             ref_name.to_string().into(),
@@ -351,16 +339,16 @@ impl RunHandle {
                 .data_source(DataSource::Video(vid_rid))
                 .build(),
         )]);
-        let rid = parse_rid(&self.rid)?;
+        let run_rid = parse_rid(rid)?;
         self.service
-            .add_data_sources_to_run(&self.token, &rid, &data_sources)
+            .add_data_sources_to_run(&self.token, &run_rid, &data_sources)
             .await
             .map_err(Error::from)?;
         Ok(())
     }
 
-    /// Add attachments (by RID) that have already been uploaded to this run.
-    pub async fn add_attachments<I, S>(&self, attachment_rids: I) -> Result<()>
+    /// Add attachments (by RID) that have already been uploaded to a run.
+    pub async fn add_attachments<I, S>(&self, rid: &str, attachment_rids: I) -> Result<()>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
@@ -375,16 +363,16 @@ impl RunHandle {
             .attachments_to_remove(vec![])
             .build();
 
-        let rid = parse_rid(&self.rid)?;
+        let run_rid = parse_rid(rid)?;
         self.service
-            .update_run_attachment(&self.token, &rid, &request)
+            .update_run_attachment(&self.token, &run_rid, &request)
             .await
             .map_err(Error::from)?;
         Ok(())
     }
 
-    /// Remove attachments from this run. Does not delete them from Nominal.
-    pub async fn remove_attachments<I, S>(&self, attachment_rids: I) -> Result<()>
+    /// Remove attachments from a run. Does not delete them from Nominal.
+    pub async fn remove_attachments<I, S>(&self, rid: &str, attachment_rids: I) -> Result<()>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
@@ -399,21 +387,21 @@ impl RunHandle {
             .attachments_to_remove(attachments_to_remove)
             .build();
 
-        let rid = parse_rid(&self.rid)?;
+        let run_rid = parse_rid(rid)?;
         self.service
-            .update_run_attachment(&self.token, &rid, &request)
+            .update_run_attachment(&self.token, &run_rid, &request)
             .await
             .map_err(Error::from)?;
         Ok(())
     }
 
-    /// Archive this run. Archived runs are hidden from the UI but not deleted.
+    /// Archive a run. Archived runs are hidden from the UI but not deleted.
     ///
     /// Note: runs cannot currently be unarchived once archived.
-    pub async fn archive(&self) -> Result<()> {
-        let rid = parse_rid(&self.rid)?;
+    pub async fn archive(&self, rid: &str) -> Result<()> {
+        let run_rid = parse_rid(rid)?;
         self.service
-            .archive_run(&self.token, &rid, None)
+            .archive_run(&self.token, &run_rid, None)
             .await
             .map_err(Error::from)?;
         Ok(())

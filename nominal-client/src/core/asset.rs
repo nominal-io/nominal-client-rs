@@ -216,23 +216,6 @@ impl AssetsClient {
             .map(|a| Asset::from_conjure(a.clone()))
             .collect())
     }
-}
-
-/// Handle for operations on a specific asset.
-pub struct AssetHandle {
-    rid: String,
-    service: AssetServiceAsyncClient<Client>,
-    token: BearerToken,
-}
-
-impl AssetHandle {
-    pub(crate) fn new(rid: String, client: Client, token: BearerToken) -> Self {
-        Self {
-            rid,
-            service: AssetServiceAsyncClient::new(client),
-            token,
-        }
-    }
 
     /// Update asset metadata. Returns the updated asset.
     ///
@@ -242,37 +225,37 @@ impl AssetHandle {
     /// ```no_run
     /// # use nominal_client::AssetUpdate;
     /// # async fn example(client: nominal_client::NominalClient) -> nominal_client::Result<()> {
-    /// let asset = client.asset("rid:scout.nominal.asset:...")
-    ///     .update(AssetUpdate::new().name("New Name").labels(["tag1", "tag2"]))
+    /// let asset = client.assets()
+    ///     .update("ri.scout.cerulean-staging.asset.<uuid>", AssetUpdate::new().name("New Name").labels(["tag1", "tag2"]))
     ///     .await?;
     /// # Ok(()) }
     /// ```
-    pub async fn update(&self, update: AssetUpdate) -> Result<Asset> {
+    pub async fn update(&self, rid: &str, update: AssetUpdate) -> Result<Asset> {
         let request = update.into_request();
-        let rid = parse_rid(&self.rid)?;
+        let asset_rid = parse_rid(rid)?;
         let response = self
             .service
-            .update_asset(&self.token, &rid, &request)
+            .update_asset(&self.token, &asset_rid, &request)
             .await
             .map_err(Error::from)?;
         Ok(Asset::from_conjure(response))
     }
 
-    /// Archive this asset. Archived assets are hidden from the UI but not deleted.
-    pub async fn archive(&self) -> Result<()> {
-        let rid = parse_rid(&self.rid)?;
+    /// Archive an asset. Archived assets are hidden from the UI but not deleted.
+    pub async fn archive(&self, rid: &str) -> Result<()> {
+        let asset_rid = parse_rid(rid)?;
         self.service
-            .archive(&self.token, &rid, None)
+            .archive(&self.token, &asset_rid, None)
             .await
             .map_err(Error::from)?;
         Ok(())
     }
 
-    /// Unarchive this asset, restoring its visibility in the UI.
-    pub async fn unarchive(&self) -> Result<()> {
-        let rid = parse_rid(&self.rid)?;
+    /// Unarchive an asset, restoring its visibility in the UI.
+    pub async fn unarchive(&self, rid: &str) -> Result<()> {
+        let asset_rid = parse_rid(rid)?;
         self.service
-            .unarchive(&self.token, &rid, None)
+            .unarchive(&self.token, &asset_rid, None)
             .await
             .map_err(Error::from)?;
         Ok(())
