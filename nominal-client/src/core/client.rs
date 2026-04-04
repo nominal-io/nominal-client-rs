@@ -58,7 +58,6 @@ impl NominalClient {
         self.workspace_rid.as_deref()
     }
 
-    // ── Sub-client factories ──────────────────────────────────────────────────
 
     /// Access run operations.
     pub fn runs(&self) -> RunsClient {

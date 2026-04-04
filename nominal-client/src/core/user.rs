@@ -6,8 +6,6 @@ use nominal_api::authentication::api::AuthenticationServiceV2AsyncClient;
 use crate::core::rid::rid_to_string;
 use crate::{Error, Result};
 
-// ── Data type ────────────────────────────────────────────────────────────────
-
 #[derive(Debug, Clone)]
 pub struct User {
     rid: String,
@@ -42,8 +40,6 @@ impl User {
         }
     }
 }
-
-// ── Sub-client ────────────────────────────────────────────────────────────────
 
 /// Client for user operations.
 pub struct UsersClient {

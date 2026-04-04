@@ -12,8 +12,6 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use crate::core::rid::{parse_rid, rid_to_string};
 use crate::{Error, Result};
 
-// ── Data type ────────────────────────────────────────────────────────────────
-
 /// Represents an asset in Nominal.
 ///
 /// Assets are the top-level organizational unit in Nominal, containing datasets, videos,
@@ -81,8 +79,6 @@ impl Asset {
         }
     }
 }
-
-// ── Update builder ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Default, Clone)]
 pub struct AssetUpdate {
@@ -164,8 +160,6 @@ impl AssetUpdate {
         b.build()
     }
 }
-
-// ── Sub-clients ───────────────────────────────────────────────────────────────
 
 /// Client for asset collection operations (list, get).
 pub struct AssetsClient {

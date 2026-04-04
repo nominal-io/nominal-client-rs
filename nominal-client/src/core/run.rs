@@ -15,8 +15,6 @@ use crate::core::{
 };
 use crate::{Error, Result};
 
-// ── Data type ────────────────────────────────────────────────────────────────
-
 /// Represents a run in Nominal.
 ///
 /// Runs are executions of tests, simulations, or analyses within an asset.
@@ -102,8 +100,6 @@ impl Run {
         }
     }
 }
-
-// ── Update builder ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Default, Clone)]
 pub struct RunUpdate {
@@ -208,8 +204,6 @@ impl RunUpdate {
         Ok(b.assets(vec![]).build())
     }
 }
-
-// ── Sub-clients ───────────────────────────────────────────────────────────────
 
 /// Client for run collection operations (list, get).
 pub struct RunsClient {
