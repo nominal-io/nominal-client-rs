@@ -30,7 +30,13 @@ impl std::fmt::Debug for NominalClient {
 }
 
 impl NominalClient {
-    pub fn new(base_url: String, token: String, workspace_rid: Option<String>) -> Result<Self> {
+    pub fn new(
+        base_url: impl Into<String>,
+        token: impl Into<String>,
+        workspace_rid: Option<String>,
+    ) -> Result<Self> {
+        let base_url = base_url.into();
+        let token = token.into();
         let bearer_token = create_bearer_token(&token)?;
         let client = create_client(&base_url)?;
         Ok(NominalClient {
@@ -43,8 +49,8 @@ impl NominalClient {
 
     pub fn from_profile(profile: &Profile) -> Result<Self> {
         Self::new(
-            profile.base_url().to_string(),
-            profile.token().to_string(),
+            profile.base_url(),
+            profile.token(),
             profile.workspace_rid().map(ToString::to_string),
         )
     }

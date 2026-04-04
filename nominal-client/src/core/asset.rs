@@ -38,14 +38,23 @@ impl AssetUpdate {
     }
 
     #[must_use]
-    pub fn properties(mut self, value: HashMap<String, String>) -> Self {
-        self.properties = Some(value);
+    pub fn properties<I, K, V>(mut self, value: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        self.properties = Some(value.into_iter().map(|(k, v)| (k.into(), v.into())).collect());
         self
     }
 
     #[must_use]
-    pub fn labels(mut self, value: Vec<String>) -> Self {
-        self.labels = Some(value);
+    pub fn labels<I>(mut self, value: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: Into<String>,
+    {
+        self.labels = Some(value.into_iter().map(Into::into).collect());
         self
     }
 
@@ -145,7 +154,7 @@ impl Asset {
     /// asset.update(
     ///     AssetUpdate::default()
     ///         .name("New Name")
-    ///         .labels(vec!["label1".to_string(), "label2".to_string()]),
+    ///         .labels(["label1", "label2"]),
     /// ).await?;
     /// # Ok(())
     /// # }

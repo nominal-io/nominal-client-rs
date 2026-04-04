@@ -44,14 +44,23 @@ impl RunUpdate {
     }
 
     #[must_use]
-    pub fn properties(mut self, value: HashMap<String, String>) -> Self {
-        self.properties = Some(value);
+    pub fn properties<I, K, V>(mut self, value: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        self.properties = Some(value.into_iter().map(|(k, v)| (k.into(), v.into())).collect());
         self
     }
 
     #[must_use]
-    pub fn labels(mut self, value: Vec<String>) -> Self {
-        self.labels = Some(value);
+    pub fn labels<I>(mut self, value: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: Into<String>,
+    {
+        self.labels = Some(value.into_iter().map(Into::into).collect());
         self
     }
 
@@ -137,7 +146,7 @@ pub struct Run {
     end: Option<DateTime<Utc>>,
 
     /// Run number (display identifier)
-    run_number: i64,
+    run_number: u32,
 
     /// Asset RIDs associated with this run
     assets: Vec<String>,
@@ -178,7 +187,7 @@ impl Run {
         self.end.as_ref()
     }
 
-    pub fn run_number(&self) -> i64 {
+    pub fn run_number(&self) -> u32 {
         self.run_number
     }
 
@@ -208,7 +217,7 @@ impl Run {
     ///     RunUpdate::default()
     ///         .name("New Name")
     ///         .description("New description")
-    ///         .labels(vec!["label1".to_string(), "label2".to_string()]),
+    ///         .labels(["label1", "label2"]),
     /// ).await?;
     /// # Ok(())
     /// # }
@@ -230,37 +239,34 @@ impl Run {
         Ok(())
     }
 
-    /// Add a dataset to this run.
+    /// Add datasets to this run.
     ///
-    /// Datasets map "ref names" (their name within the run) to a Dataset (or dataset rid).
-    /// The same type of datasets should use the same ref name across runs, since checklists
+    /// Datasets map "ref names" (their name within the run) to a dataset RID.
+    /// The same type of dataset should use the same ref name across runs, since checklists
     /// and templates use ref names to reference datasets.
     ///
-    /// # Arguments
-    /// * `ref_name` - Logical name for the data scope within the run
-    /// * `dataset_rid` - Dataset RID to add to the run
-    pub async fn add_dataset(&self, ref_name: &str, dataset_rid: &str) -> Result<()> {
-        self.add_datasets(HashMap::from([(
-            ref_name.to_string(),
-            dataset_rid.to_string(),
-        )]))
-        .await
-    }
-
-    /// Add multiple datasets to this run.
-    ///
-    /// # Arguments
-    /// * `datasets` - Mapping of logical names to dataset RIDs to add to the run
-    pub async fn add_datasets(&self, datasets: HashMap<String, String>) -> Result<()> {
+    /// Accepts any iterable of `(ref_name, dataset_rid)` pairs:
+    /// ```no_run
+    /// # async fn example(run: nominal_client::Run) -> nominal_client::Result<()> {
+    /// run.add_datasets([("my-data", "rid:scout.nominal.run:...")]).await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn add_datasets<I, K, V>(&self, datasets: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
         let service = RunServiceAsyncClient::new(self.client.service_client());
 
         let data_sources = datasets
             .into_iter()
             .map(|(ref_name, dataset_rid)| {
+                let dataset_rid = dataset_rid.into();
                 parse_rid(&dataset_rid)
                     .map(|rid| {
                         (
-                            ref_name.into(),
+                            ref_name.into().into(),
                             CreateRunDataSource::builder()
                                 .data_source(DataSource::Dataset(rid))
                                 .build(),
@@ -406,7 +412,7 @@ impl Run {
             labels,
             start,
             end,
-            run_number: *run.run_number(),
+            run_number: *run.run_number() as u32,
             assets,
             created_at: run.created_at().to_utc(),
             client: client.clone(),
