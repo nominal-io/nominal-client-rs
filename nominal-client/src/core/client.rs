@@ -3,9 +3,7 @@ use conjure_runtime::{Agent, Client, UserAgent};
 
 use crate::config::Profile;
 use crate::core::{
-    asset::AssetsClient,
-    run::RunsClient,
-    user::UsersClient,
+    asset::AssetsClient, run::RunsClient, user::UsersClient, utils::api_base_url_to_app_base_url,
 };
 use crate::{Error, Result};
 
@@ -64,12 +62,20 @@ impl NominalClient {
 
     /// Access run operations.
     pub fn runs(&self) -> RunsClient {
-        RunsClient::new(self.client.clone(), self.token.clone())
+        RunsClient::new(
+            self.client.clone(),
+            self.token.clone(),
+            api_base_url_to_app_base_url(&self.base_url),
+        )
     }
 
     /// Access asset operations.
     pub fn assets(&self) -> AssetsClient {
-        AssetsClient::new(self.client.clone(), self.token.clone())
+        AssetsClient::new(
+            self.client.clone(),
+            self.token.clone(),
+            api_base_url_to_app_base_url(&self.base_url),
+        )
     }
 
     /// Access user operations.

@@ -12,7 +12,6 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use crate::core::{
     datetime::{NominalDateTime, api_timestamp_to_utc_or_panic},
     rid::{parse_rid, rid_to_string},
-    utils::api_base_url_to_app_base_url,
 };
 use crate::{Error, Result};
 
@@ -34,6 +33,7 @@ pub struct Run {
     run_number: u32,
     assets: Vec<String>,
     created_at: DateTime<Utc>,
+    app_base_url: String,
 }
 
 impl Run {
@@ -78,15 +78,11 @@ impl Run {
     }
 
     /// Get the URL to view this run in the Nominal web app.
-    pub fn nominal_url(&self, base_url: &str) -> String {
-        format!(
-            "{}/runs/{}",
-            api_base_url_to_app_base_url(base_url),
-            self.run_number
-        )
+    pub fn nominal_url(&self) -> String {
+        format!("{}/runs/{}", self.app_base_url, self.run_number)
     }
 
-    pub(crate) fn from_conjure(run: nominal_api::scout::run::api::Run) -> Self {
+    pub(crate) fn from_conjure(run: nominal_api::scout::run::api::Run, app_base_url: &str) -> Self {
         Self {
             rid: rid_to_string(run.rid()),
             name: run.title().to_string(),
@@ -102,6 +98,7 @@ impl Run {
             run_number: *run.run_number() as u32,
             assets: run.assets().iter().map(rid_to_string).collect(),
             created_at: run.created_at().to_utc(),
+            app_base_url: app_base_url.to_string(),
         }
     }
 }
@@ -218,13 +215,15 @@ impl RunUpdate {
 pub struct RunsClient {
     service: RunServiceAsyncClient<Client>,
     token: BearerToken,
+    app_base_url: String,
 }
 
 impl RunsClient {
-    pub(crate) fn new(client: Client, token: BearerToken) -> Self {
+    pub(crate) fn new(client: Client, token: BearerToken, app_base_url: String) -> Self {
         Self {
             service: RunServiceAsyncClient::new(client),
             token,
+            app_base_url,
         }
     }
 
@@ -236,7 +235,7 @@ impl RunsClient {
             .get_run(&self.token, &run_rid)
             .await
             .map_err(Error::from)?;
-        Ok(Run::from_conjure(response))
+        Ok(Run::from_conjure(response, &self.app_base_url))
     }
 
     /// List runs, sorted by creation date descending.
@@ -257,7 +256,7 @@ impl RunsClient {
         Ok(response
             .results()
             .iter()
-            .map(|r| Run::from_conjure(r.clone()))
+            .map(|r| Run::from_conjure(r.clone(), &self.app_base_url))
             .collect())
     }
 
@@ -282,7 +281,7 @@ impl RunsClient {
             .update_run(&self.token, &run_rid, &request)
             .await
             .map_err(Error::from)?;
-        Ok(Run::from_conjure(response))
+        Ok(Run::from_conjure(response, &self.app_base_url))
     }
 
     /// Add datasets to a run.

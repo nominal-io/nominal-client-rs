@@ -3,12 +3,13 @@ use conjure_http::client::AsyncService;
 use conjure_object::BearerToken;
 use conjure_runtime::Client;
 use nominal_api::scout::asset::api::{
-    AssetSortOptions, SearchAssetsQuery, SearchAssetsRequest, SortField, SortKey, UpdateAssetRequest,
+    AssetSortOptions, SearchAssetsQuery, SearchAssetsRequest, SortField, SortKey,
+    UpdateAssetRequest,
 };
 use nominal_api::scout::assets::AssetServiceAsyncClient;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use crate::core::{rid::{parse_rid, rid_to_string}, utils::api_base_url_to_app_base_url};
+use crate::core::rid::{parse_rid, rid_to_string};
 use crate::{Error, Result};
 
 // ── Data type ────────────────────────────────────────────────────────────────
@@ -25,6 +26,7 @@ pub struct Asset {
     properties: HashMap<String, String>,
     labels: Vec<String>,
     created_at: DateTime<Utc>,
+    app_base_url: String,
 }
 
 impl Asset {
@@ -53,15 +55,14 @@ impl Asset {
     }
 
     /// Get the URL to view this asset in the Nominal web app.
-    pub fn nominal_url(&self, base_url: &str) -> String {
-        format!(
-            "{}/assets/{}",
-            api_base_url_to_app_base_url(base_url),
-            self.rid
-        )
+    pub fn nominal_url(&self) -> String {
+        format!("{}/assets/{}", self.app_base_url, self.rid)
     }
 
-    pub(crate) fn from_conjure(asset: nominal_api::scout::asset::api::Asset) -> Self {
+    pub(crate) fn from_conjure(
+        asset: nominal_api::scout::asset::api::Asset,
+        app_base_url: &str,
+    ) -> Self {
         Self {
             rid: rid_to_string(asset.rid()),
             name: asset.title().to_string(),
@@ -76,6 +77,7 @@ impl Asset {
                 .collect(),
             labels: asset.labels().iter().map(|l| l.to_string()).collect(),
             created_at: asset.created_at().to_utc(),
+            app_base_url: app_base_url.to_string(),
         }
     }
 }
@@ -115,7 +117,12 @@ impl AssetUpdate {
         K: Into<String>,
         V: Into<String>,
     {
-        self.properties = Some(value.into_iter().map(|(k, v)| (k.into(), v.into())).collect());
+        self.properties = Some(
+            value
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
+        );
         self
     }
 
@@ -164,13 +171,15 @@ impl AssetUpdate {
 pub struct AssetsClient {
     service: AssetServiceAsyncClient<Client>,
     token: BearerToken,
+    app_base_url: String,
 }
 
 impl AssetsClient {
-    pub(crate) fn new(client: Client, token: BearerToken) -> Self {
+    pub(crate) fn new(client: Client, token: BearerToken, app_base_url: String) -> Self {
         Self {
             service: AssetServiceAsyncClient::new(client),
             token,
+            app_base_url,
         }
     }
 
@@ -192,7 +201,7 @@ impl AssetsClient {
             })?
             .1;
 
-        Ok(Asset::from_conjure(asset))
+        Ok(Asset::from_conjure(asset, &self.app_base_url))
     }
 
     /// List assets, sorted by creation date descending.
@@ -213,7 +222,7 @@ impl AssetsClient {
         Ok(response
             .results()
             .iter()
-            .map(|a| Asset::from_conjure(a.clone()))
+            .map(|a| Asset::from_conjure(a.clone(), &self.app_base_url))
             .collect())
     }
 
@@ -238,7 +247,7 @@ impl AssetsClient {
             .update_asset(&self.token, &asset_rid, &request)
             .await
             .map_err(Error::from)?;
-        Ok(Asset::from_conjure(response))
+        Ok(Asset::from_conjure(response, &self.app_base_url))
     }
 
     /// Archive an asset. Archived assets are hidden from the UI but not deleted.
