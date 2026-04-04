@@ -17,7 +17,7 @@ pub enum AssetCommands {
 pub async fn handle(cmd: AssetCommands, client: NominalClient) -> anyhow::Result<()> {
     match cmd {
         AssetCommands::List => {
-            let assets = client.list_assets().await.context("Failed to list assets")?;
+            let assets = client.assets().list().await.context("Failed to list assets")?;
 
             for asset in assets {
                 println!("{}", asset.rid());
@@ -25,7 +25,8 @@ pub async fn handle(cmd: AssetCommands, client: NominalClient) -> anyhow::Result
         }
         AssetCommands::Get { rid } => {
             let asset = client
-                .get_asset(&rid)
+                .assets()
+                .get(&rid)
                 .await
                 .with_context(|| format!("Failed to get asset '{rid}'"))?;
 
@@ -49,7 +50,7 @@ pub async fn handle(cmd: AssetCommands, client: NominalClient) -> anyhow::Result
                     .created_at()
                     .to_rfc3339_opts(SecondsFormat::Nanos, true)
             );
-            println!("URL: {}", asset.nominal_url());
+            println!("URL: {}", asset.nominal_url(client.base_url()));
         }
     }
 

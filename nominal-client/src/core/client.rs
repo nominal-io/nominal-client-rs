@@ -1,16 +1,13 @@
-use super::{Asset, Run, User};
-use crate::config::Profile;
-use crate::core::rid::parse_rid;
-use crate::{Error, Result};
-use conjure_http::client::AsyncService;
 use conjure_object::BearerToken;
 use conjure_runtime::{Agent, Client, UserAgent};
-use nominal_api::authentication::api::AuthenticationServiceV2AsyncClient;
-use nominal_api::scout::RunServiceAsyncClient;
-use nominal_api::scout::asset::api::{
-    AssetSortOptions, SearchAssetsQuery, SearchAssetsRequest, SortField, SortKey,
+
+use crate::config::Profile;
+use crate::core::{
+    asset::AssetsClient,
+    run::RunsClient,
+    user::UsersClient,
 };
-use nominal_api::scout::assets::AssetServiceAsyncClient;
+use crate::{Error, Result};
 
 #[derive(Clone)]
 pub struct NominalClient {
@@ -39,7 +36,7 @@ impl NominalClient {
         let token = token.into();
         let bearer_token = create_bearer_token(&token)?;
         let client = create_client(&base_url)?;
-        Ok(NominalClient {
+        Ok(Self {
             client,
             token: bearer_token,
             workspace_rid,
@@ -63,106 +60,21 @@ impl NominalClient {
         self.workspace_rid.as_deref()
     }
 
-    pub(crate) fn service_client(&self) -> Client {
-        self.client.clone()
+    // ── Sub-client factories ──────────────────────────────────────────────────
+
+    /// Access run operations.
+    pub fn runs(&self) -> RunsClient {
+        RunsClient::new(self.client.clone(), self.token.clone())
     }
 
-    pub(crate) fn bearer_token(&self) -> &BearerToken {
-        &self.token
+    /// Access asset operations.
+    pub fn assets(&self) -> AssetsClient {
+        AssetsClient::new(self.client.clone(), self.token.clone())
     }
 
-    /// Get the profile of the authenticated user.
-    pub async fn get_my_profile(&self) -> Result<User> {
-        let service = AuthenticationServiceV2AsyncClient::new(self.client.clone());
-        let response = service
-            .get_my_profile(&self.token)
-            .await
-            .map_err(Error::from)?;
-        Ok(User::from_conjure(response))
-    }
-
-    /// Get an asset by RID
-    pub async fn get_asset(&self, rid: &str) -> Result<Asset> {
-        let service = AssetServiceAsyncClient::new(self.client.clone());
-        let rid = parse_rid(rid)?;
-        let rid_set = std::collections::BTreeSet::from([rid]);
-        let response = service
-            .get_assets(&self.token, &rid_set)
-            .await
-            .map_err(Error::from)?;
-
-        let asset = response
-            .into_iter()
-            .next()
-            .ok_or(Error::NotFound {
-                resource: "asset with given RID",
-            })?
-            .1;
-
-        Ok(Asset::from_conjure(self, asset))
-    }
-
-    /// List/search assets
-    pub async fn list_assets(&self) -> Result<Vec<Asset>> {
-        let service = AssetServiceAsyncClient::new(self.client.clone());
-        let request = SearchAssetsRequest::new(
-            AssetSortOptions::builder()
-                .is_descending(true)
-                .sort_key(SortKey::Field(SortField::CreatedAt))
-                .build(),
-            SearchAssetsQuery::SearchText("".to_string()),
-        );
-        let response = service
-            .search_assets(&self.token, &request)
-            .await
-            .map_err(Error::from)?;
-
-        Ok(response
-            .results()
-            .iter()
-            .map(|asset| Asset::from_conjure(self, asset.clone()))
-            .collect())
-    }
-
-    /// Get a run by RID
-    pub async fn get_run(&self, rid: &str) -> Result<Run> {
-        let service = RunServiceAsyncClient::new(self.client.clone());
-        let run_rid = parse_rid(rid)?;
-
-        let response = service
-            .get_run(&self.token, &run_rid)
-            .await
-            .map_err(Error::from)?;
-
-        Ok(Run::from_conjure(self, response))
-    }
-
-    /// List/search runs
-    pub async fn list_runs(&self) -> Result<Vec<Run>> {
-        use nominal_api::scout::run::api::{
-            SearchQuery, SearchRunsRequest, SortField, SortKey, SortOptions,
-        };
-
-        let service = RunServiceAsyncClient::new(self.client.clone());
-        let request = SearchRunsRequest::new(
-            SortOptions::builder()
-                .is_descending(true)
-                .sort_key(SortKey::Field(SortField::CreatedAt))
-                .build(),
-            100, // page_size
-            SearchQuery::SearchText("".to_string()),
-        );
-
-        let response = service
-            .search_runs(&self.token, &request)
-            .await
-            .map_err(Error::from)?;
-
-        Ok(response
-            .results()
-            .iter()
-            .map(|run| Run::from_conjure(self, run.clone()))
-            .collect::<Vec<_>>())
+    /// Access user operations.
+    pub fn users(&self) -> UsersClient {
+        UsersClient::new(self.client.clone(), self.token.clone())
     }
 }
 

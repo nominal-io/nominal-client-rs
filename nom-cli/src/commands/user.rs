@@ -12,6 +12,7 @@ pub async fn handle(cmd: UserCommands, client: NominalClient) -> anyhow::Result<
     match cmd {
         UserCommands::GetProfile => {
             let user = client
+                .users()
                 .get_my_profile()
                 .await
                 .context("Failed to get profile")?;

@@ -1,15 +1,86 @@
-use crate::core::{
-    rid::{parse_rid, rid_to_string},
-    utils::api_base_url_to_app_base_url,
-};
-use crate::{Error, Result};
-use conjure_http::client::AsyncService;
-use nominal_api::scout::asset::api::UpdateAssetRequest;
-use nominal_api::scout::assets::AssetServiceAsyncClient;
-
-use super::NominalClient;
 use chrono::{DateTime, Utc};
+use conjure_http::client::AsyncService;
+use conjure_object::BearerToken;
+use conjure_runtime::Client;
+use nominal_api::scout::asset::api::{
+    AssetSortOptions, SearchAssetsQuery, SearchAssetsRequest, SortField, SortKey, UpdateAssetRequest,
+};
+use nominal_api::scout::assets::AssetServiceAsyncClient;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+use crate::core::{rid::{parse_rid, rid_to_string}, utils::api_base_url_to_app_base_url};
+use crate::{Error, Result};
+
+// ── Data type ────────────────────────────────────────────────────────────────
+
+/// Represents an asset in Nominal.
+///
+/// Assets are the top-level organizational unit in Nominal, containing datasets, videos,
+/// connections, and attachments related to a specific test, flight, or analysis.
+#[derive(Debug, Clone)]
+pub struct Asset {
+    rid: String,
+    name: String,
+    description: Option<String>,
+    properties: HashMap<String, String>,
+    labels: Vec<String>,
+    created_at: DateTime<Utc>,
+}
+
+impl Asset {
+    pub fn rid(&self) -> &str {
+        &self.rid
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+
+    pub fn properties(&self) -> &HashMap<String, String> {
+        &self.properties
+    }
+
+    pub fn labels(&self) -> &[String] {
+        &self.labels
+    }
+
+    pub fn created_at(&self) -> &DateTime<Utc> {
+        &self.created_at
+    }
+
+    /// Get the URL to view this asset in the Nominal web app.
+    pub fn nominal_url(&self, base_url: &str) -> String {
+        format!(
+            "{}/assets/{}",
+            api_base_url_to_app_base_url(base_url),
+            self.rid
+        )
+    }
+
+    pub(crate) fn from_conjure(asset: nominal_api::scout::asset::api::Asset) -> Self {
+        Self {
+            rid: rid_to_string(asset.rid()),
+            name: asset.title().to_string(),
+            description: asset
+                .description()
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string()),
+            properties: asset
+                .properties()
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            labels: asset.labels().iter().map(|l| l.to_string()).collect(),
+            created_at: asset.created_at().to_utc(),
+        }
+    }
+}
+
+// ── Update builder ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Default, Clone)]
 pub struct AssetUpdate {
@@ -58,7 +129,7 @@ impl AssetUpdate {
         self
     }
 
-    pub(crate) fn into_request(self) -> nominal_api::scout::asset::api::UpdateAssetRequest {
+    pub(crate) fn into_request(self) -> UpdateAssetRequest {
         let AssetUpdate {
             name,
             description,
@@ -66,177 +137,127 @@ impl AssetUpdate {
             labels,
         } = self;
 
-        let mut request_builder = UpdateAssetRequest::builder();
-
+        let mut b = UpdateAssetRequest::builder();
         if let Some(n) = name {
-            request_builder = request_builder.title(n);
+            b = b.title(n);
         }
         if let Some(d) = description {
-            request_builder = request_builder.description(d);
+            b = b.description(d);
         }
         if let Some(p) = properties {
-            let props = p
-                .into_iter()
-                .map(|(k, v)| (k.into(), v.into()))
-                .collect::<BTreeMap<_, _>>();
-            request_builder = request_builder.properties(props);
+            b = b.properties(
+                p.into_iter()
+                    .map(|(k, v)| (k.into(), v.into()))
+                    .collect::<BTreeMap<_, _>>(),
+            );
         }
         if let Some(l) = labels {
-            let labels_set = l.into_iter().map(|s| s.into()).collect::<BTreeSet<_>>();
-            request_builder = request_builder.labels(labels_set);
+            b = b.labels(l.into_iter().map(|s| s.into()).collect::<BTreeSet<_>>());
         }
-
-        request_builder.build()
+        b.build()
     }
 }
 
-/// Represents an asset in Nominal.
-///
-/// Assets are the top-level organizational unit in Nominal, containing datasets, videos,
-/// connections, and attachments related to a specific test, flight, or analysis.
-#[derive(Debug, Clone)]
-pub struct Asset {
-    /// The resource identifier (RID) for this asset
-    rid: String,
+// ── Sub-clients ───────────────────────────────────────────────────────────────
 
-    /// The display name of the asset
-    name: String,
-
-    /// Optional description of the asset
-    description: Option<String>,
-
-    /// Key-value properties for custom metadata
-    properties: HashMap<String, String>,
-
-    /// Labels for categorizing and filtering assets
-    labels: Vec<String>,
-
-    /// Creation timestamp
-    created_at: DateTime<Utc>,
-
-    /// Reference to the client for API calls
-    client: NominalClient,
+/// Client for asset collection operations (list, get).
+pub struct AssetsClient {
+    service: AssetServiceAsyncClient<Client>,
+    token: BearerToken,
 }
 
-impl Asset {
-    pub fn rid(&self) -> &str {
-        &self.rid
+impl AssetsClient {
+    pub(crate) fn new(client: Client, token: BearerToken) -> Self {
+        Self {
+            service: AssetServiceAsyncClient::new(client),
+            token,
+        }
     }
 
-    pub fn name(&self) -> &str {
-        &self.name
+    /// Get an asset by RID.
+    pub async fn get(&self, rid: &str) -> Result<Asset> {
+        let parsed = parse_rid(rid)?;
+        let rid_set = std::collections::BTreeSet::from([parsed]);
+        let response = self
+            .service
+            .get_assets(&self.token, &rid_set)
+            .await
+            .map_err(Error::from)?;
+
+        let asset = response
+            .into_iter()
+            .next()
+            .ok_or(Error::NotFound {
+                resource: "asset with given RID",
+            })?
+            .1;
+
+        Ok(Asset::from_conjure(asset))
     }
 
-    pub fn description(&self) -> Option<&str> {
-        self.description.as_deref()
+    /// List assets, sorted by creation date descending.
+    pub async fn list(&self) -> Result<Vec<Asset>> {
+        let request = SearchAssetsRequest::new(
+            AssetSortOptions::builder()
+                .is_descending(true)
+                .sort_key(SortKey::Field(SortField::CreatedAt))
+                .build(),
+            SearchAssetsQuery::SearchText("".to_string()),
+        );
+        let response = self
+            .service
+            .search_assets(&self.token, &request)
+            .await
+            .map_err(Error::from)?;
+
+        Ok(response
+            .results()
+            .iter()
+            .map(|a| Asset::from_conjure(a.clone()))
+            .collect())
     }
 
-    pub fn properties(&self) -> &HashMap<String, String> {
-        &self.properties
-    }
-
-    pub fn labels(&self) -> &[String] {
-        &self.labels
-    }
-
-    pub fn created_at(&self) -> &DateTime<Utc> {
-        &self.created_at
-    }
-
-    /// Update asset metadata.
+    /// Update asset metadata. Returns the updated asset.
     ///
-    /// Only the metadata passed in will be replaced, the rest will remain untouched.
+    /// Only fields set on the update will be changed; the rest remain untouched.
     ///
     /// # Example
     /// ```no_run
     /// # use nominal_client::AssetUpdate;
-    /// # async fn example(mut asset: nominal_client::Asset) -> nominal_client::Result<()> {
-    /// asset.update(
-    ///     AssetUpdate::default()
-    ///         .name("New Name")
-    ///         .labels(["label1", "label2"]),
-    /// ).await?;
-    /// # Ok(())
-    /// # }
+    /// # async fn example(client: nominal_client::NominalClient) -> nominal_client::Result<()> {
+    /// let asset = client.assets()
+    ///     .update("ri.scout.cerulean-staging.asset.<uuid>", AssetUpdate::new().name("New Name").labels(["tag1", "tag2"]))
+    ///     .await?;
+    /// # Ok(()) }
     /// ```
-    pub async fn update(&mut self, update: AssetUpdate) -> Result<()> {
+    pub async fn update(&self, rid: &str, update: AssetUpdate) -> Result<Asset> {
         let request = update.into_request();
-        let service = AssetServiceAsyncClient::new(self.client.service_client());
-
-        let rid = parse_rid(&self.rid)?;
-
-        let response = service
-            .update_asset(self.client.bearer_token(), &rid, &request)
+        let asset_rid = parse_rid(rid)?;
+        let response = self
+            .service
+            .update_asset(&self.token, &asset_rid, &request)
             .await
             .map_err(Error::from)?;
+        Ok(Asset::from_conjure(response))
+    }
 
-        *self = Self::from_conjure(&self.client, response);
-
+    /// Archive an asset. Archived assets are hidden from the UI but not deleted.
+    pub async fn archive(&self, rid: &str) -> Result<()> {
+        let asset_rid = parse_rid(rid)?;
+        self.service
+            .archive(&self.token, &asset_rid, None)
+            .await
+            .map_err(Error::from)?;
         Ok(())
     }
 
-    /// Get the URL to view this asset in the Nominal web app.
-    pub fn nominal_url(&self) -> String {
-        let app_base_url = api_base_url_to_app_base_url(self.client.base_url());
-        format!("{}/assets/{}", app_base_url, self.rid)
-    }
-
-    /// Archive this asset.
-    ///
-    /// Archived assets are not deleted, but are hidden from the UI.
-    pub async fn archive(&self) -> Result<()> {
-        let service = AssetServiceAsyncClient::new(self.client.service_client());
-
-        let rid = parse_rid(&self.rid)?;
-
-        service
-            .archive(self.client.bearer_token(), &rid, None)
+    /// Unarchive an asset, restoring its visibility in the UI.
+    pub async fn unarchive(&self, rid: &str) -> Result<()> {
+        let asset_rid = parse_rid(rid)?;
+        self.service
+            .unarchive(&self.token, &asset_rid, None)
             .await
             .map_err(Error::from)?;
-
         Ok(())
-    }
-
-    /// Unarchive this asset, allowing it to be viewed in the UI.
-    pub async fn unarchive(&self) -> Result<()> {
-        let service = AssetServiceAsyncClient::new(self.client.service_client());
-
-        let rid = parse_rid(&self.rid)?;
-
-        service
-            .unarchive(self.client.bearer_token(), &rid, None)
-            .await
-            .map_err(Error::from)?;
-
-        Ok(())
-    }
-
-    /// Internal method to construct an Asset from the Conjure API type.
-    pub(crate) fn from_conjure(
-        client: &NominalClient,
-        asset: nominal_api::scout::asset::api::Asset,
-    ) -> Self {
-        let properties = asset
-            .properties()
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
-
-        let labels = asset.labels().iter().map(|l| l.to_string()).collect();
-
-        let description = asset
-            .description()
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
-
-        Self {
-            rid: rid_to_string(asset.rid()),
-            name: asset.title().to_string(),
-            description,
-            properties,
-            labels,
-            created_at: asset.created_at().to_utc(),
-            client: client.clone(),
-        }
     }
 }
