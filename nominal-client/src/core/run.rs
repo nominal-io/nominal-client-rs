@@ -1,9 +1,13 @@
 use chrono::{DateTime, Utc};
 use conjure_http::client::AsyncService;
+use conjure_object::BearerToken;
+use conjure_runtime::Client;
 use nominal_api::scout::RunServiceAsyncClient;
 use nominal_api::scout::run::api::{
-    CreateRunDataSource, DataSource, UpdateAttachmentsRequest, UpdateRunRequest,
+    CreateRunDataSource, DataSource, SearchQuery, SearchRunsRequest, SortField, SortKey,
+    SortOptions, UpdateAttachmentsRequest, UpdateRunRequest,
 };
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::core::{
     datetime::{NominalDateTime, api_timestamp_to_utc_or_panic},
@@ -12,8 +16,97 @@ use crate::core::{
 };
 use crate::{Error, Result};
 
-use super::NominalClient;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+// ── Data type ────────────────────────────────────────────────────────────────
+
+/// Represents a run in Nominal.
+///
+/// Runs are executions of tests, simulations, or analyses within an asset.
+/// They contain datasets, events, and other time-series data.
+#[derive(Debug, Clone)]
+pub struct Run {
+    rid: String,
+    name: String,
+    description: String,
+    properties: HashMap<String, String>,
+    labels: Vec<String>,
+    start: DateTime<Utc>,
+    end: Option<DateTime<Utc>>,
+    run_number: u32,
+    assets: Vec<String>,
+    created_at: DateTime<Utc>,
+}
+
+impl Run {
+    pub fn rid(&self) -> &str {
+        &self.rid
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn description(&self) -> &str {
+        &self.description
+    }
+
+    pub fn properties(&self) -> &HashMap<String, String> {
+        &self.properties
+    }
+
+    pub fn labels(&self) -> &[String] {
+        &self.labels
+    }
+
+    pub fn start(&self) -> &DateTime<Utc> {
+        &self.start
+    }
+
+    pub fn end(&self) -> Option<&DateTime<Utc>> {
+        self.end.as_ref()
+    }
+
+    pub fn run_number(&self) -> u32 {
+        self.run_number
+    }
+
+    pub fn assets(&self) -> &[String] {
+        &self.assets
+    }
+
+    pub fn created_at(&self) -> &DateTime<Utc> {
+        &self.created_at
+    }
+
+    /// Get the URL to view this run in the Nominal web app.
+    pub fn nominal_url(&self, base_url: &str) -> String {
+        format!(
+            "{}/runs/{}",
+            api_base_url_to_app_base_url(base_url),
+            self.run_number
+        )
+    }
+
+    pub(crate) fn from_conjure(run: nominal_api::scout::run::api::Run) -> Self {
+        Self {
+            rid: rid_to_string(run.rid()),
+            name: run.title().to_string(),
+            description: run.description().to_string(),
+            properties: run
+                .properties()
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            labels: run.labels().iter().map(|l| l.to_string()).collect(),
+            start: api_timestamp_to_utc_or_panic(run.start_time()),
+            end: run.end_time().map(api_timestamp_to_utc_or_panic),
+            run_number: *run.run_number() as u32,
+            assets: run.assets().iter().map(rid_to_string).collect(),
+            created_at: run.created_at().to_utc(),
+        }
+    }
+}
+
+// ── Update builder ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Default, Clone)]
 pub struct RunUpdate {
@@ -76,7 +169,7 @@ impl RunUpdate {
         self
     }
 
-    pub(crate) fn into_request(self) -> Result<nominal_api::scout::run::api::UpdateRunRequest> {
+    pub(crate) fn into_request(self) -> Result<UpdateRunRequest> {
         let RunUpdate {
             name,
             description,
@@ -86,169 +179,136 @@ impl RunUpdate {
             end,
         } = self;
 
-        let mut request_builder = UpdateRunRequest::builder();
-
+        let mut b = UpdateRunRequest::builder();
         if let Some(n) = name {
-            request_builder = request_builder.title(n);
+            b = b.title(n);
         }
         if let Some(d) = description {
-            request_builder = request_builder.description(d);
+            b = b.description(d);
         }
         if let Some(p) = properties {
             let props = p
                 .into_iter()
                 .map(|(k, v)| (k.into(), v.into()))
                 .collect::<BTreeMap<_, _>>();
-            request_builder = request_builder.properties(props);
+            b = b.properties(props);
         }
         if let Some(l) = labels {
-            let labels_set = l.into_iter().map(|s| s.into()).collect::<BTreeSet<_>>();
-            request_builder = request_builder.labels(labels_set);
+            b = b.labels(l.into_iter().map(|s| s.into()).collect::<BTreeSet<_>>());
         }
         if let Some(s) = start {
-            let s_ts = NominalDateTime::try_from(s)?.into();
-            request_builder = request_builder.start_time(Some(s_ts));
+            b = b.start_time(Some(NominalDateTime::try_from(s)?.into()));
         }
         if let Some(e) = end {
-            let e_ts = NominalDateTime::try_from(e)?.into();
-            request_builder = request_builder.end_time(Some(e_ts));
+            b = b.end_time(Some(NominalDateTime::try_from(e)?.into()));
         }
 
-        Ok(request_builder.assets(vec![]).build())
+        Ok(b.assets(vec![]).build())
     }
 }
 
-/// Represents a run in Nominal.
-///
-/// Runs are executions of tests, simulations, or analyses within an asset.
-/// They contain datasets, events, and other time-series data.
-#[derive(Debug, Clone)]
-pub struct Run {
-    /// The resource identifier (RID) for this run
+// ── Sub-clients ───────────────────────────────────────────────────────────────
+
+/// Client for run collection operations (list, get).
+pub struct RunsClient {
+    service: RunServiceAsyncClient<Client>,
+    token: BearerToken,
+}
+
+impl RunsClient {
+    pub(crate) fn new(client: Client, token: BearerToken) -> Self {
+        Self {
+            service: RunServiceAsyncClient::new(client),
+            token,
+        }
+    }
+
+    /// Get a run by RID.
+    pub async fn get(&self, rid: &str) -> Result<Run> {
+        let run_rid = parse_rid(rid)?;
+        let response = self
+            .service
+            .get_run(&self.token, &run_rid)
+            .await
+            .map_err(Error::from)?;
+        Ok(Run::from_conjure(response))
+    }
+
+    /// List runs, sorted by creation date descending.
+    pub async fn list(&self) -> Result<Vec<Run>> {
+        let request = SearchRunsRequest::new(
+            SortOptions::builder()
+                .is_descending(true)
+                .sort_key(SortKey::Field(SortField::CreatedAt))
+                .build(),
+            100, // page_size
+            SearchQuery::SearchText("".to_string()),
+        );
+        let response = self
+            .service
+            .search_runs(&self.token, &request)
+            .await
+            .map_err(Error::from)?;
+        Ok(response
+            .results()
+            .iter()
+            .map(|r| Run::from_conjure(r.clone()))
+            .collect())
+    }
+}
+
+/// Handle for operations on a specific run.
+pub struct RunHandle {
     rid: String,
-
-    /// The display name of the run
-    name: String,
-
-    /// Description of the run
-    description: String,
-
-    /// Key-value properties for custom metadata
-    properties: HashMap<String, String>,
-
-    /// Labels for categorizing and filtering runs
-    labels: Vec<String>,
-
-    /// Start timestamp
-    start: DateTime<Utc>,
-
-    /// End timestamp
-    end: Option<DateTime<Utc>>,
-
-    /// Run number (display identifier)
-    run_number: u32,
-
-    /// Asset RIDs associated with this run
-    assets: Vec<String>,
-
-    /// Creation timestamp in nanoseconds since Unix epoch
-    created_at: DateTime<Utc>,
-
-    /// Reference to the client for API calls
-    client: NominalClient,
+    service: RunServiceAsyncClient<Client>,
+    token: BearerToken,
 }
 
-impl Run {
-    pub fn rid(&self) -> &str {
-        &self.rid
+impl RunHandle {
+    pub(crate) fn new(rid: String, client: Client, token: BearerToken) -> Self {
+        Self {
+            rid,
+            service: RunServiceAsyncClient::new(client),
+            token,
+        }
     }
 
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn description(&self) -> &str {
-        &self.description
-    }
-
-    pub fn properties(&self) -> &HashMap<String, String> {
-        &self.properties
-    }
-
-    pub fn labels(&self) -> &[String] {
-        &self.labels
-    }
-
-    pub fn start(&self) -> &DateTime<Utc> {
-        &self.start
-    }
-
-    pub fn end(&self) -> Option<&DateTime<Utc>> {
-        self.end.as_ref()
-    }
-
-    pub fn run_number(&self) -> u32 {
-        self.run_number
-    }
-
-    pub fn assets(&self) -> &[String] {
-        &self.assets
-    }
-
-    pub fn created_at(&self) -> &DateTime<Utc> {
-        &self.created_at
-    }
-
-    /// Get the URL to view this run in the Nominal web app.
-    pub fn nominal_url(&self) -> String {
-        let app_base_url = api_base_url_to_app_base_url(self.client.base_url());
-        format!("{}/runs/{}", app_base_url, self.run_number)
-    }
-
-    /// Update run metadata.
+    /// Update run metadata. Returns the updated run.
     ///
-    /// Only the metadata passed in will be replaced, the rest will remain untouched.
+    /// Only fields set on the update will be changed; the rest remain untouched.
     ///
     /// # Example
     /// ```no_run
     /// # use nominal_client::RunUpdate;
-    /// # async fn example(mut run: nominal_client::Run) -> nominal_client::Result<()> {
-    /// run.update(
-    ///     RunUpdate::default()
-    ///         .name("New Name")
-    ///         .description("New description")
-    ///         .labels(["label1", "label2"]),
-    /// ).await?;
-    /// # Ok(())
-    /// # }
+    /// # async fn example(client: nominal_client::NominalClient) -> nominal_client::Result<()> {
+    /// let run = client.run("rid:scout.nominal.run:...")
+    ///     .update(RunUpdate::new().name("New Name").labels(["tag1", "tag2"]))
+    ///     .await?;
+    /// # Ok(()) }
     /// ```
-    pub async fn update(&mut self, update: RunUpdate) -> Result<()> {
+    pub async fn update(&self, update: RunUpdate) -> Result<Run> {
         let request = update.into_request()?;
-        let service = RunServiceAsyncClient::new(self.client.service_client());
-
         let rid = parse_rid(&self.rid)?;
-
-        let response = service
-            .update_run(self.client.bearer_token(), &rid, &request)
+        let response = self
+            .service
+            .update_run(&self.token, &rid, &request)
             .await
             .map_err(Error::from)?;
-
-        // Update self with the response
-        *self = Self::from_conjure(&self.client, response);
-
-        Ok(())
+        Ok(Run::from_conjure(response))
     }
 
     /// Add datasets to this run.
     ///
-    /// Datasets map "ref names" (their name within the run) to a dataset RID.
+    /// Datasets map "ref names" (their logical name within the run) to a dataset RID.
     /// The same type of dataset should use the same ref name across runs, since checklists
     /// and templates use ref names to reference datasets.
     ///
-    /// Accepts any iterable of `(ref_name, dataset_rid)` pairs:
+    /// # Example
     /// ```no_run
-    /// # async fn example(run: nominal_client::Run) -> nominal_client::Result<()> {
-    /// run.add_datasets([("my-data", "rid:scout.nominal.run:...")]).await?;
+    /// # async fn example(client: nominal_client::NominalClient) -> nominal_client::Result<()> {
+    /// client.run("rid:scout.nominal.run:...")
+    ///     .add_datasets([("flight-data", "rid:scout.nominal.dataset:...")])
+    ///     .await?;
     /// # Ok(()) }
     /// ```
     pub async fn add_datasets<I, K, V>(&self, datasets: I) -> Result<()>
@@ -257,8 +317,6 @@ impl Run {
         K: Into<String>,
         V: Into<String>,
     {
-        let service = RunServiceAsyncClient::new(self.client.service_client());
-
         let data_sources = datasets
             .into_iter()
             .map(|(ref_name, dataset_rid)| {
@@ -277,52 +335,40 @@ impl Run {
             .collect::<std::result::Result<BTreeMap<_, _>, _>>()?;
 
         let rid = parse_rid(&self.rid)?;
-
-        service
-            .add_data_sources_to_run(self.client.bearer_token(), &rid, &data_sources)
+        self.service
+            .add_data_sources_to_run(&self.token, &rid, &data_sources)
             .await
             .map_err(Error::from)?;
-
         Ok(())
     }
 
     /// Add a video to this run.
-    ///
-    /// # Arguments
-    /// * `ref_name` - Logical name for the video within the run
-    /// * `video_rid` - Video RID to add to the run
     pub async fn add_video(&self, ref_name: &str, video_rid: &str) -> Result<()> {
-        let service = RunServiceAsyncClient::new(self.client.service_client());
-
-        let rid = parse_rid(video_rid)?;
+        let vid_rid = parse_rid(video_rid)?;
         let data_sources = BTreeMap::from([(
             ref_name.to_string().into(),
             CreateRunDataSource::builder()
-                .data_source(DataSource::Video(rid))
+                .data_source(DataSource::Video(vid_rid))
                 .build(),
         )]);
-
         let rid = parse_rid(&self.rid)?;
-
-        service
-            .add_data_sources_to_run(self.client.bearer_token(), &rid, &data_sources)
+        self.service
+            .add_data_sources_to_run(&self.token, &rid, &data_sources)
             .await
             .map_err(Error::from)?;
-
         Ok(())
     }
 
-    /// Add attachments that have already been uploaded to this run.
-    ///
-    /// # Arguments
-    /// * `attachment_rids` - List of attachment RIDs to add
-    pub async fn add_attachments(&self, attachment_rids: Vec<String>) -> Result<()> {
-        let service = RunServiceAsyncClient::new(self.client.service_client());
-
+    /// Add attachments (by RID) that have already been uploaded to this run.
+    pub async fn add_attachments<I, S>(&self, attachment_rids: I) -> Result<()>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
         let attachments_to_add = attachment_rids
             .into_iter()
-            .map(|rid| parse_rid(&rid).map_err(Error::from))
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+            .map(|s| parse_rid(s.as_ref()).map_err(Error::from))
+            .collect::<Result<Vec<_>>>()?;
 
         let request = UpdateAttachmentsRequest::builder()
             .attachments_to_add(attachments_to_add)
@@ -330,27 +376,23 @@ impl Run {
             .build();
 
         let rid = parse_rid(&self.rid)?;
-
-        service
-            .update_run_attachment(self.client.bearer_token(), &rid, &request)
+        self.service
+            .update_run_attachment(&self.token, &rid, &request)
             .await
             .map_err(Error::from)?;
-
         Ok(())
     }
 
-    /// Remove attachments from this run.
-    /// Does not remove the attachments from Nominal.
-    ///
-    /// # Arguments
-    /// * `attachment_rids` - List of attachment RIDs to remove
-    pub async fn remove_attachments(&self, attachment_rids: Vec<String>) -> Result<()> {
-        let service = RunServiceAsyncClient::new(self.client.service_client());
-
+    /// Remove attachments from this run. Does not delete them from Nominal.
+    pub async fn remove_attachments<I, S>(&self, attachment_rids: I) -> Result<()>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
         let attachments_to_remove = attachment_rids
             .into_iter()
-            .map(|rid| parse_rid(&rid).map_err(Error::from))
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+            .map(|s| parse_rid(s.as_ref()).map_err(Error::from))
+            .collect::<Result<Vec<_>>>()?;
 
         let request = UpdateAttachmentsRequest::builder()
             .attachments_to_add(vec![])
@@ -358,64 +400,22 @@ impl Run {
             .build();
 
         let rid = parse_rid(&self.rid)?;
-
-        service
-            .update_run_attachment(self.client.bearer_token(), &rid, &request)
+        self.service
+            .update_run_attachment(&self.token, &rid, &request)
             .await
             .map_err(Error::from)?;
-
         Ok(())
     }
 
-    /// Archive this run.
+    /// Archive this run. Archived runs are hidden from the UI but not deleted.
     ///
-    /// Archived runs are not deleted, but are hidden from the UI.
-    /// NOTE: currently, it is not possible (yet) to unarchive a run once archived.
+    /// Note: runs cannot currently be unarchived once archived.
     pub async fn archive(&self) -> Result<()> {
-        let service = RunServiceAsyncClient::new(self.client.service_client());
-
         let rid = parse_rid(&self.rid)?;
-
-        service
-            .archive_run(self.client.bearer_token(), &rid, None)
+        self.service
+            .archive_run(&self.token, &rid, None)
             .await
             .map_err(Error::from)?;
-
         Ok(())
-    }
-
-    /// Internal method to construct a Run from the Conjure API type.
-    ///
-    /// Panics if any timestamp conversion fails, which indicates corrupted API data.
-    pub(crate) fn from_conjure(
-        client: &NominalClient,
-        run: nominal_api::scout::run::api::Run,
-    ) -> Self {
-        let start = api_timestamp_to_utc_or_panic(run.start_time());
-        let end = run.end_time().map(api_timestamp_to_utc_or_panic);
-
-        let properties = run
-            .properties()
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
-
-        let labels = run.labels().iter().map(|l| l.to_string()).collect();
-
-        let assets = run.assets().iter().map(rid_to_string).collect();
-
-        Self {
-            rid: rid_to_string(run.rid()),
-            name: run.title().to_string(),
-            description: run.description().to_string(),
-            properties,
-            labels,
-            start,
-            end,
-            run_number: *run.run_number() as u32,
-            assets,
-            created_at: run.created_at().to_utc(),
-            client: client.clone(),
-        }
     }
 }
