@@ -2,11 +2,13 @@ use chrono::{DateTime, Utc};
 use conjure_http::client::AsyncService;
 use conjure_object::BearerToken;
 use conjure_runtime::Client;
+use nominal_api::api::{Label, PropertyName, PropertyValue, SetOperator};
 use nominal_api::scout::RunServiceAsyncClient;
 use nominal_api::scout::run::api::{
-    CreateRunDataSource, DataSource, SearchQuery, SearchRunsRequest, SortField, SortKey,
-    SortOptions, UpdateAttachmentsRequest, UpdateRunRequest,
+    CreateRunDataSource, CustomTimeframeFilter, DataSource, SearchQuery, SearchRunsRequest,
+    SortField, SortKey, SortOptions, TimeframeFilter, UpdateAttachmentsRequest, UpdateRunRequest,
 };
+use nominal_api::scout::rids::api::{LabelsFilter, PropertiesFilter};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::core::{
@@ -205,6 +207,120 @@ impl RunUpdate {
     }
 }
 
+/// A query for searching runs, which can be composed into a tree with [`and`](RunQuery::and), [`or`](RunQuery::or), and [`not`](RunQuery::not).
+#[derive(Debug, Clone)]
+pub enum RunQuery {
+    /// Fuzzy full-text search against title and description.
+    SearchText(String),
+    /// Case-insensitive exact substring match on the title.
+    ExactMatch(String),
+    /// Filter by label.
+    Label(String),
+    /// Filter by property key and value.
+    Property(String, String),
+    /// Filter by run number.
+    RunNumber(u32),
+    /// Filter runs whose start time is at or after this timestamp.
+    StartTimeInclusive(DateTime<Utc>),
+    /// Filter runs whose end time is at or before this timestamp.
+    EndTimeInclusive(DateTime<Utc>),
+    /// All sub-queries must match.
+    And(Vec<RunQuery>),
+    /// At least one sub-query must match.
+    Or(Vec<RunQuery>),
+    /// Negates the sub-query.
+    Not(Box<RunQuery>),
+}
+
+impl RunQuery {
+    pub fn search_text(text: impl Into<String>) -> Self {
+        Self::SearchText(text.into())
+    }
+
+    pub fn exact_match(text: impl Into<String>) -> Self {
+        Self::ExactMatch(text.into())
+    }
+
+    pub fn label(label: impl Into<String>) -> Self {
+        Self::Label(label.into())
+    }
+
+    pub fn property(key: impl Into<String>, value: impl Into<String>) -> Self {
+        Self::Property(key.into(), value.into())
+    }
+
+    pub fn run_number(n: u32) -> Self {
+        Self::RunNumber(n)
+    }
+
+    pub fn start_time_inclusive(t: DateTime<Utc>) -> Self {
+        Self::StartTimeInclusive(t)
+    }
+
+    pub fn end_time_inclusive(t: DateTime<Utc>) -> Self {
+        Self::EndTimeInclusive(t)
+    }
+
+    pub fn and(queries: impl IntoIterator<Item = RunQuery>) -> Self {
+        Self::And(queries.into_iter().collect())
+    }
+
+    pub fn or(queries: impl IntoIterator<Item = RunQuery>) -> Self {
+        Self::Or(queries.into_iter().collect())
+    }
+
+    pub fn not(query: RunQuery) -> Self {
+        Self::Not(Box::new(query))
+    }
+
+    fn into_conjure(self) -> crate::Result<SearchQuery> {
+        use crate::core::datetime::NominalDateTime;
+        Ok(match self {
+            Self::SearchText(s) => SearchQuery::SearchText(s),
+            Self::ExactMatch(s) => SearchQuery::ExactMatch(s),
+            Self::Label(l) => SearchQuery::Labels(
+                LabelsFilter::builder()
+                    .operator(SetOperator::Or)
+                    .extend_labels([Label(l)])
+                    .build(),
+            ),
+            Self::Property(k, v) => SearchQuery::Properties(
+                PropertiesFilter::builder()
+                    .name(PropertyName(k))
+                    .extend_values([PropertyValue(v)])
+                    .build(),
+            ),
+            Self::RunNumber(n) => SearchQuery::RunNumber(
+                conjure_object::SafeLong::try_from(n as i64)
+                    .expect("u32 is always within SafeLong range"),
+            ),
+            Self::StartTimeInclusive(t) => {
+                let ts = NominalDateTime::try_from(t)?.into();
+                SearchQuery::StartTime(Box::new(TimeframeFilter::Custom(
+                    CustomTimeframeFilter::builder().start_time(Some(ts)).build(),
+                )))
+            }
+            Self::EndTimeInclusive(t) => {
+                let ts = NominalDateTime::try_from(t)?.into();
+                SearchQuery::EndTime(Box::new(TimeframeFilter::Custom(
+                    CustomTimeframeFilter::builder().end_time(Some(ts)).build(),
+                )))
+            }
+            Self::And(qs) => SearchQuery::And(
+                qs.into_iter()
+                    .map(Self::into_conjure)
+                    .collect::<crate::Result<_>>()?,
+            ),
+            Self::Or(qs) => SearchQuery::Or(
+                qs.into_iter()
+                    .map(Self::into_conjure)
+                    .collect::<crate::Result<_>>()?,
+            ),
+            Self::Not(q) => SearchQuery::Not(Box::new(q.into_conjure()?)),
+        })
+    }
+}
+
 /// Client for run collection operations (list, get).
 pub struct RunsClient {
     service: RunServiceAsyncClient<Client>,
@@ -257,13 +373,31 @@ impl RunsClient {
 
     /// List runs, sorted by creation date descending.
     pub async fn list(&self) -> Result<Vec<Run>> {
+        self.search(RunQuery::search_text("")).await
+    }
+
+    /// Search runs with a query.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # async fn example(client: nominal_client::NominalClient) -> nominal_client::Result<()> {
+    /// use nominal_client::RunQuery;
+    /// let runs = client.runs()
+    ///     .search(RunQuery::and([
+    ///         RunQuery::label("production"),
+    ///         RunQuery::property("vehicle", "rocket"),
+    ///     ]))
+    ///     .await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn search(&self, query: RunQuery) -> Result<Vec<Run>> {
         let request = SearchRunsRequest::new(
             SortOptions::builder()
                 .is_descending(true)
                 .sort_key(SortKey::Field(SortField::CreatedAt))
                 .build(),
-            100, // page_size
-            SearchQuery::SearchText("".to_string()),
+            100,
+            query.into_conjure()?,
         );
         let response = self
             .service
