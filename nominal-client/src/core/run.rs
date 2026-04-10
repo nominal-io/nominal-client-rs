@@ -232,6 +232,29 @@ impl RunsClient {
         Ok(Run::from_conjure(response, &self.app_base_url))
     }
 
+    /// Get multiple runs by RID.
+    ///
+    /// Returns a map from RID string to Run. RIDs not found in Nominal are omitted.
+    pub async fn get_batch<I, S>(&self, rids: I) -> Result<HashMap<String, Run>>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let rid_set = rids
+            .into_iter()
+            .map(|s| parse_rid(s.as_ref()).map_err(Error::from))
+            .collect::<Result<std::collections::BTreeSet<_>>>()?;
+        let response = self
+            .service
+            .get_runs(&self.token, &rid_set)
+            .await
+            .map_err(Error::from)?;
+        Ok(response
+            .into_iter()
+            .map(|(k, v)| (rid_to_string(&k), Run::from_conjure(v, &self.app_base_url)))
+            .collect())
+    }
+
     /// List runs, sorted by creation date descending.
     pub async fn list(&self) -> Result<Vec<Run>> {
         let request = SearchRunsRequest::new(
