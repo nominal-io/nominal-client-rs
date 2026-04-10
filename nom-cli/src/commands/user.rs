@@ -1,6 +1,6 @@
 use anyhow::Context;
 use clap::Subcommand;
-use nominal_client::NominalClient;
+use nominal::NominalClient;
 
 #[derive(Subcommand)]
 pub enum UserCommands {

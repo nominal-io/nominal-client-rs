@@ -8,7 +8,7 @@ name = "nom"
 path = "src/main.rs"
 
 [dependencies]
-nominal-client = { path = "../nominal-client" }
+nominal = { path = "../nominal" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 chrono = { version = "0.4" }

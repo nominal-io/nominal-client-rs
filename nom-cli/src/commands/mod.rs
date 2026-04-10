@@ -3,7 +3,7 @@ pub mod config;
 pub mod user;
 
 use anyhow::Context;
-use nominal_client::{Config, NominalClient};
+use nominal::{Config, NominalClient};
 
 pub(crate) fn load_client(profile_name: &str) -> anyhow::Result<NominalClient> {
     let config = Config::from_file(None).context("Failed to load config")?;

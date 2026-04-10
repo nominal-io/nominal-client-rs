@@ -1,4 +1,4 @@
 [workspace]
-members = ["nominal-client", "nom-cli"]
+members = ["nominal", "nom-cli"]
 resolver = "2"
 

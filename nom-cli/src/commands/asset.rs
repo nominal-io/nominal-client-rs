@@ -1,7 +1,7 @@
 use anyhow::Context;
 use chrono::SecondsFormat;
 use clap::Subcommand;
-use nominal_client::NominalClient;
+use nominal::NominalClient;
 
 #[derive(Subcommand)]
 pub enum AssetCommands {

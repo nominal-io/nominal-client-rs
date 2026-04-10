@@ -1180,26 +1180,12 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
- "nominal-client",
+ "nominal",
  "tokio",
 ]
 
 [[package]]
-name = "nominal-api"
-version = "0.1151.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6511afc3440b3dfa17e73bdb7a5bce978aa20a81f5631149123002161c2c973a"
-dependencies = [
- "conjure-codegen",
- "conjure-error",
- "conjure-http",
- "conjure-object",
- "prost",
- "tonic",
-]
-
-[[package]]
-name = "nominal-client"
+name = "nominal"
 version = "0.1.0"
 dependencies = [
  "chrono",
@@ -1214,6 +1200,20 @@ dependencies = [
  "serde",
  "serde_yaml",
  "thiserror 2.0.16",
+]
+
+[[package]]
+name = "nominal-api"
+version = "0.1151.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6511afc3440b3dfa17e73bdb7a5bce978aa20a81f5631149123002161c2c973a"
+dependencies = [
+ "conjure-codegen",
+ "conjure-error",
+ "conjure-http",
+ "conjure-object",
+ "prost",
+ "tonic",
 ]
 
 [[package]]

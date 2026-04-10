@@ -1,6 +1,6 @@
 use anyhow::Context;
 use clap::Subcommand;
-use nominal_client::{Config, Profile};
+use nominal::{Config, Profile};
 
 #[derive(Subcommand)]
 pub enum ConfigCommands {

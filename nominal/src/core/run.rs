@@ -422,8 +422,8 @@ impl RunsClient {
     ///
     /// # Example
     /// ```no_run
-    /// # async fn example(client: nominal_client::NominalClient) -> nominal_client::Result<()> {
-    /// use nominal_client::RunQuery;
+    /// # async fn example(client: nominal::NominalClient) -> nominal::Result<()> {
+    /// use nominal::RunQuery;
     /// let runs = client.runs()
     ///     .search(RunQuery::and([
     ///         RunQuery::label("production"),
@@ -442,8 +442,8 @@ impl RunsClient {
     ///
     /// # Example
     /// ```no_run
-    /// # use nominal_client::RunUpdate;
-    /// # async fn example(client: nominal_client::NominalClient) -> nominal_client::Result<()> {
+    /// # use nominal::RunUpdate;
+    /// # async fn example(client: nominal::NominalClient) -> nominal::Result<()> {
     /// let run = client.runs()
     ///     .update("ri.scout.cerulean-staging.run.<uuid>", RunUpdate::new().name("New Name").labels(["tag1", "tag2"]))
     ///     .await?;
@@ -468,7 +468,7 @@ impl RunsClient {
     ///
     /// # Example
     /// ```no_run
-    /// # async fn example(client: nominal_client::NominalClient) -> nominal_client::Result<()> {
+    /// # async fn example(client: nominal::NominalClient) -> nominal::Result<()> {
     /// client.runs()
     ///     .add_datasets("ri.scout.cerulean-staging.run.<uuid>", [("flight-data", "ri.catalog.cerulean-staging.dataset.<uuid>")])
     ///     .await?;

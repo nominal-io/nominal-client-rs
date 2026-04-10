@@ -341,8 +341,8 @@ impl AssetsClient {
     ///
     /// # Example
     /// ```no_run
-    /// # async fn example(client: nominal_client::NominalClient) -> nominal_client::Result<()> {
-    /// use nominal_client::AssetQuery;
+    /// # async fn example(client: nominal::NominalClient) -> nominal::Result<()> {
+    /// use nominal::AssetQuery;
     /// let assets = client.assets()
     ///     .search(AssetQuery::and([
     ///         AssetQuery::label("production"),
@@ -361,8 +361,8 @@ impl AssetsClient {
     ///
     /// # Example
     /// ```no_run
-    /// # use nominal_client::AssetUpdate;
-    /// # async fn example(client: nominal_client::NominalClient) -> nominal_client::Result<()> {
+    /// # use nominal::AssetUpdate;
+    /// # async fn example(client: nominal::NominalClient) -> nominal::Result<()> {
     /// let asset = client.assets()
     ///     .update("ri.scout.cerulean-staging.asset.<uuid>", AssetUpdate::new().name("New Name").labels(["tag1", "tag2"]))
     ///     .await?;
