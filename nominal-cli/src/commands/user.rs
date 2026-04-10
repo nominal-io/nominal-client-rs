@@ -4,18 +4,18 @@ use nominal::NominalClient;
 
 #[derive(Subcommand)]
 pub enum UserCommands {
-    /// Get your profile information
-    GetProfile,
+    /// Get your user information
+    WhoAmI,
 }
 
 pub async fn handle(cmd: UserCommands, client: NominalClient) -> anyhow::Result<()> {
     match cmd {
-        UserCommands::GetProfile => {
+        UserCommands::WhoAmI => {
             let user = client
                 .users()
-                .get_my_profile()
+                .who_am_i()
                 .await
-                .context("Failed to get profile")?;
+                .context("Failed to get user information")?;
 
             println!("RID: {}", user.rid());
             println!("Org RID: {}", user.org_rid());

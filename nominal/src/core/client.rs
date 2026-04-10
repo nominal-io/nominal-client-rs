@@ -1,7 +1,7 @@
 use conjure_object::BearerToken;
 use conjure_runtime::{Agent, Client, UserAgent};
 
-use crate::config::Profile;
+use crate::config::{Config, Profile};
 use crate::core::{
     asset::AssetsClient, run::RunsClient, user::UsersClient, utils::api_base_url_to_app_base_url,
 };
@@ -42,7 +42,15 @@ impl NominalClient {
         })
     }
 
-    pub fn from_profile(profile: &Profile) -> Result<Self> {
+    pub fn from_profile(name: &str) -> Result<Self> {
+        let config = Config::from_file(None)?;
+        let profile = config
+            .get_profile(name)
+            .ok_or_else(|| Error::ProfileNotFound { name: name.to_string() })?;
+        Self::from_profile_config(profile)
+    }
+
+    pub fn from_profile_config(profile: &Profile) -> Result<Self> {
         Self::new(
             profile.base_url(),
             profile.token(),

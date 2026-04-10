@@ -37,6 +37,9 @@ pub enum Error {
     #[error("invalid service URL '{url}': {reason}")]
     InvalidServiceUrl { url: String, reason: String },
 
+    #[error("profile '{name}' not found in config")]
+    ProfileNotFound { name: String },
+
     #[error("resource not found: {resource}")]
     NotFound { resource: &'static str },
 }

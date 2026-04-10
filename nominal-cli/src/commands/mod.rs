@@ -12,6 +12,6 @@ pub(crate) fn load_client(profile_name: &str) -> anyhow::Result<NominalClient> {
         .get_profile(profile_name)
         .ok_or_else(|| anyhow::anyhow!("Profile '{profile_name}' not found"))?;
 
-    NominalClient::from_profile(profile)
+    NominalClient::from_profile_config(profile)
         .with_context(|| format!("Failed to create client for profile '{profile_name}'"))
 }

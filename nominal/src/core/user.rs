@@ -55,8 +55,8 @@ impl UsersClient {
         }
     }
 
-    /// Get the profile of the authenticated user.
-    pub async fn get_my_profile(&self) -> Result<User> {
+    /// Get the authenticated user.
+    pub async fn who_am_i(&self) -> Result<User> {
         let response = self
             .service
             .get_my_profile(&self.token)
