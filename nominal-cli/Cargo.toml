@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.85"
 license = "Apache-2.0"
 description = "CLI for automating Nominal workflows"
-repository = "https://github.com/nominal-io/nominal-client-rs"
+homepage = "https://nominal.io"
 
 [[bin]]
 name = "nom"
