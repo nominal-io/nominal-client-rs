@@ -2,9 +2,9 @@ use chrono::{DateTime, Utc};
 use conjure_http::client::AsyncService;
 use conjure_object::BearerToken;
 use conjure_runtime::Client;
+use nominal_api::api::{Label, Property, PropertyName, PropertyValue};
 use nominal_api::scout::asset::api::{
-    AssetSortOptions, SearchAssetsQuery, SearchAssetsRequest, SortField, SortKey,
-    UpdateAssetRequest,
+    AssetSortOptions, SearchAssetsQuery, SearchAssetsRequest, SortField, SortKey, UpdateAssetRequest,
 };
 use nominal_api::scout::assets::AssetServiceAsyncClient;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -161,6 +161,63 @@ impl AssetUpdate {
     }
 }
 
+/// A query for searching assets, which can be composed into a tree with [`and`](AssetQuery::and) and [`or`](AssetQuery::or).
+#[derive(Debug, Clone)]
+pub enum AssetQuery {
+    /// Fuzzy full-text search against title and description.
+    SearchText(String),
+    /// Case-insensitive substring match of title or description.
+    ExactSubstring(String),
+    /// Filter by label.
+    Label(String),
+    /// Filter by property key and value.
+    Property(String, String),
+    /// All sub-queries must match.
+    And(Vec<AssetQuery>),
+    /// At least one sub-query must match.
+    Or(Vec<AssetQuery>),
+}
+
+impl AssetQuery {
+    pub fn search_text(text: impl Into<String>) -> Self {
+        Self::SearchText(text.into())
+    }
+
+    pub fn exact_substring(text: impl Into<String>) -> Self {
+        Self::ExactSubstring(text.into())
+    }
+
+    pub fn label(label: impl Into<String>) -> Self {
+        Self::Label(label.into())
+    }
+
+    pub fn property(key: impl Into<String>, value: impl Into<String>) -> Self {
+        Self::Property(key.into(), value.into())
+    }
+
+    pub fn and(queries: impl IntoIterator<Item = AssetQuery>) -> Self {
+        Self::And(queries.into_iter().collect())
+    }
+
+    pub fn or(queries: impl IntoIterator<Item = AssetQuery>) -> Self {
+        Self::Or(queries.into_iter().collect())
+    }
+
+    fn into_conjure(self) -> SearchAssetsQuery {
+        match self {
+            Self::SearchText(s) => SearchAssetsQuery::SearchText(s),
+            Self::ExactSubstring(s) => SearchAssetsQuery::ExactSubstring(s),
+            Self::Label(l) => SearchAssetsQuery::Label(Label(l)),
+            Self::Property(k, v) => SearchAssetsQuery::Property(Property::new(
+                PropertyName(k),
+                PropertyValue(v),
+            )),
+            Self::And(qs) => SearchAssetsQuery::And(qs.into_iter().map(Self::into_conjure).collect()),
+            Self::Or(qs) => SearchAssetsQuery::Or(qs.into_iter().map(Self::into_conjure).collect()),
+        }
+    }
+}
+
 /// Client for asset collection operations (list, get).
 pub struct AssetsClient {
     service: AssetServiceAsyncClient<Client>,
@@ -223,19 +280,36 @@ impl AssetsClient {
 
     /// List assets, sorted by creation date descending.
     pub async fn list(&self) -> Result<Vec<Asset>> {
+        self.search(AssetQuery::search_text("")).await
+    }
+
+    /// Search assets with a query.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # async fn example(client: nominal_client::NominalClient) -> nominal_client::Result<()> {
+    /// use nominal_client::AssetQuery;
+    /// let assets = client.assets()
+    ///     .search(AssetQuery::and([
+    ///         AssetQuery::label("production"),
+    ///         AssetQuery::property("vehicle", "rocket"),
+    ///     ]))
+    ///     .await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn search(&self, query: AssetQuery) -> Result<Vec<Asset>> {
         let request = SearchAssetsRequest::new(
             AssetSortOptions::builder()
                 .is_descending(true)
                 .sort_key(SortKey::Field(SortField::CreatedAt))
                 .build(),
-            SearchAssetsQuery::SearchText("".to_string()),
+            query.into_conjure(),
         );
         let response = self
             .service
             .search_assets(&self.token, &request)
             .await
             .map_err(Error::from)?;
-
         Ok(response
             .results()
             .iter()
