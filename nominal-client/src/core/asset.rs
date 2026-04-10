@@ -2,10 +2,12 @@ use chrono::{DateTime, Utc};
 use conjure_http::client::AsyncService;
 use conjure_object::BearerToken;
 use conjure_runtime::Client;
-use nominal_api::api::{Label, Property, PropertyName, PropertyValue};
+use nominal_api::api::{Label, PropertyName, PropertyValue, SetOperator};
 use nominal_api::scout::asset::api::{
-    AssetSortOptions, SearchAssetsQuery, SearchAssetsRequest, SortField, SortKey, UpdateAssetRequest,
+    AssetSortField, AssetSortOptions, SearchAssetsQuery, SearchAssetsRequest, SortKey,
+    UpdateAssetRequest,
 };
+use nominal_api::scout::rids::api::{LabelsFilter, PropertiesFilter};
 use nominal_api::scout::assets::AssetServiceAsyncClient;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -207,11 +209,18 @@ impl AssetQuery {
         match self {
             Self::SearchText(s) => SearchAssetsQuery::SearchText(s),
             Self::ExactSubstring(s) => SearchAssetsQuery::ExactSubstring(s),
-            Self::Label(l) => SearchAssetsQuery::Label(Label(l)),
-            Self::Property(k, v) => SearchAssetsQuery::Property(Property::new(
-                PropertyName(k),
-                PropertyValue(v),
-            )),
+            Self::Label(l) => SearchAssetsQuery::Labels(
+                LabelsFilter::builder()
+                    .operator(SetOperator::Or)
+                    .extend_labels([Label(l)])
+                    .build(),
+            ),
+            Self::Property(k, v) => SearchAssetsQuery::Properties(
+                PropertiesFilter::builder()
+                    .name(PropertyName(k))
+                    .extend_values([PropertyValue(v)])
+                    .build(),
+            ),
             Self::And(qs) => SearchAssetsQuery::And(qs.into_iter().map(Self::into_conjure).collect()),
             Self::Or(qs) => SearchAssetsQuery::Or(qs.into_iter().map(Self::into_conjure).collect()),
         }
@@ -301,7 +310,7 @@ impl AssetsClient {
         let request = SearchAssetsRequest::new(
             AssetSortOptions::builder()
                 .is_descending(true)
-                .sort_key(SortKey::Field(SortField::CreatedAt))
+                .sort_key(SortKey::Field(AssetSortField::CreatedAt))
                 .build(),
             query.into_conjure(),
         );
