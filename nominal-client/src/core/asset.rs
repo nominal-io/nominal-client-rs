@@ -2,17 +2,20 @@ use chrono::{DateTime, Utc};
 use conjure_http::client::AsyncService;
 use conjure_object::BearerToken;
 use conjure_runtime::Client;
+use futures::Stream;
 use nominal_api::api::{Label, PropertyName, PropertyValue, SetOperator};
 use nominal_api::scout::asset::api::{
     AssetSortField, AssetSortOptions, SearchAssetsQuery, SearchAssetsRequest, SortKey,
     UpdateAssetRequest,
 };
-use nominal_api::scout::rids::api::{LabelsFilter, PropertiesFilter};
 use nominal_api::scout::assets::AssetServiceAsyncClient;
+use nominal_api::scout::rids::api::{LabelsFilter, PropertiesFilter};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::core::rid::{parse_rid, rid_to_string};
+use crate::core::utils::paginate_stream;
 use crate::{Error, Result};
+use futures::TryStreamExt;
 
 /// Represents an asset in Nominal.
 ///
@@ -287,12 +290,54 @@ impl AssetsClient {
             .collect())
     }
 
-    /// List assets, sorted by creation date descending.
-    pub async fn list(&self) -> Result<Vec<Asset>> {
-        self.search(AssetQuery::search_text("")).await
+    fn list_stream(&self) -> impl Stream<Item = Result<Asset>> {
+        self.search_stream(AssetQuery::search_text(""))
     }
 
-    /// Search assets with a query.
+    /// List assets, sorted by creation date descending.
+    pub async fn list(&self) -> Result<Vec<Asset>> {
+        self.list_stream().try_collect().await
+    }
+
+    fn search_stream(&self, query: AssetQuery) -> impl Stream<Item = Result<Asset>> {
+        let conjure_query = query.into_conjure();
+        let service = self.service.clone();
+        let token = self.token.clone();
+        let app_base_url = self.app_base_url.clone();
+        paginate_stream(
+            move |page_token| {
+                SearchAssetsRequest::builder()
+                    .sort(
+                        AssetSortOptions::builder()
+                            .is_descending(true)
+                            .sort_key(SortKey::Field(AssetSortField::CreatedAt))
+                            .build(),
+                    )
+                    .query(conjure_query.clone())
+                    .next_page_token(page_token)
+                    .build()
+            },
+            move |req| {
+                let service = service.clone();
+                let token = token.clone();
+                async move {
+                    service
+                        .search_assets(&token, &req)
+                        .await
+                        .map_err(Error::from)
+                }
+            },
+            |resp| resp.next_page_token().cloned(),
+            move |resp| {
+                resp.results()
+                    .iter()
+                    .map(|a| Asset::from_conjure(a.clone(), &app_base_url))
+                    .collect()
+            },
+        )
+    }
+
+    /// Search assets with a query, collecting all pages eagerly.
     ///
     /// # Example
     /// ```no_run
@@ -307,23 +352,7 @@ impl AssetsClient {
     /// # Ok(()) }
     /// ```
     pub async fn search(&self, query: AssetQuery) -> Result<Vec<Asset>> {
-        let request = SearchAssetsRequest::new(
-            AssetSortOptions::builder()
-                .is_descending(true)
-                .sort_key(SortKey::Field(AssetSortField::CreatedAt))
-                .build(),
-            query.into_conjure(),
-        );
-        let response = self
-            .service
-            .search_assets(&self.token, &request)
-            .await
-            .map_err(Error::from)?;
-        Ok(response
-            .results()
-            .iter()
-            .map(|a| Asset::from_conjure(a.clone(), &self.app_base_url))
-            .collect())
+        self.search_stream(query).try_collect().await
     }
 
     /// Update asset metadata. Returns the updated asset.

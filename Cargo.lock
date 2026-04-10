@@ -1208,6 +1208,7 @@ dependencies = [
  "conjure-object",
  "conjure-runtime",
  "dirs",
+ "futures",
  "nominal-api",
  "regex",
  "serde",

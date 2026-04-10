@@ -4,7 +4,7 @@ pub(crate) mod datetime;
 pub(crate) mod rid;
 pub mod run;
 pub mod user;
-mod utils;
+pub(crate) mod utils;
 
 pub use asset::{Asset, AssetQuery, AssetUpdate, AssetsClient};
 pub use client::NominalClient;

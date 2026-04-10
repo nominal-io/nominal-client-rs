@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use conjure_http::client::AsyncService;
 use conjure_object::BearerToken;
 use conjure_runtime::Client;
+use futures::Stream;
 use nominal_api::api::{Label, PropertyName, PropertyValue, SetOperator};
 use nominal_api::scout::RunServiceAsyncClient;
 use nominal_api::scout::run::api::{
@@ -14,8 +15,10 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use crate::core::{
     datetime::{NominalDateTime, api_timestamp_to_utc_or_panic},
     rid::{parse_rid, rid_to_string},
+    utils::paginate_stream,
 };
 use crate::{Error, Result};
+use futures::TryStreamExt;
 
 /// Represents a run in Nominal.
 ///
@@ -376,7 +379,46 @@ impl RunsClient {
         self.search(RunQuery::search_text("")).await
     }
 
-    /// Search runs with a query.
+    fn search_stream(&self, query: RunQuery) -> Result<impl Stream<Item = Result<Run>>> {
+        let conjure_query = query.into_conjure()?;
+        let service = self.service.clone();
+        let token = self.token.clone();
+        let app_base_url = self.app_base_url.clone();
+        Ok(paginate_stream(
+            move |page_token| {
+                SearchRunsRequest::builder()
+                    .sort(
+                        SortOptions::builder()
+                            .is_descending(true)
+                            .sort_key(SortKey::Field(SortField::CreatedAt))
+                            .build(),
+                    )
+                    .page_size(100)
+                    .query(conjure_query.clone())
+                    .next_page_token(page_token)
+                    .build()
+            },
+            move |req| {
+                let service = service.clone();
+                let token = token.clone();
+                async move {
+                    service
+                        .search_runs(&token, &req)
+                        .await
+                        .map_err(Error::from)
+                }
+            },
+            |resp| resp.next_page_token().cloned(),
+            move |resp| {
+                resp.results()
+                    .iter()
+                    .map(|r| Run::from_conjure(r.clone(), &app_base_url))
+                    .collect()
+            },
+        ))
+    }
+
+    /// Search runs with a query, collecting all pages eagerly.
     ///
     /// # Example
     /// ```no_run
@@ -391,24 +433,7 @@ impl RunsClient {
     /// # Ok(()) }
     /// ```
     pub async fn search(&self, query: RunQuery) -> Result<Vec<Run>> {
-        let request = SearchRunsRequest::new(
-            SortOptions::builder()
-                .is_descending(true)
-                .sort_key(SortKey::Field(SortField::CreatedAt))
-                .build(),
-            100,
-            query.into_conjure()?,
-        );
-        let response = self
-            .service
-            .search_runs(&self.token, &request)
-            .await
-            .map_err(Error::from)?;
-        Ok(response
-            .results()
-            .iter()
-            .map(|r| Run::from_conjure(r.clone(), &self.app_base_url))
-            .collect())
+        self.search_stream(query)?.try_collect().await
     }
 
     /// Update run metadata. Returns the updated run.
