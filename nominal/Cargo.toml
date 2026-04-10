@@ -2,6 +2,10 @@
 name = "nominal"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+description = "Automate Nominal workflows in Rust"
+repository = "https://github.com/nominal-io/nominal-client-rs"
 
 [dependencies]
 chrono = { version = "0.4", features = ["clock", "std"] }
@@ -11,7 +15,7 @@ conjure-http = "4.15.0"
 conjure-object = "4.15.0"
 conjure-runtime = "6.2.0"
 dirs = "5"
-nominal-api = "*"
+nominal-api = "0.1151"
 regex = "1.11"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_yaml = "0.9.34"

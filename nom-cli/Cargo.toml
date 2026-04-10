@@ -1,14 +1,18 @@
 [package]
-name = "nom-cli"
+name = "nominal-cli"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+description = "CLI for automating Nominal workflows"
+repository = "https://github.com/nominal-io/nominal-client-rs"
 
 [[bin]]
 name = "nom"
 path = "src/main.rs"
 
 [dependencies]
-nominal = { path = "../nominal" }
+nominal = { version = "0.1", path = "../nominal" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 chrono = { version = "0.4" }

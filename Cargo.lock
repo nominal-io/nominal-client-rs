@@ -1174,17 +1174,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nom-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "nominal",
- "tokio",
-]
-
-[[package]]
 name = "nominal"
 version = "0.1.0"
 dependencies = [
@@ -1214,6 +1203,17 @@ dependencies = [
  "conjure-object",
  "prost",
  "tonic",
+]
+
+[[package]]
+name = "nominal-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "nominal",
+ "tokio",
 ]
 
 [[package]]
