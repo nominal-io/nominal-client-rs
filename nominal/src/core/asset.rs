@@ -230,6 +230,152 @@ impl AssetQuery {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nominal_api::scout::asset::api::SearchAssetsQuery;
+
+    // --- AssetQuery::into_conjure ---
+
+    #[test]
+    fn query_search_text() {
+        let q = AssetQuery::search_text("hello");
+        assert_eq!(q.into_conjure(), SearchAssetsQuery::SearchText("hello".into()));
+    }
+
+    #[test]
+    fn query_exact_substring() {
+        let q = AssetQuery::exact_substring("foo");
+        assert_eq!(q.into_conjure(), SearchAssetsQuery::ExactSubstring("foo".into()));
+    }
+
+    #[test]
+    fn query_label() {
+        let q = AssetQuery::label("my-label");
+        let SearchAssetsQuery::Labels(f) = q.into_conjure() else {
+            panic!("expected Labels variant");
+        };
+        assert_eq!(f.labels(), [nominal_api::api::Label("my-label".into())]);
+    }
+
+    #[test]
+    fn query_property() {
+        let q = AssetQuery::property("key", "val");
+        let SearchAssetsQuery::Properties(f) = q.into_conjure() else {
+            panic!("expected Properties variant");
+        };
+        assert_eq!(f.name(), &nominal_api::api::PropertyName("key".into()));
+        assert_eq!(f.values(), [nominal_api::api::PropertyValue("val".into())]);
+    }
+
+    #[test]
+    fn query_and_flattens_children() {
+        let q = AssetQuery::and([
+            AssetQuery::search_text("a"),
+            AssetQuery::search_text("b"),
+        ]);
+        let SearchAssetsQuery::And(children) = q.into_conjure() else {
+            panic!("expected And variant");
+        };
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0], SearchAssetsQuery::SearchText("a".into()));
+        assert_eq!(children[1], SearchAssetsQuery::SearchText("b".into()));
+    }
+
+    #[test]
+    fn query_or_flattens_children() {
+        let q = AssetQuery::or([AssetQuery::label("x"), AssetQuery::label("y")]);
+        let SearchAssetsQuery::Or(children) = q.into_conjure() else {
+            panic!("expected Or variant");
+        };
+        assert_eq!(children.len(), 2);
+    }
+
+    #[test]
+    fn query_nested_and_or() {
+        let q = AssetQuery::and([
+            AssetQuery::label("prod"),
+            AssetQuery::or([
+                AssetQuery::property("env", "us"),
+                AssetQuery::property("env", "eu"),
+            ]),
+        ]);
+        let SearchAssetsQuery::And(children) = q.into_conjure() else {
+            panic!("expected And variant");
+        };
+        assert!(matches!(children[0], SearchAssetsQuery::Labels(_)));
+        assert!(matches!(children[1], SearchAssetsQuery::Or(_)));
+    }
+
+    // --- AssetUpdate::into_request ---
+
+    #[test]
+    fn update_empty_request_has_no_fields() {
+        let req = AssetUpdate::new().into_request();
+        assert!(req.title().is_none());
+        assert!(req.description().is_none());
+        assert!(req.properties().is_none());
+        assert!(req.labels().is_none());
+    }
+
+    #[test]
+    fn update_name_only() {
+        let req = AssetUpdate::new().name("New Name").into_request();
+        assert_eq!(req.title(), Some("New Name"));
+        assert!(req.description().is_none());
+    }
+
+    #[test]
+    fn update_description_only() {
+        let req = AssetUpdate::new().description("desc").into_request();
+        assert!(req.title().is_none());
+        assert_eq!(req.description(), Some("desc"));
+    }
+
+    #[test]
+    fn update_properties_converted_correctly() {
+        let req = AssetUpdate::new()
+            .properties([("k1", "v1"), ("k2", "v2")])
+            .into_request();
+        let props = req.properties().expect("properties should be set");
+        assert_eq!(props.len(), 2);
+        assert_eq!(
+            props.get(&nominal_api::api::PropertyName("k1".into())),
+            Some(&nominal_api::api::PropertyValue("v1".into()))
+        );
+        assert_eq!(
+            props.get(&nominal_api::api::PropertyName("k2".into())),
+            Some(&nominal_api::api::PropertyValue("v2".into()))
+        );
+    }
+
+    #[test]
+    fn update_labels_converted_and_deduplicated() {
+        let req = AssetUpdate::new()
+            .labels(["tag1", "tag2", "tag1"])
+            .into_request();
+        let labels = req.labels().expect("labels should be set");
+        // BTreeSet deduplicates
+        assert_eq!(labels.len(), 2);
+        assert!(labels.contains(&nominal_api::api::Label("tag1".into())));
+        assert!(labels.contains(&nominal_api::api::Label("tag2".into())));
+    }
+
+    #[test]
+    fn update_all_fields() {
+        let req = AssetUpdate::new()
+            .name("name")
+            .description("desc")
+            .properties([("k", "v")])
+            .labels(["t"])
+            .into_request();
+        assert_eq!(req.title(), Some("name"));
+        assert_eq!(req.description(), Some("desc"));
+        assert!(req.properties().is_some());
+        assert!(req.labels().is_some());
+    }
+}
+
 /// Client for asset collection operations (list, get).
 pub struct AssetsClient {
     service: AssetServiceAsyncClient<Client>,

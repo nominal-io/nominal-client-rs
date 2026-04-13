@@ -324,6 +324,195 @@ impl RunQuery {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+    use nominal_api::scout::run::api::SearchQuery;
+
+    // --- RunQuery::into_conjure ---
+
+    #[test]
+    fn query_search_text() {
+        let q = RunQuery::search_text("hello");
+        assert_eq!(q.into_conjure().unwrap(), SearchQuery::SearchText("hello".into()));
+    }
+
+    #[test]
+    fn query_exact_match() {
+        let q = RunQuery::exact_match("exact");
+        assert_eq!(q.into_conjure().unwrap(), SearchQuery::ExactMatch("exact".into()));
+    }
+
+    #[test]
+    fn query_label() {
+        let q = RunQuery::label("my-label");
+        let SearchQuery::Labels(f) = q.into_conjure().unwrap() else {
+            panic!("expected Labels variant");
+        };
+        assert_eq!(f.labels(), [nominal_api::api::Label("my-label".into())]);
+    }
+
+    #[test]
+    fn query_property() {
+        let q = RunQuery::property("key", "val");
+        let SearchQuery::Properties(f) = q.into_conjure().unwrap() else {
+            panic!("expected Properties variant");
+        };
+        assert_eq!(f.name(), &nominal_api::api::PropertyName("key".into()));
+        assert_eq!(f.values(), [nominal_api::api::PropertyValue("val".into())]);
+    }
+
+    #[test]
+    fn query_run_number() {
+        let q = RunQuery::run_number(42);
+        let SearchQuery::RunNumber(n) = q.into_conjure().unwrap() else {
+            panic!("expected RunNumber variant");
+        };
+        assert_eq!(i64::from(n), 42);
+    }
+
+    #[test]
+    fn query_start_time_inclusive() {
+        let dt = Utc.timestamp_opt(1_000_000, 0).single().unwrap();
+        let q = RunQuery::start_time_inclusive(dt);
+        let SearchQuery::StartTime(tf) = q.into_conjure().unwrap() else {
+            panic!("expected StartTime variant");
+        };
+        use crate::core::datetime::api_timestamp_to_utc;
+        use nominal_api::scout::run::api::TimeframeFilter;
+        let TimeframeFilter::Custom(inner) = *tf else {
+            panic!("expected Custom timeframe");
+        };
+        let got = api_timestamp_to_utc(inner.start_time().unwrap()).unwrap();
+        assert_eq!(got, dt);
+    }
+
+    #[test]
+    fn query_end_time_inclusive() {
+        let dt = Utc.timestamp_opt(2_000_000, 0).single().unwrap();
+        let q = RunQuery::end_time_inclusive(dt);
+        let SearchQuery::EndTime(tf) = q.into_conjure().unwrap() else {
+            panic!("expected EndTime variant");
+        };
+        use crate::core::datetime::api_timestamp_to_utc;
+        use nominal_api::scout::run::api::TimeframeFilter;
+        let TimeframeFilter::Custom(inner) = *tf else {
+            panic!("expected Custom timeframe");
+        };
+        let got = api_timestamp_to_utc(inner.end_time().unwrap()).unwrap();
+        assert_eq!(got, dt);
+    }
+
+    #[test]
+    fn query_not() {
+        let q = RunQuery::not(RunQuery::search_text("x"));
+        let SearchQuery::Not(inner) = q.into_conjure().unwrap() else {
+            panic!("expected Not variant");
+        };
+        assert_eq!(*inner, SearchQuery::SearchText("x".into()));
+    }
+
+    #[test]
+    fn query_and_children() {
+        let q = RunQuery::and([RunQuery::search_text("a"), RunQuery::search_text("b")]);
+        let SearchQuery::And(children) = q.into_conjure().unwrap() else {
+            panic!("expected And variant");
+        };
+        assert_eq!(children.len(), 2);
+    }
+
+    #[test]
+    fn query_or_children() {
+        let q = RunQuery::or([RunQuery::label("x"), RunQuery::label("y")]);
+        let SearchQuery::Or(children) = q.into_conjure().unwrap() else {
+            panic!("expected Or variant");
+        };
+        assert_eq!(children.len(), 2);
+    }
+
+    #[test]
+    fn query_nested_and_or_not() {
+        let q = RunQuery::and([
+            RunQuery::label("prod"),
+            RunQuery::not(RunQuery::or([
+                RunQuery::property("env", "us"),
+                RunQuery::property("env", "eu"),
+            ])),
+        ]);
+        let SearchQuery::And(children) = q.into_conjure().unwrap() else {
+            panic!("expected And");
+        };
+        assert!(matches!(children[0], SearchQuery::Labels(_)));
+        assert!(matches!(children[1], SearchQuery::Not(_)));
+    }
+
+    // --- RunUpdate::into_request ---
+
+    #[test]
+    fn update_empty_request_has_no_optional_fields() {
+        let req = RunUpdate::new().into_request().unwrap();
+        assert!(req.title().is_none());
+        assert!(req.description().is_none());
+        assert!(req.properties().is_none());
+        assert!(req.labels().is_none());
+        assert!(req.start_time().is_none());
+        assert!(req.end_time().is_none());
+    }
+
+    #[test]
+    fn update_name_and_description() {
+        let req = RunUpdate::new()
+            .name("My Run")
+            .description("desc")
+            .into_request()
+            .unwrap();
+        assert_eq!(req.title(), Some("My Run"));
+        assert_eq!(req.description(), Some("desc"));
+    }
+
+    #[test]
+    fn update_properties() {
+        let req = RunUpdate::new()
+            .properties([("k", "v")])
+            .into_request()
+            .unwrap();
+        let props = req.properties().expect("properties should be set");
+        assert_eq!(props.len(), 1);
+        assert_eq!(
+            props.get(&nominal_api::api::PropertyName("k".into())),
+            Some(&nominal_api::api::PropertyValue("v".into()))
+        );
+    }
+
+    #[test]
+    fn update_labels_deduplicated() {
+        let req = RunUpdate::new()
+            .labels(["a", "b", "a"])
+            .into_request()
+            .unwrap();
+        let labels = req.labels().expect("labels should be set");
+        assert_eq!(labels.len(), 2);
+    }
+
+    #[test]
+    fn update_start_and_end_time_round_trip() {
+        let start = Utc.timestamp_opt(1_000_000, 500_000_000).single().unwrap();
+        let end = Utc.timestamp_opt(2_000_000, 0).single().unwrap();
+        let req = RunUpdate::new()
+            .start(start)
+            .end(end)
+            .into_request()
+            .unwrap();
+
+        use crate::core::datetime::api_timestamp_to_utc;
+        let got_start = api_timestamp_to_utc(req.start_time().unwrap()).unwrap();
+        let got_end = api_timestamp_to_utc(req.end_time().unwrap()).unwrap();
+        assert_eq!(got_start, start);
+        assert_eq!(got_end, end);
+    }
+}
+
 /// Client for run collection operations (list, get).
 pub struct RunsClient {
     service: RunServiceAsyncClient<Client>,
