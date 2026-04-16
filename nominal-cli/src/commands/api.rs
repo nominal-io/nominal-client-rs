@@ -61,20 +61,22 @@ pub async fn handle(args: ApiArgs, profile: nominal::Profile) -> anyhow::Result<
     let normalized = normalize_path(&args.target, base_url);
     let path = strip_query(&normalized);
 
+    let has_body = body.is_some();
+
     if args.conjure {
-        let ep = find_conjure(path, method_override.as_deref())?;
+        let ep = find_conjure(path, method_override.as_deref(), has_body)?;
         return call_conjure(ep, &args.target, base_url, body, args.dry_run, token).await;
     }
 
     if args.grpc_http {
-        let ep = find_grpc_http(path, method_override.as_deref())?;
+        let ep = find_grpc_http(path, method_override.as_deref(), has_body)?;
         return call_grpc_http(ep, &args.target, base_url, body, args.dry_run, token).await;
     }
 
     // Auto: gRPC-HTTP first, conjure fallback
-    match find_grpc_http(path, method_override.as_deref()) {
+    match find_grpc_http(path, method_override.as_deref(), has_body) {
         Ok(ep) => call_grpc_http(ep, &args.target, base_url, body, args.dry_run, token).await,
-        Err(grpc_http_err) => match find_conjure(path, method_override.as_deref()) {
+        Err(grpc_http_err) => match find_conjure(path, method_override.as_deref(), has_body) {
             Ok(ep) => call_conjure(ep, &args.target, base_url, body, args.dry_run, token).await,
             Err(conjure_err) => bail!(
                 "no matching endpoint for `{path}`\n\
@@ -135,25 +137,27 @@ pub(crate) fn path_matches(template: &str, path: &str) -> bool {
 fn find_conjure<'a>(
     path: &str,
     method_override: Option<&str>,
+    has_body: bool,
 ) -> anyhow::Result<&'a ConjureEndpoint> {
     let candidates: Vec<&ConjureEndpoint> = CONJURE_ENDPOINTS
         .iter()
         .filter(|e| path_matches(e.path_template, path))
         .collect();
 
-    pick_endpoint_by_method(candidates, method_override, path)
+    pick_endpoint_by_method(candidates, method_override, has_body, path)
 }
 
 fn find_grpc_http<'a>(
     path: &str,
     method_override: Option<&str>,
+    has_body: bool,
 ) -> anyhow::Result<&'a GrpcHttpEndpoint> {
     let candidates: Vec<&GrpcHttpEndpoint> = GRPC_HTTP_ENDPOINTS
         .iter()
         .filter(|e| path_matches(e.path_template, path))
         .collect();
 
-    pick_endpoint_by_method(candidates, method_override, path)
+    pick_endpoint_by_method(candidates, method_override, has_body, path)
 }
 
 trait HasMethod {
@@ -173,6 +177,7 @@ impl HasMethod for GrpcHttpEndpoint {
 fn pick_endpoint_by_method<'a, E: HasMethod>(
     candidates: Vec<&'a E>,
     method_override: Option<&str>,
+    has_body: bool,
     path: &str,
 ) -> anyhow::Result<&'a E> {
     if candidates.is_empty() {
@@ -182,7 +187,7 @@ fn pick_endpoint_by_method<'a, E: HasMethod>(
         return Ok(candidates[0]);
     }
 
-    let Some(method) = method_override else {
+    let Some(method) = method_override.or(if !has_body { Some("GET") } else { None }) else {
         let methods: Vec<&str> = candidates.iter().map(|e| e.http_method()).collect();
         bail!(
             "path `{path}` matches multiple methods ({}); use -X to specify",
