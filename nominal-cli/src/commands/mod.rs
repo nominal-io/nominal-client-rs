@@ -6,7 +6,8 @@ pub mod grpc;
 pub mod user;
 
 use anyhow::Context;
-use nominal::{Config, NominalClient, Profile};
+use nominal::core::NominalClient;
+use nominal::{Config, Profile};
 use once_cell::sync::OnceCell;
 use prost_reflect::DescriptorPool;
 
