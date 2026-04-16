@@ -1,7 +1,9 @@
 use clap::{Parser, Subcommand};
 mod commands;
+use commands::api::ApiArgs;
 use commands::asset::AssetCommands;
 use commands::config::ConfigCommands;
+use commands::endpoint::EndpointCommands;
 use commands::user::UserCommands;
 
 #[derive(Parser)]
@@ -17,6 +19,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Send a request to a REST or gRPC endpoint
+    Api(ApiArgs),
     /// Asset management commands
     Asset {
         #[command(subcommand)]
@@ -26,6 +30,11 @@ enum Commands {
     Config {
         #[command(subcommand)]
         config_command: ConfigCommands,
+    },
+    /// Endpoint introspection
+    Endpoint {
+        #[command(subcommand)]
+        endpoint_command: EndpointCommands,
     },
     /// User management commands
     User {
@@ -46,11 +55,16 @@ async fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Config { config_command } => commands::config::handle(config_command),
+        Commands::Api(args) => {
+            let profile = commands::load_profile(&cli.profile)?;
+            commands::api::handle(args, profile.base_url(), profile.token()).await
+        }
         Commands::Asset { asset_command } => {
             let client = commands::load_client(&cli.profile)?;
             commands::asset::handle(asset_command, client).await
         }
+        Commands::Config { config_command } => commands::config::handle(config_command),
+        Commands::Endpoint { endpoint_command } => commands::endpoint::handle(endpoint_command),
         Commands::User { user_command } => {
             let client = commands::load_client(&cli.profile)?;
             commands::user::handle(user_command, client).await

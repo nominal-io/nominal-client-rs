@@ -10,7 +10,7 @@ pub struct Config {
     version: u32,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Profile {
     base_url: String,
     token: String,
