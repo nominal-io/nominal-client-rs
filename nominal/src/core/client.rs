@@ -46,8 +46,19 @@ impl NominalClient {
         let config = Config::from_file(None)?;
         let profile = config
             .get_profile(name)
-            .ok_or_else(|| Error::ProfileNotFound { name: name.to_string() })?;
+            .ok_or_else(|| Error::ProfileNotFound {
+                name: name.to_string(),
+            })?;
         Self::from_profile_config(profile)
+    }
+
+    /// Create a client from the profile named by the `NOMINAL_PROFILE` environment variable.
+    /// Returns an error if the variable is not set.
+    pub fn from_profile_env() -> Result<Self> {
+        let name = std::env::var("NOMINAL_PROFILE").map_err(|_| Error::EnvVarNotSet {
+            name: "NOMINAL_PROFILE",
+        })?;
+        Self::from_profile(&name)
     }
 
     pub fn from_profile_config(profile: &Profile) -> Result<Self> {
@@ -65,7 +76,6 @@ impl NominalClient {
     pub fn workspace_rid(&self) -> Option<&str> {
         self.workspace_rid.as_deref()
     }
-
 
     /// Access run operations.
     pub fn runs(&self) -> RunsClient {

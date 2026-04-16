@@ -10,9 +10,9 @@ use commands::user::UserCommands;
 #[command(name = "nom")]
 #[command(about = "Interact with Nominal", long_about = None)]
 struct Cli {
-    /// Named profile to use from config
-    #[arg(short, long, default_value = "default")]
-    profile: String,
+    /// Named profile to use from config (overrides NOMINAL_PROFILE env var)
+    #[arg(short, long)]
+    profile: Option<String>,
     #[command(subcommand)]
     command: Commands,
 }
@@ -56,18 +56,18 @@ async fn run() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Api(args) => {
-            let profile = commands::load_profile(&cli.profile)?;
-            commands::api::handle(args, profile.base_url(), profile.token()).await
+            let profile = commands::load_profile(cli.profile.as_deref())?;
+            commands::api::handle(args, profile).await
         }
         Commands::Asset { asset_command } => {
-            let client = commands::load_client(&cli.profile)?;
-            commands::asset::handle(asset_command, client).await
+            let profile = commands::load_profile(cli.profile.as_deref())?;
+            commands::asset::handle(asset_command, profile).await
         }
         Commands::Config { config_command } => commands::config::handle(config_command),
         Commands::Endpoint { endpoint_command } => commands::endpoint::handle(endpoint_command),
         Commands::User { user_command } => {
-            let client = commands::load_client(&cli.profile)?;
-            commands::user::handle(user_command, client).await
+            let profile = commands::load_profile(cli.profile.as_deref())?;
+            commands::user::handle(user_command, profile).await
         }
     }
 }

@@ -1,7 +1,7 @@
 use anyhow::Context;
 use chrono::SecondsFormat;
 use clap::Subcommand;
-use nominal::{AssetUpdate, NominalClient};
+use nominal::{AssetUpdate, NominalClient, Profile};
 
 #[derive(Subcommand)]
 pub enum AssetCommands {
@@ -48,7 +48,8 @@ pub enum AssetCommands {
     },
 }
 
-pub async fn handle(cmd: AssetCommands, client: NominalClient) -> anyhow::Result<()> {
+pub async fn handle(cmd: AssetCommands, profile: Profile) -> anyhow::Result<()> {
+    let client = NominalClient::from_profile_config(&profile)?;
     match cmd {
         AssetCommands::List => {
             let assets = client

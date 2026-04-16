@@ -6,7 +6,7 @@ pub mod grpc;
 pub mod user;
 
 use anyhow::Context;
-use nominal::{Config, NominalClient, Profile};
+use nominal::{Config, Profile};
 use once_cell::sync::OnceCell;
 use prost_reflect::DescriptorPool;
 
@@ -19,16 +19,16 @@ pub(crate) fn descriptor_pool() -> &'static DescriptorPool {
     })
 }
 
-pub(crate) fn load_profile(profile_name: &str) -> anyhow::Result<Profile> {
+fn resolve_profile(flag: Option<&str>) -> anyhow::Result<String> {
+    flag.map(|p| Ok(p.to_string())).unwrap_or_else(|| std::env::var("NOMINAL_PROFILE").map_err(|_| anyhow::anyhow!("no profile specified: use --profile or set NOMINAL_PROFILE")))
+}
+
+pub(crate) fn load_profile(flag: Option<&str>) -> anyhow::Result<Profile> {
+    let profile_name = resolve_profile(flag)?;
     let config = Config::from_file(None).context("Failed to load config")?;
     config
-        .get_profile(profile_name)
+        .get_profile(&profile_name)
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("Profile '{profile_name}' not found"))
 }
 
-pub(crate) fn load_client(profile_name: &str) -> anyhow::Result<NominalClient> {
-    let profile = load_profile(profile_name)?;
-    NominalClient::from_profile_config(&profile)
-        .with_context(|| format!("Failed to create client for profile '{profile_name}'"))
-}

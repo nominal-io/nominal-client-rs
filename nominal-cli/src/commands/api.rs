@@ -40,7 +40,9 @@ pub struct ApiArgs {
     pub dry_run: bool,
 }
 
-pub async fn handle(args: ApiArgs, base_url: &str, token: &str) -> anyhow::Result<()> {
+pub async fn handle(args: ApiArgs, profile: nominal::Profile) -> anyhow::Result<()> {
+    let base_url = profile.base_url();
+    let token = profile.token();
     let body = args.body.as_deref();
     let method_override = args.method.as_deref().map(|m| m.to_uppercase());
 

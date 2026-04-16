@@ -1,6 +1,6 @@
 use anyhow::Context;
 use clap::Subcommand;
-use nominal::NominalClient;
+use nominal::{NominalClient, Profile};
 
 #[derive(Subcommand)]
 pub enum UserCommands {
@@ -8,7 +8,8 @@ pub enum UserCommands {
     WhoAmI,
 }
 
-pub async fn handle(cmd: UserCommands, client: NominalClient) -> anyhow::Result<()> {
+pub async fn handle(cmd: UserCommands, profile: Profile) -> anyhow::Result<()> {
+    let client = NominalClient::from_profile_config(&profile)?;
     match cmd {
         UserCommands::WhoAmI => {
             let user = client
