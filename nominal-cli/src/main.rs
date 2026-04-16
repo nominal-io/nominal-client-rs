@@ -3,8 +3,11 @@ mod commands;
 use commands::api::ApiArgs;
 use commands::asset::AssetCommands;
 use commands::config::ConfigCommands;
+use commands::connection::ConnectionCommands;
+use commands::dataset::DatasetCommands;
 use commands::endpoint::EndpointCommands;
 use commands::user::UserCommands;
+use commands::video::VideoCommands;
 
 #[derive(Parser)]
 #[command(name = "nom")]
@@ -31,6 +34,16 @@ enum Commands {
         #[command(subcommand)]
         config_command: ConfigCommands,
     },
+    /// Connection management commands
+    Connection {
+        #[command(subcommand)]
+        connection_command: ConnectionCommands,
+    },
+    /// Dataset management commands
+    Dataset {
+        #[command(subcommand)]
+        dataset_command: DatasetCommands,
+    },
     /// Endpoint introspection
     Endpoint {
         #[command(subcommand)]
@@ -40,6 +53,11 @@ enum Commands {
     User {
         #[command(subcommand)]
         user_command: UserCommands,
+    },
+    /// Video management commands
+    Video {
+        #[command(subcommand)]
+        video_command: VideoCommands,
     },
 }
 
@@ -64,10 +82,22 @@ async fn run() -> anyhow::Result<()> {
             commands::asset::handle(asset_command, client).await
         }
         Commands::Config { config_command } => commands::config::handle(config_command),
+        Commands::Connection { connection_command } => {
+            let client = commands::load_client(&cli.profile)?;
+            commands::connection::handle(connection_command, client).await
+        }
+        Commands::Dataset { dataset_command } => {
+            let client = commands::load_client(&cli.profile)?;
+            commands::dataset::handle(dataset_command, client).await
+        }
         Commands::Endpoint { endpoint_command } => commands::endpoint::handle(endpoint_command),
         Commands::User { user_command } => {
             let client = commands::load_client(&cli.profile)?;
             commands::user::handle(user_command, client).await
+        }
+        Commands::Video { video_command } => {
+            let client = commands::load_client(&cli.profile)?;
+            commands::video::handle(video_command, client).await
         }
     }
 }

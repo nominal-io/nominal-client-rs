@@ -1,9 +1,12 @@
 pub mod api;
 pub mod asset;
 pub mod config;
+pub mod connection;
+pub mod dataset;
 pub mod endpoint;
 pub mod grpc;
 pub mod user;
+pub mod video;
 
 use anyhow::Context;
 use nominal::core::NominalClient;
