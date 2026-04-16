@@ -1,12 +1,16 @@
 pub mod api;
 pub mod asset;
 pub mod config;
+pub mod connection;
+pub mod dataset;
 pub mod endpoint;
 pub mod grpc;
 pub mod user;
+pub mod video;
 
 use anyhow::Context;
-use nominal::{Config, NominalClient, Profile};
+use nominal::core::NominalClient;
+use nominal::{Config, Profile};
 use once_cell::sync::OnceCell;
 use prost_reflect::DescriptorPool;
 
