@@ -6,6 +6,7 @@ use commands::config::ConfigCommands;
 use commands::connection::ConnectionCommands;
 use commands::dataset::DatasetCommands;
 use commands::endpoint::EndpointCommands;
+use commands::ingest::IngestCommands;
 use commands::user::UserCommands;
 use commands::video::VideoCommands;
 
@@ -49,6 +50,11 @@ enum Commands {
         #[command(subcommand)]
         endpoint_command: EndpointCommands,
     },
+    /// Upload files and ingest them as datasets
+    Ingest {
+        #[command(subcommand)]
+        ingest_command: Box<IngestCommands>,
+    },
     /// User management commands
     User {
         #[command(subcommand)]
@@ -91,6 +97,10 @@ async fn run() -> anyhow::Result<()> {
             commands::dataset::handle(dataset_command, client).await
         }
         Commands::Endpoint { endpoint_command } => commands::endpoint::handle(endpoint_command),
+        Commands::Ingest { ingest_command } => {
+            let client = commands::load_client(&cli.profile)?;
+            commands::ingest::handle(*ingest_command, client).await
+        }
         Commands::User { user_command } => {
             let client = commands::load_client(&cli.profile)?;
             commands::user::handle(user_command, client).await

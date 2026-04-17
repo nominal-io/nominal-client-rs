@@ -5,6 +5,7 @@ pub mod connection;
 pub mod dataset;
 pub mod endpoint;
 pub mod grpc;
+pub mod ingest;
 pub mod user;
 pub mod video;
 
