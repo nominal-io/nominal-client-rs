@@ -45,6 +45,9 @@ pub enum Error {
 
     #[error("multipart upload failed: {details}")]
     Upload { details: String },
+
+    #[error("ingest error: {details}")]
+    Ingest { details: String },
 }
 
 impl From<RidConversionError> for Error {

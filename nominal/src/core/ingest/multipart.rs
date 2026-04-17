@@ -11,33 +11,10 @@ use nominal_api::ingest::api::{InitiateMultipartUploadRequest, Part};
 use nominal_api::upload::api::UploadServiceAsyncClient;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
+use crate::core::ingest::options::UploadOptions;
 use crate::core::ingest::progress::{ProgressCallback, UploadEvent};
 use crate::core::rid::parse_rid;
 use crate::{Error, Result};
-
-pub(crate) const DEFAULT_CHUNK_SIZE: usize = 64 * 1024 * 1024;
-pub(crate) const DEFAULT_MAX_CONCURRENCY: usize = 8;
-pub(crate) const DEFAULT_MAX_RETRIES: usize = 3;
-
-/// Knobs for a multipart upload.
-#[derive(Clone)]
-pub(crate) struct UploadOptions {
-    pub chunk_size: usize,
-    pub max_concurrency: usize,
-    pub max_retries: usize,
-    pub progress: Option<ProgressCallback>,
-}
-
-impl Default for UploadOptions {
-    fn default() -> Self {
-        Self {
-            chunk_size: DEFAULT_CHUNK_SIZE,
-            max_concurrency: DEFAULT_MAX_CONCURRENCY,
-            max_retries: DEFAULT_MAX_RETRIES,
-            progress: None,
-        }
-    }
-}
 
 /// Upload a local file to Nominal-backed object storage using multipart upload.
 ///

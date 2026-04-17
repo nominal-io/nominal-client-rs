@@ -5,14 +5,14 @@ use std::path::Path;
 /// Wraps MIME type and extension metadata so callers never have to spell these
 /// out in their own code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum FileType {
+pub enum FileType {
     Csv,
     CsvGz,
     Parquet,
 }
 
 impl FileType {
-    pub(crate) const fn extension(self) -> &'static str {
+    pub const fn extension(self) -> &'static str {
         match self {
             FileType::Csv => ".csv",
             FileType::CsvGz => ".csv.gz",
@@ -20,7 +20,7 @@ impl FileType {
         }
     }
 
-    pub(crate) const fn mime_type(self) -> &'static str {
+    pub const fn mime_type(self) -> &'static str {
         match self {
             FileType::Csv => "text/csv",
             FileType::CsvGz => "application/gzip",
@@ -30,7 +30,7 @@ impl FileType {
 
     /// Infer a [`FileType`] from the file name portion of `path`. Matches are
     /// case-insensitive. Returns `None` if the extension is not recognized.
-    pub(crate) fn from_path(path: impl AsRef<Path>) -> Option<Self> {
+    pub fn from_path(path: impl AsRef<Path>) -> Option<Self> {
         let name = path.as_ref().file_name()?.to_str()?.to_ascii_lowercase();
         if name.ends_with(".csv.gz") {
             Some(FileType::CsvGz)

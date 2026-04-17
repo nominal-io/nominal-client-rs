@@ -14,5 +14,9 @@ pub use catalog::{
     DatasetUpdate, Video, VideoCreate, VideoQuery, VideoUpdate,
 };
 pub use client::NominalClient;
+pub use ingest::{
+    CsvIngest, FileType, IngestClient, IngestJobHandle, IngestJobStatus, ParquetIngest,
+    ProgressCallback, TimeUnit, Timestamp, UploadEvent, UploadOptions,
+};
 pub use run::{Run, RunQuery, RunUpdate, RunsClient};
 pub use user::{User, UsersClient};
