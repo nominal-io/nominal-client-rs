@@ -6,13 +6,14 @@ use futures::Stream;
 use nominal_api::api::{Label, PropertyName, PropertyValue, SetOperator};
 use nominal_api::scout::RunServiceAsyncClient;
 use nominal_api::scout::run::api::{
-    CreateRunDataSource, CustomTimeframeFilter, DataSource, SearchQuery, SearchRunsRequest,
-    SortField, SortKey, SortOptions, TimeframeFilter, UpdateAttachmentsRequest, UpdateRunRequest,
+    CreateRunDataSource, CustomTimeframeFilter, SearchQuery, SearchRunsRequest, SortField, SortKey,
+    SortOptions, TimeframeFilter, UpdateAttachmentsRequest, UpdateRunRequest,
 };
 use nominal_api::scout::rids::api::{LabelsFilter, PropertiesFilter};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::core::{
+    datasource::DataSource,
     datetime::{NominalDateTime, api_timestamp_to_utc_or_panic},
     rid::{parse_rid, rid_to_string},
     utils::paginate_stream,
@@ -35,6 +36,7 @@ pub struct Run {
     end: Option<DateTime<Utc>>,
     run_number: u32,
     assets: Vec<String>,
+    data_sources: HashMap<String, DataSource>,
     created_at: DateTime<Utc>,
     app_base_url: String,
 }
@@ -76,6 +78,14 @@ impl Run {
         &self.assets
     }
 
+    /// Data sources attached to this run, keyed by ref name.
+    ///
+    /// Note: this map is empty for multi-asset runs; attach
+    /// data sources to the underlying asset(s) instead.
+    pub fn data_sources(&self) -> &HashMap<String, DataSource> {
+        &self.data_sources
+    }
+
     pub fn created_at(&self) -> &DateTime<Utc> {
         &self.created_at
     }
@@ -86,6 +96,13 @@ impl Run {
     }
 
     pub(crate) fn from_conjure(run: nominal_api::scout::run::api::Run, app_base_url: &str) -> Self {
+        let data_sources = run
+            .data_sources()
+            .iter()
+            .filter_map(|(ref_name, rds)| {
+                DataSource::from_conjure(rds.data_source()).map(|ds| (ref_name.to_string(), ds))
+            })
+            .collect();
         Self {
             rid: rid_to_string(run.rid()),
             name: run.title().to_string(),
@@ -100,6 +117,7 @@ impl Run {
             end: run.end_time().map(api_timestamp_to_utc_or_panic),
             run_number: *run.run_number() as u32,
             assets: run.assets().iter().map(rid_to_string).collect(),
+            data_sources,
             created_at: run.created_at().to_utc(),
             app_base_url: app_base_url.to_string(),
         }
@@ -649,66 +667,69 @@ impl RunsClient {
         Ok(Run::from_conjure(response, &self.app_base_url))
     }
 
-    /// Add datasets to a run.
+    /// Attach data sources to a run under the given ref names.
     ///
-    /// Datasets map "ref names" (their logical name within the run) to a dataset RID.
-    /// The same type of dataset should use the same ref name across runs, since checklists
-    /// and templates use ref names to reference datasets.
+    /// Ref names should be stable across runs of the same type, since
+    /// checklists and templates use them to reference data sources.
+    /// Returns the updated run.
     ///
     /// # Example
     /// ```no_run
     /// # async fn example(client: nominal::NominalClient) -> nominal::Result<()> {
-    /// client.runs()
-    ///     .add_datasets("ri.scout.cerulean-staging.run.<uuid>", [("flight-data", "ri.catalog.cerulean-staging.dataset.<uuid>")])
-    ///     .await?;
+    /// use nominal::core::DataSource;
+    /// client.runs().add_data_sources("ri.scout.cerulean-staging.run.<uuid>", [
+    ///     ("flight-data", DataSource::dataset("ri.catalog.cerulean-staging.dataset.<uuid>")),
+    ///     ("cockpit-cam", DataSource::video("ri.catalog.cerulean-staging.video.<uuid>")),
+    /// ]).await?;
     /// # Ok(()) }
     /// ```
-    pub async fn add_datasets<I, K, V>(&self, rid: &str, datasets: I) -> Result<()>
+    pub async fn add_data_sources<I, N>(&self, rid: &str, sources: I) -> Result<Run>
     where
-        I: IntoIterator<Item = (K, V)>,
-        K: Into<String>,
-        V: Into<String>,
+        I: IntoIterator<Item = (N, DataSource)>,
+        N: Into<String>,
     {
-        let data_sources = datasets
+        let data_sources = sources
             .into_iter()
-            .map(|(ref_name, dataset_rid)| {
-                let dataset_rid = dataset_rid.into();
-                parse_rid(&dataset_rid)
-                    .map(|parsed| {
-                        (
-                            ref_name.into().into(),
-                            CreateRunDataSource::builder()
-                                .data_source(DataSource::Dataset(parsed))
-                                .build(),
-                        )
-                    })
-                    .map_err(Error::from)
+            .map(|(ref_name, ds)| {
+                ds.into_conjure().map(|conjure_ds| {
+                    (
+                        ref_name.into().into(),
+                        CreateRunDataSource::builder().data_source(conjure_ds).build(),
+                    )
+                })
             })
-            .collect::<std::result::Result<BTreeMap<_, _>, _>>()?;
+            .collect::<Result<BTreeMap<_, _>>>()?;
 
         let run_rid = parse_rid(rid)?;
-        self.service
+        let response = self
+            .service
             .add_data_sources_to_run(&self.token, &run_rid, &data_sources)
             .await
             .map_err(Error::from)?;
-        Ok(())
+        Ok(Run::from_conjure(response, &self.app_base_url))
     }
 
-    /// Add a video to a run.
-    pub async fn add_video(&self, rid: &str, ref_name: &str, video_rid: &str) -> Result<()> {
-        let vid_rid = parse_rid(video_rid)?;
-        let data_sources = BTreeMap::from([(
-            ref_name.to_string().into(),
-            CreateRunDataSource::builder()
-                .data_source(DataSource::Video(vid_rid))
-                .build(),
-        )]);
-        let run_rid = parse_rid(rid)?;
-        self.service
-            .add_data_sources_to_run(&self.token, &run_rid, &data_sources)
+    /// Attach a dataset to a run under the given ref name. See [`add_data_sources`](Self::add_data_sources).
+    pub async fn add_dataset(&self, rid: &str, ref_name: &str, dataset_rid: &str) -> Result<Run> {
+        self.add_data_sources(rid, [(ref_name, DataSource::dataset(dataset_rid))])
             .await
-            .map_err(Error::from)?;
-        Ok(())
+    }
+
+    /// Attach a video to a run under the given ref name. See [`add_data_sources`](Self::add_data_sources).
+    pub async fn add_video(&self, rid: &str, ref_name: &str, video_rid: &str) -> Result<Run> {
+        self.add_data_sources(rid, [(ref_name, DataSource::video(video_rid))])
+            .await
+    }
+
+    /// Attach a connection to a run under the given ref name. See [`add_data_sources`](Self::add_data_sources).
+    pub async fn add_connection(
+        &self,
+        rid: &str,
+        ref_name: &str,
+        connection_rid: &str,
+    ) -> Result<Run> {
+        self.add_data_sources(rid, [(ref_name, DataSource::connection(connection_rid))])
+            .await
     }
 
     /// Add attachments (by RID) that have already been uploaded to a run.
@@ -760,12 +781,20 @@ impl RunsClient {
     }
 
     /// Archive a run. Archived runs are hidden from the UI but not deleted.
-    ///
-    /// Note: runs cannot currently be unarchived once archived.
     pub async fn archive(&self, rid: &str) -> Result<()> {
         let run_rid = parse_rid(rid)?;
         self.service
             .archive_run(&self.token, &run_rid, None)
+            .await
+            .map_err(Error::from)?;
+        Ok(())
+    }
+
+    /// Unarchive a run, restoring its visibility in the UI.
+    pub async fn unarchive(&self, rid: &str) -> Result<()> {
+        let run_rid = parse_rid(rid)?;
+        self.service
+            .unarchive_run(&self.token, &run_rid, None)
             .await
             .map_err(Error::from)?;
         Ok(())
