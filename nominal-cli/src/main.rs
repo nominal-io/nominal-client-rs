@@ -7,6 +7,7 @@ use commands::config::ConfigCommands;
 use commands::connection::ConnectionCommands;
 use commands::dataset::DatasetCommands;
 use commands::endpoint::EndpointCommands;
+use commands::run::RunCommands;
 use commands::user::UserCommands;
 use commands::video::VideoCommands;
 
@@ -55,6 +56,11 @@ enum Commands {
         #[command(subcommand)]
         endpoint_command: EndpointCommands,
     },
+    /// Run management commands
+    Run {
+        #[command(subcommand)]
+        run_command: RunCommands,
+    },
     /// User management commands
     User {
         #[command(subcommand)]
@@ -101,6 +107,10 @@ async fn run() -> anyhow::Result<()> {
             commands::dataset::handle(dataset_command, client).await
         }
         Commands::Endpoint { endpoint_command } => commands::endpoint::handle(endpoint_command),
+        Commands::Run { run_command } => {
+            let client = commands::load_client(&cli.profile)?;
+            commands::run::handle(run_command, client).await
+        }
         Commands::User { user_command } => {
             let client = commands::load_client(&cli.profile)?;
             commands::user::handle(user_command, client).await

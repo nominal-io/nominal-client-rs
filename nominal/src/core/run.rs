@@ -781,12 +781,20 @@ impl RunsClient {
     }
 
     /// Archive a run. Archived runs are hidden from the UI but not deleted.
-    ///
-    /// Note: runs cannot currently be unarchived once archived.
     pub async fn archive(&self, rid: &str) -> Result<()> {
         let run_rid = parse_rid(rid)?;
         self.service
             .archive_run(&self.token, &run_rid, None)
+            .await
+            .map_err(Error::from)?;
+        Ok(())
+    }
+
+    /// Unarchive a run, restoring its visibility in the UI.
+    pub async fn unarchive(&self, rid: &str) -> Result<()> {
+        let run_rid = parse_rid(rid)?;
+        self.service
+            .unarchive_run(&self.token, &run_rid, None)
             .await
             .map_err(Error::from)?;
         Ok(())

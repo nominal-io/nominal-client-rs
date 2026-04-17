@@ -1,54 +1,54 @@
 use anyhow::Context;
 use chrono::SecondsFormat;
 use clap::Subcommand;
-use nominal::core::{Asset, AssetUpdate, NominalClient};
+use nominal::core::{NominalClient, Run, RunUpdate};
 
 #[derive(Subcommand)]
-pub enum AssetCommands {
-    /// List all assets
+pub enum RunCommands {
+    /// List all runs
     List,
-    /// Get a specific asset by RID
+    /// Get a specific run by RID
     Get {
-        /// The RID of the asset to retrieve
+        /// The RID of the run to retrieve
         rid: String,
     },
-    /// Attach a dataset to an asset under a scope name
+    /// Attach a dataset to a run under a ref name
     AddDataset {
-        /// The RID of the asset
+        /// The RID of the run
         rid: String,
-        /// Scope name for the dataset within the asset
+        /// Ref name for the dataset within the run
         name: String,
         /// The RID of the dataset to attach
         dataset_rid: String,
     },
-    /// Attach a video to an asset under a scope name
+    /// Attach a video to a run under a ref name
     AddVideo {
-        /// The RID of the asset
+        /// The RID of the run
         rid: String,
-        /// Scope name for the video within the asset
+        /// Ref name for the video within the run
         name: String,
         /// The RID of the video to attach
         video_rid: String,
     },
-    /// Attach a connection to an asset under a scope name
+    /// Attach a connection to a run under a ref name
     AddConnection {
-        /// The RID of the asset
+        /// The RID of the run
         rid: String,
-        /// Scope name for the connection within the asset
+        /// Ref name for the connection within the run
         name: String,
         /// The RID of the connection to attach
         connection_rid: String,
     },
-    /// Update asset metadata
+    /// Update run metadata
     Update {
-        /// The RID of the asset to update
+        /// The RID of the run to update
         rid: String,
 
-        /// Set the asset name
+        /// Set the run name
         #[arg(short, long)]
         name: Option<String>,
 
-        /// Set the asset description
+        /// Set the run description
         #[arg(short, long)]
         description: Option<String>,
 
@@ -73,67 +73,71 @@ pub enum AssetCommands {
         #[arg(long, conflicts_with = "properties")]
         clear_properties: bool,
     },
+    /// Archive a run
+    Archive {
+        /// The RID of the run to archive
+        rid: String,
+    },
+    /// Unarchive a run
+    Unarchive {
+        /// The RID of the run to unarchive
+        rid: String,
+    },
 }
 
-pub async fn handle(cmd: AssetCommands, client: NominalClient) -> anyhow::Result<()> {
+pub async fn handle(cmd: RunCommands, client: NominalClient) -> anyhow::Result<()> {
     match cmd {
-        AssetCommands::List => {
-            let assets = client
-                .assets()
-                .list()
-                .await
-                .context("Failed to list assets")?;
-
-            for asset in assets {
-                println!("{}", asset.rid());
+        RunCommands::List => {
+            let runs = client.runs().list().await.context("Failed to list runs")?;
+            for run in runs {
+                println!("{}", run.rid());
             }
         }
-        AssetCommands::Get { rid } => {
-            let asset = client
-                .assets()
+        RunCommands::Get { rid } => {
+            let run = client
+                .runs()
                 .get(&rid)
                 .await
-                .with_context(|| format!("Failed to get asset '{rid}'"))?;
-
-            print_asset(&asset);
+                .with_context(|| format!("Failed to get run '{rid}'"))?;
+            print_run(&run);
         }
-        AssetCommands::AddDataset {
+        RunCommands::AddDataset {
             rid,
             name,
             dataset_rid,
         } => {
-            let asset = client
-                .assets()
+            let run = client
+                .runs()
                 .add_dataset(&rid, &name, &dataset_rid)
                 .await
-                .with_context(|| format!("Failed to attach dataset to asset '{rid}'"))?;
-            print_asset(&asset);
+                .with_context(|| format!("Failed to attach dataset to run '{rid}'"))?;
+            print_run(&run);
         }
-        AssetCommands::AddVideo {
+        RunCommands::AddVideo {
             rid,
             name,
             video_rid,
         } => {
-            let asset = client
-                .assets()
+            let run = client
+                .runs()
                 .add_video(&rid, &name, &video_rid)
                 .await
-                .with_context(|| format!("Failed to attach video to asset '{rid}'"))?;
-            print_asset(&asset);
+                .with_context(|| format!("Failed to attach video to run '{rid}'"))?;
+            print_run(&run);
         }
-        AssetCommands::AddConnection {
+        RunCommands::AddConnection {
             rid,
             name,
             connection_rid,
         } => {
-            let asset = client
-                .assets()
+            let run = client
+                .runs()
                 .add_connection(&rid, &name, &connection_rid)
                 .await
-                .with_context(|| format!("Failed to attach connection to asset '{rid}'"))?;
-            print_asset(&asset);
+                .with_context(|| format!("Failed to attach connection to run '{rid}'"))?;
+            print_run(&run);
         }
-        AssetCommands::Update {
+        RunCommands::Update {
             rid,
             name,
             description,
@@ -142,22 +146,19 @@ pub async fn handle(cmd: AssetCommands, client: NominalClient) -> anyhow::Result
             properties,
             clear_properties,
         } => {
-            let mut update = AssetUpdate::new();
+            let mut update = RunUpdate::new();
 
             if let Some(n) = name {
                 update = update.name(n);
             }
-
             if let Some(d) = description {
                 update = update.description(d);
             }
-
             if clear_labels {
                 update = update.labels([] as [String; 0]);
             } else if !labels.is_empty() {
                 update = update.labels(labels);
             }
-
             if clear_properties {
                 update = update.properties([] as [(String, String); 0]);
             } else if !properties.is_empty() {
@@ -168,47 +169,75 @@ pub async fn handle(cmd: AssetCommands, client: NominalClient) -> anyhow::Result
                 update = update.properties(props);
             }
 
-            let asset = client
-                .assets()
+            let run = client
+                .runs()
                 .update(&rid, update)
                 .await
-                .with_context(|| format!("Failed to update asset '{rid}'"))?;
-
-            print_asset(&asset);
+                .with_context(|| format!("Failed to update run '{rid}'"))?;
+            print_run(&run);
+        }
+        RunCommands::Archive { rid } => {
+            client
+                .runs()
+                .archive(&rid)
+                .await
+                .with_context(|| format!("Failed to archive run '{rid}'"))?;
+            println!("Archived run: {rid}");
+        }
+        RunCommands::Unarchive { rid } => {
+            client
+                .runs()
+                .unarchive(&rid)
+                .await
+                .with_context(|| format!("Failed to unarchive run '{rid}'"))?;
+            println!("Unarchived run: {rid}");
         }
     }
 
     Ok(())
 }
 
-fn print_asset(asset: &Asset) {
-    println!("RID: {}", asset.rid());
-    println!("Name: {}", asset.name());
-    if let Some(description) = asset.description() {
-        println!("Description: {description}");
+fn print_run(run: &Run) {
+    println!("RID: {}", run.rid());
+    println!("Run #: {}", run.run_number());
+    println!("Name: {}", run.name());
+    if !run.description().is_empty() {
+        println!("Description: {}", run.description());
     }
-    if !asset.labels().is_empty() {
-        println!("Labels: {}", asset.labels().join(", "));
+    println!(
+        "Start: {}",
+        run.start().to_rfc3339_opts(SecondsFormat::Nanos, true)
+    );
+    if let Some(end) = run.end() {
+        println!("End: {}", end.to_rfc3339_opts(SecondsFormat::Nanos, true));
     }
-    if !asset.properties().is_empty() {
+    if !run.labels().is_empty() {
+        println!("Labels: {}", run.labels().join(", "));
+    }
+    if !run.properties().is_empty() {
         println!("Properties:");
-        for (key, value) in asset.properties() {
+        for (key, value) in run.properties() {
             println!("  {key}: {value}");
         }
     }
-    if !asset.data_sources().is_empty() {
+    if !run.assets().is_empty() {
+        println!("Assets:");
+        for asset in run.assets() {
+            println!("  {asset}");
+        }
+    }
+    if !run.data_sources().is_empty() {
         println!("Data sources:");
-        for (name, ds) in asset.data_sources() {
+        for (name, ds) in run.data_sources() {
             println!("  {name}: {} ({})", ds.rid(), data_source_kind(ds));
         }
     }
     println!(
         "Created: {}",
-        asset
-            .created_at()
+        run.created_at()
             .to_rfc3339_opts(SecondsFormat::Nanos, true)
     );
-    println!("URL: {}", asset.nominal_url());
+    println!("URL: {}", run.nominal_url());
 }
 
 fn data_source_kind(ds: &nominal::core::DataSource) -> &'static str {
