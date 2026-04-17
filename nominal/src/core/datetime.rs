@@ -1,5 +1,5 @@
 use chrono::{DateTime, TimeZone, Utc};
-use nominal_api::scout::run::api::UtcTimestamp;
+use nominal_api::objects::scout::run::api::UtcTimestamp;
 use std::fmt;
 
 /// Local conversion wrapper for Nominal `UtcTimestamp` values.

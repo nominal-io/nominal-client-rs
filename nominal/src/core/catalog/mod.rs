@@ -8,26 +8,35 @@ pub use connection::{Connection, ConnectionUpdate};
 pub use dataset::{Dataset, DatasetCreate, DatasetQuery, DatasetUpdate};
 pub use video::{Video, VideoCreate, VideoQuery, VideoUpdate};
 
-use conjure_http::client::AsyncService;
+use std::sync::Arc;
+
+use conjure_http::client::{AsyncService, ConjureRuntime};
 use conjure_object::BearerToken;
 use conjure_runtime::Client;
 use futures::Stream;
-use nominal_api::api::rids::{DataSourceRid, VideoRid};
-use nominal_api::datasource::api::{SearchChannelsRequest, SearchChannelsResponse};
-use nominal_api::scout::catalog::{
-    CatalogServiceAsyncClient, GetDatasetsRequest, SearchDatasetsRequest,
+use nominal_api::clients::scout::catalog::{AsyncCatalogService, AsyncCatalogServiceClient};
+use nominal_api::clients::scout::datasource::{
+    AsyncDataSourceService, AsyncDataSourceServiceClient,
+};
+use nominal_api::clients::scout::datasource::connection::{
+    AsyncConnectionService, AsyncConnectionServiceClient,
+};
+use nominal_api::clients::scout::video::{AsyncVideoService, AsyncVideoServiceClient};
+use nominal_api::clients::timeseries::channelmetadata::{
+    AsyncChannelMetadataService, AsyncChannelMetadataServiceClient,
+};
+use nominal_api::objects::api::rids::{DataSourceRid, VideoRid};
+use nominal_api::objects::datasource::api::{SearchChannelsRequest, SearchChannelsResponse};
+use nominal_api::objects::scout::catalog::{
+    GetDatasetsRequest, SearchDatasetsRequest, SearchDatasetsResponse,
     SortField as DatasetSortField, SortOptions as DatasetSortOptions,
 };
-use nominal_api::scout::datasource::DataSourceServiceAsyncClient;
-use nominal_api::scout::datasource::connection::ConnectionServiceAsyncClient;
-use nominal_api::scout::datasource::connection::api::ConnectionRid;
-use nominal_api::scout::video::VideoServiceAsyncClient;
-use nominal_api::scout::video::api::{
-    GetVideosRequest, SearchVideosRequest, SortField as VideoSortField,
+use nominal_api::objects::scout::datasource::connection::api::{ConnectionRid, ListConnectionsResponse};
+use nominal_api::objects::scout::video::api::{
+    GetVideosRequest, SearchVideosRequest, SearchVideosResponse, SortField as VideoSortField,
     SortOptions as VideoSortOptions,
 };
-use nominal_api::timeseries::channelmetadata::ChannelMetadataServiceAsyncClient;
-use nominal_api::timeseries::channelmetadata::api::{
+use nominal_api::objects::timeseries::channelmetadata::api::{
     ChannelIdentifier, GetChannelMetadataRequest,
 };
 use std::collections::{BTreeSet, HashMap};
@@ -39,11 +48,11 @@ use futures::TryStreamExt;
 
 /// Client for catalog operations: datasets, videos, connections, and channels.
 pub struct CatalogClient {
-    catalog_service: CatalogServiceAsyncClient<Client>,
-    video_service: VideoServiceAsyncClient<Client>,
-    connection_service: ConnectionServiceAsyncClient<Client>,
-    data_source_service: DataSourceServiceAsyncClient<Client>,
-    channel_metadata_service: ChannelMetadataServiceAsyncClient<Client>,
+    catalog_service: AsyncCatalogServiceClient<Client>,
+    video_service: AsyncVideoServiceClient<Client>,
+    connection_service: AsyncConnectionServiceClient<Client>,
+    data_source_service: AsyncDataSourceServiceClient<Client>,
+    channel_metadata_service: AsyncChannelMetadataServiceClient<Client>,
     token: BearerToken,
     workspace_rid: Option<String>,
     app_base_url: String,
@@ -52,16 +61,17 @@ pub struct CatalogClient {
 impl CatalogClient {
     pub(crate) fn new(
         client: Client,
+        runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
         workspace_rid: Option<String>,
         app_base_url: String,
     ) -> Self {
         Self {
-            catalog_service: CatalogServiceAsyncClient::new(client.clone()),
-            video_service: VideoServiceAsyncClient::new(client.clone()),
-            connection_service: ConnectionServiceAsyncClient::new(client.clone()),
-            data_source_service: DataSourceServiceAsyncClient::new(client.clone()),
-            channel_metadata_service: ChannelMetadataServiceAsyncClient::new(client),
+            catalog_service: AsyncCatalogServiceClient::new(client.clone(), runtime),
+            video_service: AsyncVideoServiceClient::new(client.clone(), runtime),
+            connection_service: AsyncConnectionServiceClient::new(client.clone(), runtime),
+            data_source_service: AsyncDataSourceServiceClient::new(client.clone(), runtime),
+            channel_metadata_service: AsyncChannelMetadataServiceClient::new(client, runtime),
             token,
             workspace_rid,
             app_base_url,
@@ -157,7 +167,7 @@ impl CatalogClient {
                         .map_err(Error::from)
                 }
             },
-            |resp| resp.next_page_token().cloned(),
+            |resp: &SearchDatasetsResponse| resp.next_page_token().cloned(),
             move |resp| {
                 resp.results()
                     .iter()
@@ -306,7 +316,7 @@ impl CatalogClient {
                         .map_err(Error::from)
                 }
             },
-            |resp| resp.next_page_token().cloned(),
+            |resp: &SearchVideosResponse| resp.next_page_token().cloned(),
             move |resp| {
                 resp.results()
                     .iter()
@@ -438,7 +448,7 @@ impl CatalogClient {
                         .map_err(Error::from)
                 }
             },
-            |resp| resp.next_page_token().cloned(),
+            |resp: &ListConnectionsResponse| resp.next_page_token().cloned(),
             |resp| {
                 resp.connections()
                     .iter()
@@ -566,7 +576,7 @@ impl CatalogClient {
     /// Get a single channel's metadata.
     pub async fn get_channel(&self, data_source_rid: &str, name: &str) -> Result<Channel> {
         let id = ChannelIdentifier::new(
-            nominal_api::api::Channel(name.to_string()),
+            nominal_api::objects::api::Channel(name.to_string()),
             parse_rid::<DataSourceRid>(data_source_rid)?,
         );
         let request = GetChannelMetadataRequest::new(id);

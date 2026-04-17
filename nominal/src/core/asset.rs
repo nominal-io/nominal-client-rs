@@ -1,15 +1,18 @@
+use std::sync::Arc;
+
 use chrono::{DateTime, Utc};
-use conjure_http::client::AsyncService;
+use conjure_http::client::{AsyncService, ConjureRuntime};
 use conjure_object::BearerToken;
 use conjure_runtime::Client;
 use futures::Stream;
-use nominal_api::api::{Label, PropertyName, PropertyValue, SetOperator};
-use nominal_api::scout::asset::api::{
+use nominal_api::clients::scout::assets::{AsyncAssetService, AsyncAssetServiceClient};
+use nominal_api::objects::api::{Label, PropertyName, PropertyValue, SetOperator};
+use nominal_api::objects::scout::asset::api::{
     AddDataScopesToAssetRequest, AssetSortField, AssetSortOptions, CreateAssetDataScope,
-    SearchAssetsQuery, SearchAssetsRequest, SortKey, UpdateAssetRequest,
+    CreateAssetRequest, SearchAssetsQuery, SearchAssetsRequest, SearchAssetsResponse, SortKey,
+    UpdateAssetRequest,
 };
-use nominal_api::scout::assets::AssetServiceAsyncClient;
-use nominal_api::scout::rids::api::{LabelsFilter, PropertiesFilter};
+use nominal_api::objects::scout::rids::api::{LabelsFilter, PropertiesFilter};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::core::datasource::DataSource;
@@ -70,7 +73,7 @@ impl Asset {
     }
 
     pub(crate) fn from_conjure(
-        asset: nominal_api::scout::asset::api::Asset,
+        asset: nominal_api::objects::scout::asset::api::Asset,
         app_base_url: &str,
     ) -> Self {
         let data_sources = asset
@@ -182,6 +185,90 @@ impl AssetUpdate {
     }
 }
 
+/// Parameters for creating a new asset.
+#[derive(Debug, Clone)]
+pub struct AssetCreate {
+    name: String,
+    description: Option<String>,
+    properties: Option<HashMap<String, String>>,
+    labels: Option<Vec<String>>,
+}
+
+impl AssetCreate {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            description: None,
+            properties: None,
+            labels: None,
+        }
+    }
+
+    #[must_use]
+    pub fn description(mut self, value: impl Into<String>) -> Self {
+        self.description = Some(value.into());
+        self
+    }
+
+    #[must_use]
+    pub fn properties<I, K, V>(mut self, value: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        self.properties = Some(
+            value
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
+        );
+        self
+    }
+
+    #[must_use]
+    pub fn labels<I>(mut self, value: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: Into<String>,
+    {
+        self.labels = Some(value.into_iter().map(Into::into).collect());
+        self
+    }
+
+    pub(crate) fn into_request(self, workspace_rid: Option<&str>) -> Result<CreateAssetRequest> {
+        use nominal_api::objects::api::rids::WorkspaceRid;
+
+        let AssetCreate {
+            name,
+            description,
+            properties,
+            labels,
+        } = self;
+
+        let mut b = CreateAssetRequest::builder().title(name);
+
+        if let Some(d) = description {
+            b = b.description(d);
+        }
+        if let Some(p) = properties {
+            b = b.properties(
+                p.into_iter()
+                    .map(|(k, v)| (PropertyName(k), PropertyValue(v)))
+                    .collect::<BTreeMap<_, _>>(),
+            );
+        }
+        if let Some(l) = labels {
+            b = b.labels(l.into_iter().map(Label).collect::<BTreeSet<_>>());
+        }
+        if let Some(wid) = workspace_rid {
+            b = b.workspace(parse_rid::<WorkspaceRid>(wid)?);
+        }
+
+        Ok(b.build())
+    }
+}
+
 /// A query for searching assets, which can be composed into a tree with [`and`](AssetQuery::and) and [`or`](AssetQuery::or).
 #[derive(Debug, Clone)]
 pub enum AssetQuery {
@@ -249,7 +336,7 @@ impl AssetQuery {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nominal_api::scout::asset::api::SearchAssetsQuery;
+    use nominal_api::objects::scout::asset::api::SearchAssetsQuery;
 
     // --- AssetQuery::into_conjure ---
 
@@ -271,7 +358,7 @@ mod tests {
         let SearchAssetsQuery::Labels(f) = q.into_conjure() else {
             panic!("expected Labels variant");
         };
-        assert_eq!(f.labels(), [nominal_api::api::Label("my-label".into())]);
+        assert_eq!(f.labels(), [nominal_api::objects::api::Label("my-label".into())]);
     }
 
     #[test]
@@ -280,8 +367,8 @@ mod tests {
         let SearchAssetsQuery::Properties(f) = q.into_conjure() else {
             panic!("expected Properties variant");
         };
-        assert_eq!(f.name(), &nominal_api::api::PropertyName("key".into()));
-        assert_eq!(f.values(), [nominal_api::api::PropertyValue("val".into())]);
+        assert_eq!(f.name(), &nominal_api::objects::api::PropertyName("key".into()));
+        assert_eq!(f.values(), [nominal_api::objects::api::PropertyValue("val".into())]);
     }
 
     #[test]
@@ -356,12 +443,12 @@ mod tests {
         let props = req.properties().expect("properties should be set");
         assert_eq!(props.len(), 2);
         assert_eq!(
-            props.get(&nominal_api::api::PropertyName("k1".into())),
-            Some(&nominal_api::api::PropertyValue("v1".into()))
+            props.get(&nominal_api::objects::api::PropertyName("k1".into())),
+            Some(&nominal_api::objects::api::PropertyValue("v1".into()))
         );
         assert_eq!(
-            props.get(&nominal_api::api::PropertyName("k2".into())),
-            Some(&nominal_api::api::PropertyValue("v2".into()))
+            props.get(&nominal_api::objects::api::PropertyName("k2".into())),
+            Some(&nominal_api::objects::api::PropertyValue("v2".into()))
         );
     }
 
@@ -373,8 +460,8 @@ mod tests {
         let labels = req.labels().expect("labels should be set");
         // BTreeSet deduplicates
         assert_eq!(labels.len(), 2);
-        assert!(labels.contains(&nominal_api::api::Label("tag1".into())));
-        assert!(labels.contains(&nominal_api::api::Label("tag2".into())));
+        assert!(labels.contains(&nominal_api::objects::api::Label("tag1".into())));
+        assert!(labels.contains(&nominal_api::objects::api::Label("tag2".into())));
     }
 
     #[test]
@@ -394,18 +481,37 @@ mod tests {
 
 /// Client for asset collection operations (list, get).
 pub struct AssetsClient {
-    service: AssetServiceAsyncClient<Client>,
+    service: AsyncAssetServiceClient<Client>,
     token: BearerToken,
+    workspace_rid: Option<String>,
     app_base_url: String,
 }
 
 impl AssetsClient {
-    pub(crate) fn new(client: Client, token: BearerToken, app_base_url: String) -> Self {
+    pub(crate) fn new(
+        client: Client,
+        runtime: &Arc<ConjureRuntime>,
+        token: BearerToken,
+        workspace_rid: Option<String>,
+        app_base_url: String,
+    ) -> Self {
         Self {
-            service: AssetServiceAsyncClient::new(client),
+            service: AsyncAssetServiceClient::new(client, runtime),
             token,
+            workspace_rid,
             app_base_url,
         }
+    }
+
+    /// Create a new asset.
+    pub async fn create(&self, create: AssetCreate) -> Result<Asset> {
+        let request = create.into_request(self.workspace_rid.as_deref())?;
+        let response = self
+            .service
+            .create_asset(&self.token, &request)
+            .await
+            .map_err(Error::from)?;
+        Ok(Asset::from_conjure(response, &self.app_base_url))
     }
 
     /// Get an asset by RID.
@@ -489,7 +595,7 @@ impl AssetsClient {
                         .map_err(Error::from)
                 }
             },
-            |resp| resp.next_page_token().cloned(),
+            |resp: &SearchAssetsResponse| resp.next_page_token().cloned(),
             move |resp| {
                 resp.results()
                     .iter()

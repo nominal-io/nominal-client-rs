@@ -1,6 +1,6 @@
 use futures::{StreamExt, stream::{self, Stream}};
 use std::sync::Arc;
-use nominal_api::api::Token;
+use nominal_api::objects::api::Token;
 use regex::Regex;
 use std::sync::LazyLock;
 

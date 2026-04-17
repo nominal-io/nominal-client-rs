@@ -1,15 +1,18 @@
+use std::sync::Arc;
+
 use chrono::{DateTime, Utc};
-use conjure_http::client::AsyncService;
+use conjure_http::client::{AsyncService, ConjureRuntime};
 use conjure_object::BearerToken;
 use conjure_runtime::Client;
 use futures::Stream;
-use nominal_api::api::{Label, PropertyName, PropertyValue, SetOperator};
-use nominal_api::scout::RunServiceAsyncClient;
-use nominal_api::scout::run::api::{
-    CreateRunDataSource, CustomTimeframeFilter, SearchQuery, SearchRunsRequest, SortField, SortKey,
-    SortOptions, TimeframeFilter, UpdateAttachmentsRequest, UpdateRunRequest,
+use nominal_api::clients::scout::{AsyncRunService, AsyncRunServiceClient};
+use nominal_api::objects::api::{Label, PropertyName, PropertyValue, SetOperator};
+use nominal_api::objects::scout::rids::api::{LabelsFilter, PropertiesFilter};
+use nominal_api::objects::scout::run::api::{
+    CreateRunDataSource, CustomTimeframeFilter, SearchQuery, SearchRunsRequest,
+    SearchRunsResponse, SortField, SortKey, SortOptions, TimeframeFilter,
+    UpdateAttachmentsRequest, UpdateRunRequest,
 };
-use nominal_api::scout::rids::api::{LabelsFilter, PropertiesFilter};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::core::{
@@ -95,7 +98,7 @@ impl Run {
         format!("{}/runs/{}", self.app_base_url, self.run_number)
     }
 
-    pub(crate) fn from_conjure(run: nominal_api::scout::run::api::Run, app_base_url: &str) -> Self {
+    pub(crate) fn from_conjure(run: nominal_api::objects::scout::run::api::Run, app_base_url: &str) -> Self {
         let data_sources = run
             .data_sources()
             .iter()
@@ -346,7 +349,7 @@ impl RunQuery {
 mod tests {
     use super::*;
     use chrono::TimeZone;
-    use nominal_api::scout::run::api::SearchQuery;
+    use nominal_api::objects::scout::run::api::SearchQuery;
 
     // --- RunQuery::into_conjure ---
 
@@ -368,7 +371,7 @@ mod tests {
         let SearchQuery::Labels(f) = q.into_conjure().unwrap() else {
             panic!("expected Labels variant");
         };
-        assert_eq!(f.labels(), [nominal_api::api::Label("my-label".into())]);
+        assert_eq!(f.labels(), [nominal_api::objects::api::Label("my-label".into())]);
     }
 
     #[test]
@@ -377,8 +380,8 @@ mod tests {
         let SearchQuery::Properties(f) = q.into_conjure().unwrap() else {
             panic!("expected Properties variant");
         };
-        assert_eq!(f.name(), &nominal_api::api::PropertyName("key".into()));
-        assert_eq!(f.values(), [nominal_api::api::PropertyValue("val".into())]);
+        assert_eq!(f.name(), &nominal_api::objects::api::PropertyName("key".into()));
+        assert_eq!(f.values(), [nominal_api::objects::api::PropertyValue("val".into())]);
     }
 
     #[test]
@@ -398,7 +401,7 @@ mod tests {
             panic!("expected StartTime variant");
         };
         use crate::core::datetime::api_timestamp_to_utc;
-        use nominal_api::scout::run::api::TimeframeFilter;
+        use nominal_api::objects::scout::run::api::TimeframeFilter;
         let TimeframeFilter::Custom(inner) = *tf else {
             panic!("expected Custom timeframe");
         };
@@ -414,7 +417,7 @@ mod tests {
             panic!("expected EndTime variant");
         };
         use crate::core::datetime::api_timestamp_to_utc;
-        use nominal_api::scout::run::api::TimeframeFilter;
+        use nominal_api::objects::scout::run::api::TimeframeFilter;
         let TimeframeFilter::Custom(inner) = *tf else {
             panic!("expected Custom timeframe");
         };
@@ -498,8 +501,8 @@ mod tests {
         let props = req.properties().expect("properties should be set");
         assert_eq!(props.len(), 1);
         assert_eq!(
-            props.get(&nominal_api::api::PropertyName("k".into())),
-            Some(&nominal_api::api::PropertyValue("v".into()))
+            props.get(&nominal_api::objects::api::PropertyName("k".into())),
+            Some(&nominal_api::objects::api::PropertyValue("v".into()))
         );
     }
 
@@ -533,15 +536,20 @@ mod tests {
 
 /// Client for run collection operations (list, get).
 pub struct RunsClient {
-    service: RunServiceAsyncClient<Client>,
+    service: AsyncRunServiceClient<Client>,
     token: BearerToken,
     app_base_url: String,
 }
 
 impl RunsClient {
-    pub(crate) fn new(client: Client, token: BearerToken, app_base_url: String) -> Self {
+    pub(crate) fn new(
+        client: Client,
+        runtime: &Arc<ConjureRuntime>,
+        token: BearerToken,
+        app_base_url: String,
+    ) -> Self {
         Self {
-            service: RunServiceAsyncClient::new(client),
+            service: AsyncRunServiceClient::new(client, runtime),
             token,
             app_base_url,
         }
@@ -615,7 +623,7 @@ impl RunsClient {
                         .map_err(Error::from)
                 }
             },
-            |resp| resp.next_page_token().cloned(),
+            |resp: &SearchRunsResponse| resp.next_page_token().cloned(),
             move |resp| {
                 resp.results()
                     .iter()

@@ -8,7 +8,7 @@ pub(crate) mod run;
 pub(crate) mod user;
 pub(crate) mod utils;
 
-pub use asset::{Asset, AssetQuery, AssetUpdate, AssetsClient};
+pub use asset::{Asset, AssetCreate, AssetQuery, AssetUpdate, AssetsClient};
 pub use catalog::{
     CatalogClient, Channel, ChannelDataType, ChannelQuery, ChannelUpdate, Connection,
     ConnectionUpdate, Dataset, DatasetCreate, DatasetQuery, DatasetUpdate, Video, VideoCreate,

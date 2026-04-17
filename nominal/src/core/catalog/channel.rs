@@ -1,12 +1,12 @@
-use nominal_api::api::rids::DataSourceRid;
-use nominal_api::api::{
+use nominal_api::objects::api::rids::DataSourceRid;
+use nominal_api::objects::api::{
     Channel as ApiChannel, Empty, SeriesDataType as ApiSeriesDataType, Unit as ApiUnit,
 };
-use nominal_api::datasource::api::ChannelMetadata as SearchChannelMetadata;
-use nominal_api::timeseries::channelmetadata::api::{
+use nominal_api::objects::datasource::api::ChannelMetadata as SearchChannelMetadata;
+use nominal_api::objects::timeseries::channelmetadata::api::{
     ChannelIdentifier, ChannelMetadata as StoredChannelMetadata, UpdateChannelMetadataRequest,
 };
-use nominal_api::timeseries::logicalseries::api::UnitUpdate as ApiUnitUpdate;
+use nominal_api::objects::timeseries::logicalseries::api::UnitUpdate as ApiUnitUpdate;
 use std::collections::BTreeSet;
 
 use crate::core::rid::{parse_rid, rid_to_string};

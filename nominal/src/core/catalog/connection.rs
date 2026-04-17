@@ -1,4 +1,4 @@
-use nominal_api::scout::datasource::connection::api::{
+use nominal_api::objects::scout::datasource::connection::api::{
     Connection as ApiConnection, UpdateConnectionRequest,
 };
 
