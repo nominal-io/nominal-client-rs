@@ -9,8 +9,9 @@ pub(crate) mod utils;
 
 pub use asset::{Asset, AssetQuery, AssetUpdate, AssetsClient};
 pub use catalog::{
-    CatalogClient, Connection, ConnectionUpdate, Dataset, DatasetCreate, DatasetQuery,
-    DatasetUpdate, Video, VideoCreate, VideoQuery, VideoUpdate,
+    CatalogClient, Channel, ChannelDataType, ChannelQuery, ChannelUpdate, Connection,
+    ConnectionUpdate, Dataset, DatasetCreate, DatasetQuery, DatasetUpdate, Video, VideoCreate,
+    VideoQuery, VideoUpdate,
 };
 pub use client::NominalClient;
 pub use run::{Run, RunQuery, RunUpdate, RunsClient};
