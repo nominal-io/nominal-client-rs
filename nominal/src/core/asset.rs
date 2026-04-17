@@ -5,13 +5,14 @@ use conjure_runtime::Client;
 use futures::Stream;
 use nominal_api::api::{Label, PropertyName, PropertyValue, SetOperator};
 use nominal_api::scout::asset::api::{
-    AssetSortField, AssetSortOptions, SearchAssetsQuery, SearchAssetsRequest, SortKey,
-    UpdateAssetRequest,
+    AddDataScopesToAssetRequest, AssetSortField, AssetSortOptions, CreateAssetDataScope,
+    SearchAssetsQuery, SearchAssetsRequest, SortKey, UpdateAssetRequest,
 };
 use nominal_api::scout::assets::AssetServiceAsyncClient;
 use nominal_api::scout::rids::api::{LabelsFilter, PropertiesFilter};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use crate::core::datasource::DataSource;
 use crate::core::rid::{parse_rid, rid_to_string};
 use crate::core::utils::paginate_stream;
 use crate::{Error, Result};
@@ -28,6 +29,7 @@ pub struct Asset {
     description: Option<String>,
     properties: HashMap<String, String>,
     labels: Vec<String>,
+    data_sources: HashMap<String, DataSource>,
     created_at: DateTime<Utc>,
     app_base_url: String,
 }
@@ -53,6 +55,11 @@ impl Asset {
         &self.labels
     }
 
+    /// Data sources attached to this asset, keyed by scope name.
+    pub fn data_sources(&self) -> &HashMap<String, DataSource> {
+        &self.data_sources
+    }
+
     pub fn created_at(&self) -> &DateTime<Utc> {
         &self.created_at
     }
@@ -66,6 +73,14 @@ impl Asset {
         asset: nominal_api::scout::asset::api::Asset,
         app_base_url: &str,
     ) -> Self {
+        let data_sources = asset
+            .data_scopes()
+            .iter()
+            .filter_map(|scope| {
+                DataSource::from_conjure(scope.data_source())
+                    .map(|ds| (scope.data_scope_name().to_string(), ds))
+            })
+            .collect();
         Self {
             rid: rid_to_string(asset.rid()),
             name: asset.title().to_string(),
@@ -79,6 +94,7 @@ impl Asset {
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
             labels: asset.labels().iter().map(|l| l.to_string()).collect(),
+            data_sources,
             created_at: asset.created_at().to_utc(),
             app_base_url: app_base_url.to_string(),
         }
@@ -523,6 +539,73 @@ impl AssetsClient {
             .await
             .map_err(Error::from)?;
         Ok(Asset::from_conjure(response, &self.app_base_url))
+    }
+
+    /// Attach data sources to an asset under the given scope names.
+    ///
+    /// Scope names should be stable across assets of the same type, since
+    /// checklists and templates use them to reference data sources.
+    /// Returns the updated asset.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # async fn example(client: nominal::NominalClient) -> nominal::Result<()> {
+    /// use nominal::core::DataSource;
+    /// client.assets().add_data_sources("ri.scout.cerulean-staging.asset.<uuid>", [
+    ///     ("flight-data", DataSource::dataset("ri.catalog.cerulean-staging.dataset.<uuid>")),
+    ///     ("cockpit-cam", DataSource::video("ri.catalog.cerulean-staging.video.<uuid>")),
+    /// ]).await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn add_data_sources<I, N>(&self, rid: &str, sources: I) -> Result<Asset>
+    where
+        I: IntoIterator<Item = (N, DataSource)>,
+        N: Into<String>,
+    {
+        let scopes = sources
+            .into_iter()
+            .map(|(name, ds)| {
+                ds.into_conjure().map(|conjure_ds| {
+                    CreateAssetDataScope::builder()
+                        .data_scope_name(name.into().into())
+                        .data_source(conjure_ds)
+                        .build()
+                })
+            })
+            .collect::<Result<BTreeSet<_>>>()?;
+        let request = AddDataScopesToAssetRequest::builder()
+            .data_scopes(scopes)
+            .build();
+        let asset_rid = parse_rid(rid)?;
+        let response = self
+            .service
+            .add_data_scopes_to_asset(&self.token, &asset_rid, &request)
+            .await
+            .map_err(Error::from)?;
+        Ok(Asset::from_conjure(response, &self.app_base_url))
+    }
+
+    /// Attach a dataset to an asset under the given scope name. See [`add_data_sources`](Self::add_data_sources).
+    pub async fn add_dataset(&self, rid: &str, name: &str, dataset_rid: &str) -> Result<Asset> {
+        self.add_data_sources(rid, [(name, DataSource::dataset(dataset_rid))])
+            .await
+    }
+
+    /// Attach a video to an asset under the given scope name. See [`add_data_sources`](Self::add_data_sources).
+    pub async fn add_video(&self, rid: &str, name: &str, video_rid: &str) -> Result<Asset> {
+        self.add_data_sources(rid, [(name, DataSource::video(video_rid))])
+            .await
+    }
+
+    /// Attach a connection to an asset under the given scope name. See [`add_data_sources`](Self::add_data_sources).
+    pub async fn add_connection(
+        &self,
+        rid: &str,
+        name: &str,
+        connection_rid: &str,
+    ) -> Result<Asset> {
+        self.add_data_sources(rid, [(name, DataSource::connection(connection_rid))])
+            .await
     }
 
     /// Archive an asset. Archived assets are hidden from the UI but not deleted.

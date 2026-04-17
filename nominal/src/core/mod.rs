@@ -1,6 +1,7 @@
 pub(crate) mod asset;
 pub(crate) mod catalog;
 pub(crate) mod client;
+pub(crate) mod datasource;
 pub(crate) mod datetime;
 pub(crate) mod rid;
 pub(crate) mod run;
@@ -14,5 +15,6 @@ pub use catalog::{
     VideoQuery, VideoUpdate,
 };
 pub use client::NominalClient;
+pub use datasource::DataSource;
 pub use run::{Run, RunQuery, RunUpdate, RunsClient};
 pub use user::{User, UsersClient};
