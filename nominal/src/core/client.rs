@@ -56,6 +56,15 @@ impl NominalClient {
         Self::from_profile_config(profile)
     }
 
+    /// Create a client from the profile named by the `NOMINAL_PROFILE` environment variable.
+    /// Returns an error if the variable is not set.
+    pub fn from_profile_env() -> Result<Self> {
+        let name = std::env::var("NOMINAL_PROFILE").map_err(|_| Error::EnvVarNotSet {
+            name: "NOMINAL_PROFILE",
+        })?;
+        Self::from_profile(&name)
+    }
+
     pub fn from_profile_config(profile: &Profile) -> Result<Self> {
         Self::new(
             profile.base_url(),
