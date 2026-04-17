@@ -105,7 +105,7 @@ fn conjure_type_to_rust(ty: &serde_json::Value) -> Result<String, String> {
                 .strip_prefix("io.nominal.")
                 .unwrap_or(pkg)
                 .replace('.', "::");
-            Ok(format!("::nominal_api::{module}::{name}"))
+            Ok(format!("::nominal_api::objects::{module}::{name}"))
         }
         "set" => Ok(format!(
             "::std::collections::BTreeSet<{}>",

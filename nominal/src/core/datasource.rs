@@ -1,4 +1,4 @@
-use nominal_api::scout::run::api::{ConnectionRid, DataSource as ConjureDataSource};
+use nominal_api::objects::scout::run::api::{ConnectionRid, DataSource as ConjureDataSource};
 
 use crate::core::rid::{parse_rid, rid_to_string};
 use crate::{Error, Result};
@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn log_sets_are_filtered() {
-        use nominal_api::scout::run::api::LogSetRid;
+        use nominal_api::objects::scout::run::api::LogSetRid;
         let rid = parse_rid::<LogSetRid>(LOGSET_RID).unwrap();
         assert_eq!(DataSource::from_conjure(&ConjureDataSource::LogSet(rid)), None);
     }

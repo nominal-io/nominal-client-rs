@@ -15,9 +15,9 @@ use commands::video::VideoCommands;
 #[command(name = "nom")]
 #[command(about = "Interact with Nominal", long_about = None)]
 struct Cli {
-    /// Named profile to use from config
-    #[arg(short, long, default_value = "default")]
-    profile: String,
+    /// Named profile to use from config (overrides NOMINAL_PROFILE env var)
+    #[arg(short, long)]
+    profile: Option<String>,
     #[command(subcommand)]
     command: Commands,
 }
@@ -86,37 +86,37 @@ async fn run() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Api(args) => {
-            let profile = commands::load_profile(&cli.profile)?;
+            let profile = commands::load_profile(cli.profile.as_deref())?;
             commands::api::handle(args, profile.base_url(), profile.token()).await
         }
         Commands::Asset { asset_command } => {
-            let client = commands::load_client(&cli.profile)?;
+            let client = commands::load_client(cli.profile.as_deref())?;
             commands::asset::handle(asset_command, client).await
         }
         Commands::Channel { channel_command } => {
-            let client = commands::load_client(&cli.profile)?;
+            let client = commands::load_client(cli.profile.as_deref())?;
             commands::channel::handle(channel_command, client).await
         }
         Commands::Config { config_command } => commands::config::handle(config_command),
         Commands::Connection { connection_command } => {
-            let client = commands::load_client(&cli.profile)?;
+            let client = commands::load_client(cli.profile.as_deref())?;
             commands::connection::handle(connection_command, client).await
         }
         Commands::Dataset { dataset_command } => {
-            let client = commands::load_client(&cli.profile)?;
+            let client = commands::load_client(cli.profile.as_deref())?;
             commands::dataset::handle(dataset_command, client).await
         }
         Commands::Endpoint { endpoint_command } => commands::endpoint::handle(endpoint_command),
         Commands::Run { run_command } => {
-            let client = commands::load_client(&cli.profile)?;
+            let client = commands::load_client(cli.profile.as_deref())?;
             commands::run::handle(run_command, client).await
         }
         Commands::User { user_command } => {
-            let client = commands::load_client(&cli.profile)?;
+            let client = commands::load_client(cli.profile.as_deref())?;
             commands::user::handle(user_command, client).await
         }
         Commands::Video { video_command } => {
-            let client = commands::load_client(&cli.profile)?;
+            let client = commands::load_client(cli.profile.as_deref())?;
             commands::video::handle(video_command, client).await
         }
     }

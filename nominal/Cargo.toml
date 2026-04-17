@@ -10,12 +10,12 @@ homepage = "https://nominal.io"
 [dependencies]
 chrono = { version = "0.4", features = ["clock", "std"] }
 futures = "0.3"
-conjure-error = "4.15.0"
-conjure-http = "4.15.0"
-conjure-object = "4.15.0"
-conjure-runtime = "6.2.0"
+conjure-error = "5.10"
+conjure-http = "5.10"
+conjure-object = "5.10"
+conjure-runtime = { package = "conjure-runtime-rustls-platform-verifier", version = "0.2" }
 dirs = "5"
-nominal-api = "0.1151"
+nominal-api = "0.1163"
 regex = "1.11"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_yaml = "0.9.34"
