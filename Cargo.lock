@@ -1341,6 +1341,7 @@ dependencies = [
 name = "nominal"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "chrono",
  "conjure-error",
  "conjure-http",
@@ -1350,9 +1351,11 @@ dependencies = [
  "futures",
  "nominal-api",
  "regex",
+ "reqwest",
  "serde",
  "serde_yaml",
  "thiserror 2.0.16",
+ "tokio",
 ]
 
 [[package]]

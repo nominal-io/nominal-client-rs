@@ -2,6 +2,7 @@ pub(crate) mod asset;
 pub(crate) mod catalog;
 pub(crate) mod client;
 pub(crate) mod datetime;
+pub(crate) mod ingest;
 pub(crate) mod rid;
 pub(crate) mod run;
 pub(crate) mod user;
