@@ -1,29 +1,33 @@
 mod filetype;
-mod handle;
+mod job;
 mod multipart;
 mod options;
 mod progress;
 mod timestamp;
 
 pub use filetype::FileType;
-pub use handle::{IngestJobHandle, IngestJobStatus};
+pub use job::{IngestJob, IngestJobStatus, IngestType};
 pub use options::{CsvIngest, ParquetIngest, UploadOptions};
 pub use progress::{ProgressCallback, UploadEvent};
 pub use timestamp::{TimeUnit, Timestamp};
 
 use std::path::Path;
+use std::time::Duration;
 
 use conjure_http::client::AsyncService;
 use conjure_object::BearerToken;
 use conjure_runtime::Client;
 use nominal_api::ingest::api::{
-    IngestOptions, IngestRequest, IngestServiceAsyncClient, IngestJobServiceAsyncClient,
+    IngestJobRid, IngestJobServiceAsyncClient, IngestOptions, IngestRequest,
+    IngestServiceAsyncClient,
 };
 
-use crate::core::rid::rid_to_string;
+use crate::core::rid::{parse_rid, rid_to_string};
 use crate::{Error, Result};
 
-/// Client for uploading files and kicking off ingest jobs.
+const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(2);
+
+/// Client for uploading files and managing ingest jobs.
 pub struct IngestClient {
     ingest_service: IngestServiceAsyncClient<Client>,
     ingest_job_service: IngestJobServiceAsyncClient<Client>,
@@ -43,58 +47,47 @@ impl IngestClient {
         }
     }
 
+    // ── Upload + ingest ──────────────────────────────────────────────────────
+
     /// Upload a CSV file and ingest it into an existing dataset.
     ///
-    /// Returns an [`IngestJobHandle`] the caller can poll for completion.
+    /// Returns the newly-created ingest job. Use
+    /// [`Self::wait_for_ingest_job`] to block until it reaches a terminal
+    /// state.
     pub async fn upload_csv(
         &self,
         path: impl AsRef<Path>,
         dataset_rid: &str,
         ingest: CsvIngest,
-    ) -> Result<IngestJobHandle> {
+    ) -> Result<IngestJob> {
         let path = path.as_ref();
         let upload_options = ingest.upload_options.clone();
-        let filename = upload_filename(path, FileType::Csv);
+        let file_type = FileType::Csv;
+        let filename = upload_filename(path, file_type);
         let s3_path = multipart::upload_file(
             self.conjure_client.clone(),
             self.token.clone(),
             self.workspace_rid.clone(),
             path,
             filename,
-            FileType::Csv.mime_type().to_string(),
+            file_type.mime_type().to_string(),
             upload_options,
         )
         .await?;
 
         let opts = ingest.into_opts(dataset_rid, s3_path)?;
-        let request = IngestRequest::new(IngestOptions::Csv(opts));
-        let response = self
-            .ingest_service
-            .ingest(&self.token, &request)
-            .await
-            .map_err(Error::from)?;
-        let rid = response
-            .ingest_job_rid()
-            .ok_or_else(|| Error::Ingest {
-                details: "ingest response did not include an ingest_job_rid".into(),
-            })
-            .map(rid_to_string)?;
-        Ok(IngestJobHandle::new(
-            rid,
-            self.ingest_job_service.clone(),
-            self.token.clone(),
-        ))
+        self.trigger_ingest(IngestOptions::Csv(opts)).await
     }
 
     /// Upload a Parquet file and ingest it into an existing dataset.
     ///
-    /// Returns an [`IngestJobHandle`] the caller can poll for completion.
+    /// Returns the newly-created ingest job.
     pub async fn upload_parquet(
         &self,
         path: impl AsRef<Path>,
         dataset_rid: &str,
         ingest: ParquetIngest,
-    ) -> Result<IngestJobHandle> {
+    ) -> Result<IngestJob> {
         let path = path.as_ref();
         let upload_options = ingest.upload_options.clone();
         let file_type = FileType::Parquet;
@@ -111,7 +104,11 @@ impl IngestClient {
         .await?;
 
         let opts = ingest.into_opts(dataset_rid, s3_path)?;
-        let request = IngestRequest::new(IngestOptions::Parquet(opts));
+        self.trigger_ingest(IngestOptions::Parquet(opts)).await
+    }
+
+    async fn trigger_ingest(&self, options: IngestOptions) -> Result<IngestJob> {
+        let request = IngestRequest::new(options);
         let response = self
             .ingest_service
             .ingest(&self.token, &request)
@@ -123,11 +120,62 @@ impl IngestClient {
                 details: "ingest response did not include an ingest_job_rid".into(),
             })
             .map(rid_to_string)?;
-        Ok(IngestJobHandle::new(
-            rid,
-            self.ingest_job_service.clone(),
-            self.token.clone(),
-        ))
+        self.get_ingest_job(&rid).await
+    }
+
+    // ── Ingest job queries ───────────────────────────────────────────────────
+
+    /// Fetch the current state of an ingest job.
+    pub async fn get_ingest_job(&self, rid: &str) -> Result<IngestJob> {
+        let job_rid: IngestJobRid = parse_rid(rid)?;
+        let job = self
+            .ingest_job_service
+            .get_ingest_job(&self.token, &job_rid)
+            .await
+            .map_err(Error::from)?;
+        Ok(IngestJob::from_conjure(job))
+    }
+
+    /// Poll an ingest job until it reaches a terminal state.
+    ///
+    /// Returns `Ok` on `Completed`. Returns `Err(Error::Ingest { .. })` on
+    /// `Failed` or `Cancelled`. Polls every 2 seconds; use
+    /// [`Self::wait_for_ingest_job_with_interval`] to override.
+    pub async fn wait_for_ingest_job(&self, rid: &str) -> Result<IngestJob> {
+        self.wait_for_ingest_job_with_interval(rid, DEFAULT_POLL_INTERVAL)
+            .await
+    }
+
+    /// Like [`Self::wait_for_ingest_job`] but polls on the given interval.
+    pub async fn wait_for_ingest_job_with_interval(
+        &self,
+        rid: &str,
+        interval: Duration,
+    ) -> Result<IngestJob> {
+        loop {
+            let job = self.get_ingest_job(rid).await?;
+            match job.status() {
+                IngestJobStatus::Completed => return Ok(job),
+                IngestJobStatus::Failed => {
+                    return Err(Error::Ingest {
+                        details: format!("ingest job {rid} failed"),
+                    });
+                }
+                IngestJobStatus::Cancelled => {
+                    return Err(Error::Ingest {
+                        details: format!("ingest job {rid} was cancelled"),
+                    });
+                }
+                IngestJobStatus::Unknown(s) => {
+                    return Err(Error::Ingest {
+                        details: format!("ingest job {rid} reported unknown status: {s}"),
+                    });
+                }
+                IngestJobStatus::Submitted
+                | IngestJobStatus::Queued
+                | IngestJobStatus::InProgress => tokio::time::sleep(interval).await,
+            }
+        }
     }
 }
 

@@ -15,7 +15,7 @@ pub use catalog::{
 };
 pub use client::NominalClient;
 pub use ingest::{
-    CsvIngest, FileType, IngestClient, IngestJobHandle, IngestJobStatus, ParquetIngest,
+    CsvIngest, FileType, IngestClient, IngestJob, IngestJobStatus, IngestType, ParquetIngest,
     ProgressCallback, TimeUnit, Timestamp, UploadEvent, UploadOptions,
 };
 pub use run::{Run, RunQuery, RunUpdate, RunsClient};
