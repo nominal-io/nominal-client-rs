@@ -3,14 +3,70 @@ use std::sync::Arc;
 
 use nominal_api::api::{ColumnName, TagName, TagValue};
 use nominal_api::ingest::api::{
-    ChannelPrefix, CsvOpts, DatasetIngestTarget, ExistingDatasetIngestDestination, IngestSource,
-    ParquetOpts, S3IngestSource,
+    ChannelPrefix, CsvOpts, DatasetIngestTarget as ApiDatasetIngestTarget,
+    ExistingDatasetIngestDestination, IngestSource, ParquetOpts, S3IngestSource,
 };
 
+use crate::Result;
+use crate::core::catalog::DatasetCreate;
 use crate::core::ingest::progress::{ProgressCallback, UploadEvent};
 use crate::core::ingest::timestamp::Timestamp;
-use crate::Result;
 use crate::core::rid::parse_rid;
+
+/// Where an ingest should land. Either an existing dataset (by RID) or a new
+/// dataset, which will be created atomically alongside the ingest — a failed
+/// ingest leaves no dataset behind.
+///
+/// `&str` / `String` convert to [`DatasetTarget::Existing`]; [`DatasetCreate`]
+/// converts to [`DatasetTarget::New`], so callers can usually pass either
+/// directly without naming the enum.
+#[derive(Debug, Clone)]
+pub enum DatasetTarget {
+    Existing(String),
+    New(DatasetCreate),
+}
+
+impl From<String> for DatasetTarget {
+    fn from(rid: String) -> Self {
+        Self::Existing(rid)
+    }
+}
+
+impl From<&str> for DatasetTarget {
+    fn from(rid: &str) -> Self {
+        Self::Existing(rid.to_string())
+    }
+}
+
+impl From<&String> for DatasetTarget {
+    fn from(rid: &String) -> Self {
+        Self::Existing(rid.clone())
+    }
+}
+
+impl From<DatasetCreate> for DatasetTarget {
+    fn from(create: DatasetCreate) -> Self {
+        Self::New(create)
+    }
+}
+
+impl DatasetTarget {
+    pub(crate) fn into_api(
+        self,
+        workspace_rid: Option<&str>,
+    ) -> Result<ApiDatasetIngestTarget> {
+        Ok(match self {
+            DatasetTarget::Existing(rid) => {
+                ApiDatasetIngestTarget::Existing(ExistingDatasetIngestDestination::new(
+                    parse_rid(&rid)?,
+                ))
+            }
+            DatasetTarget::New(create) => ApiDatasetIngestTarget::New(
+                create.into_new_ingest_destination(workspace_rid)?,
+            ),
+        })
+    }
+}
 
 pub(crate) const DEFAULT_CHUNK_SIZE: usize = 64 * 1024 * 1024;
 pub(crate) const DEFAULT_MAX_CONCURRENCY: usize = 8;
@@ -150,10 +206,13 @@ impl CsvIngest {
         self
     }
 
-    pub(crate) fn into_opts(self, dataset_rid: &str, s3_path: String) -> Result<CsvOpts> {
-        let target = DatasetIngestTarget::Existing(ExistingDatasetIngestDestination::new(
-            parse_rid(dataset_rid)?,
-        ));
+    pub(crate) fn into_opts(
+        self,
+        target: DatasetTarget,
+        workspace_rid: Option<&str>,
+        s3_path: String,
+    ) -> Result<CsvOpts> {
+        let target = target.into_api(workspace_rid)?;
         let source = IngestSource::S3(S3IngestSource::new(s3_path));
 
         let mut b = CsvOpts::builder()
@@ -253,10 +312,13 @@ impl ParquetIngest {
         self
     }
 
-    pub(crate) fn into_opts(self, dataset_rid: &str, s3_path: String) -> Result<ParquetOpts> {
-        let target = DatasetIngestTarget::Existing(ExistingDatasetIngestDestination::new(
-            parse_rid(dataset_rid)?,
-        ));
+    pub(crate) fn into_opts(
+        self,
+        target: DatasetTarget,
+        workspace_rid: Option<&str>,
+        s3_path: String,
+    ) -> Result<ParquetOpts> {
+        let target = target.into_api(workspace_rid)?;
         let source = IngestSource::S3(S3IngestSource::new(s3_path));
 
         let mut b = ParquetOpts::builder()

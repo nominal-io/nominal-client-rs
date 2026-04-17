@@ -159,6 +159,39 @@ impl DatasetCreate {
 
         Ok(b.build())
     }
+
+    pub(crate) fn into_new_ingest_destination(
+        self,
+        workspace_rid: Option<&str>,
+    ) -> Result<nominal_api::ingest::api::NewDatasetIngestDestination> {
+        let DatasetCreate {
+            name,
+            description,
+            properties,
+            labels,
+        } = self;
+
+        let mut b =
+            nominal_api::ingest::api::NewDatasetIngestDestination::builder().dataset_name(name);
+        if let Some(d) = description {
+            b = b.dataset_description(d);
+        }
+        if let Some(p) = properties {
+            b = b.properties(
+                p.into_iter()
+                    .map(|(k, v)| (PropertyName(k), PropertyValue(v)))
+                    .collect::<BTreeMap<_, _>>(),
+            );
+        }
+        if let Some(l) = labels {
+            b = b.labels(l.into_iter().map(Label).collect::<BTreeSet<_>>());
+        }
+        if let Some(wid) = workspace_rid {
+            b = b.workspace(parse_rid::<WorkspaceRid>(wid)?);
+        }
+
+        Ok(b.build())
+    }
 }
 
 /// An update to dataset metadata. Only fields that are set will be changed.

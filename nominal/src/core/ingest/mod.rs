@@ -7,7 +7,7 @@ mod timestamp;
 
 pub use filetype::FileType;
 pub use job::{IngestJob, IngestJobStatus, IngestType};
-pub use options::{CsvIngest, ParquetIngest, UploadOptions};
+pub use options::{CsvIngest, DatasetTarget, ParquetIngest, UploadOptions};
 pub use progress::{ProgressCallback, UploadEvent};
 pub use timestamp::{TimeUnit, Timestamp};
 
@@ -49,15 +49,21 @@ impl IngestClient {
 
     // ── Upload + ingest ──────────────────────────────────────────────────────
 
-    /// Upload a CSV file and ingest it into an existing dataset.
+    /// Upload a CSV file and ingest it into the given dataset.
+    ///
+    /// The target accepts anything that converts to [`DatasetTarget`]:
+    /// `&str` / `String` for an existing dataset RID, or a [`DatasetCreate`]
+    /// for a new dataset (created atomically with the ingest).
     ///
     /// Returns the newly-created ingest job. Use
     /// [`Self::wait_for_ingest_job`] to block until it reaches a terminal
     /// state.
+    ///
+    /// [`DatasetCreate`]: crate::core::DatasetCreate
     pub async fn upload_csv(
         &self,
         path: impl AsRef<Path>,
-        dataset_rid: &str,
+        target: impl Into<DatasetTarget>,
         ingest: CsvIngest,
     ) -> Result<IngestJob> {
         let path = path.as_ref();
@@ -75,17 +81,23 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(dataset_rid, s3_path)?;
+        let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
         self.trigger_ingest(IngestOptions::Csv(opts)).await
     }
 
-    /// Upload a Parquet file and ingest it into an existing dataset.
+    /// Upload a Parquet file and ingest it into the given dataset.
+    ///
+    /// The target accepts anything that converts to [`DatasetTarget`]:
+    /// `&str` / `String` for an existing dataset RID, or a [`DatasetCreate`]
+    /// for a new dataset (created atomically with the ingest).
     ///
     /// Returns the newly-created ingest job.
+    ///
+    /// [`DatasetCreate`]: crate::core::DatasetCreate
     pub async fn upload_parquet(
         &self,
         path: impl AsRef<Path>,
-        dataset_rid: &str,
+        target: impl Into<DatasetTarget>,
         ingest: ParquetIngest,
     ) -> Result<IngestJob> {
         let path = path.as_ref();
@@ -103,7 +115,7 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(dataset_rid, s3_path)?;
+        let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
         self.trigger_ingest(IngestOptions::Parquet(opts)).await
     }
 
