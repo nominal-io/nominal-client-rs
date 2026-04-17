@@ -75,7 +75,6 @@ pub struct IngestJob {
     rid: String,
     status: IngestJobStatus,
     origin_files: Vec<String>,
-    created_by: String,
     ingest_type: IngestType,
 }
 
@@ -93,11 +92,6 @@ impl IngestJob {
         &self.origin_files
     }
 
-    /// UUID of the user who created the job.
-    pub fn created_by(&self) -> &str {
-        &self.created_by
-    }
-
     pub fn ingest_type(&self) -> &IngestType {
         &self.ingest_type
     }
@@ -110,12 +104,10 @@ impl IngestJob {
             .origin_files()
             .map(|files| files.to_vec())
             .unwrap_or_default();
-        let created_by = job.created_by().to_string();
         Self {
             rid,
             status,
             origin_files,
-            created_by,
             ingest_type,
         }
     }
