@@ -16,7 +16,7 @@ use commands::video::VideoCommands;
 #[command(about = "Interact with Nominal", long_about = None)]
 struct Cli {
     /// Named profile to use from config
-    #[arg(short, long, default_value = "default")]
+    #[arg(short, long)]
     profile: String,
     #[command(subcommand)]
     command: Commands,
