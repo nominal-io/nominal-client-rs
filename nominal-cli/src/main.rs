@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 mod commands;
 use commands::api::ApiArgs;
 use commands::asset::AssetCommands;
+use commands::channel::ChannelCommands;
 use commands::config::ConfigCommands;
 use commands::connection::ConnectionCommands;
 use commands::dataset::DatasetCommands;
@@ -28,6 +29,11 @@ enum Commands {
     Asset {
         #[command(subcommand)]
         asset_command: AssetCommands,
+    },
+    /// Channel management commands
+    Channel {
+        #[command(subcommand)]
+        channel_command: ChannelCommands,
     },
     /// Config management commands
     Config {
@@ -80,6 +86,10 @@ async fn run() -> anyhow::Result<()> {
         Commands::Asset { asset_command } => {
             let client = commands::load_client(&cli.profile)?;
             commands::asset::handle(asset_command, client).await
+        }
+        Commands::Channel { channel_command } => {
+            let client = commands::load_client(&cli.profile)?;
+            commands::channel::handle(channel_command, client).await
         }
         Commands::Config { config_command } => commands::config::handle(config_command),
         Commands::Connection { connection_command } => {

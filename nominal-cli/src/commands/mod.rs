@@ -1,5 +1,6 @@
 pub mod api;
 pub mod asset;
+pub mod channel;
 pub mod config;
 pub mod connection;
 pub mod dataset;
