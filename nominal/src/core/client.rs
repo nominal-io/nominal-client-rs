@@ -49,7 +49,7 @@ impl NominalClient {
     }
 
     pub fn from_profile(name: &str) -> Result<Self> {
-        let config = Config::from_file(None)?;
+        let config = Config::load()?;
         let profile = config
             .get_profile(name)
             .ok_or_else(|| Error::ProfileNotFound { name: name.to_string() })?;

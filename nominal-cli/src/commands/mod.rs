@@ -36,7 +36,7 @@ fn resolve_profile(flag: Option<&str>) -> anyhow::Result<String> {
 
 pub(crate) fn load_profile(flag: Option<&str>) -> anyhow::Result<Profile> {
     let profile_name = resolve_profile(flag)?;
-    let config = Config::from_file(None).context("Failed to load config")?;
+    let config = Config::load().context("Failed to load config")?;
     config
         .get_profile(&profile_name)
         .cloned()

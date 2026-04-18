@@ -2,7 +2,7 @@ use crate::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
@@ -40,14 +40,13 @@ impl Profile {
 }
 
 impl Config {
-    pub fn from_file(path: Option<PathBuf>) -> Result<Self> {
-        let path = match path {
-            Some(path) => path,
-            None => {
-                let home = dirs::home_dir().ok_or(crate::Error::HomeDirNotFound)?;
-                home.join(".config").join("nominal").join("config.yml")
-            }
-        };
+    /// Load the config from the default path (`~/.config/nominal/config.yml`).
+    pub fn load() -> Result<Self> {
+        Self::load_from(&default_config_path()?)
+    }
+
+    /// Load the config from an explicit path.
+    pub fn load_from(path: &Path) -> Result<Self> {
         let contents = fs::read_to_string(path)?;
         let config = serde_yaml::from_str(&contents)?;
         Ok(config)
@@ -73,14 +72,13 @@ impl Config {
         self.profiles.remove(name)
     }
 
-    pub fn to_file(&self, path: Option<PathBuf>) -> Result<()> {
-        let path = match path {
-            Some(path) => path,
-            None => {
-                let home = dirs::home_dir().ok_or(crate::Error::HomeDirNotFound)?;
-                home.join(".config").join("nominal").join("config.yml")
-            }
-        };
+    /// Save the config to the default path (`~/.config/nominal/config.yml`).
+    pub fn save(&self) -> Result<()> {
+        self.save_to(&default_config_path()?)
+    }
+
+    /// Save the config to an explicit path.
+    pub fn save_to(&self, path: &Path) -> Result<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -88,4 +86,9 @@ impl Config {
         fs::write(path, contents)?;
         Ok(())
     }
+}
+
+fn default_config_path() -> Result<PathBuf> {
+    let home = dirs::home_dir().ok_or(crate::Error::HomeDirNotFound)?;
+    Ok(home.join(".config").join("nominal").join("config.yml"))
 }
