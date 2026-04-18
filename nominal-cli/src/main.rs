@@ -1,4 +1,5 @@
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::Shell;
 mod commands;
 use commands::api::ApiArgs;
 use commands::asset::AssetCommands;
@@ -12,8 +13,7 @@ use commands::user::UserCommands;
 use commands::video::VideoCommands;
 
 #[derive(Parser)]
-#[command(name = "nom")]
-#[command(about = "Interact with Nominal", long_about = None)]
+#[command(name = "nom", version, about = "Nominal CLI")]
 struct Cli {
     /// Named profile to use from config (overrides NOMINAL_PROFILE env var)
     #[arg(short, long)]
@@ -71,6 +71,34 @@ enum Commands {
         #[command(subcommand)]
         video_command: VideoCommands,
     },
+    /// Print shell completions to stdout
+    #[command(long_about = "\
+Print a shell completion script for the given shell to stdout.
+
+Pipe the output into the location your shell loads completions from:
+
+  bash:
+    nom completions bash | sudo tee /etc/bash_completion.d/nom
+
+  zsh (ensure a writable dir is on $fpath, e.g. ~/.zfunc):
+    nom completions zsh > ~/.zfunc/_nom
+    # in ~/.zshrc:   fpath+=(~/.zfunc); autoload -U compinit && compinit
+
+  fish:
+    nom completions fish > ~/.config/fish/completions/nom.fish
+
+  powershell:
+    nom completions powershell >> $PROFILE
+
+  elvish:
+    nom completions elvish >> ~/.config/elvish/rc.elv
+")]
+    Completions {
+        /// Shell to generate completions for
+        shell: Shell,
+    },
+    /// Print full --help for every command and subcommand in one stream
+    HelpAll,
 }
 
 #[tokio::main]
@@ -119,5 +147,40 @@ async fn run() -> anyhow::Result<()> {
             let client = commands::load_client(cli.profile.as_deref())?;
             commands::video::handle(video_command, client).await
         }
+        Commands::Completions { shell } => {
+            let mut cmd = Cli::command();
+            let name = cmd.get_name().to_string();
+            clap_complete::generate(shell, &mut cmd, name, &mut std::io::stdout());
+            Ok(())
+        }
+        Commands::HelpAll => {
+            let mut cmd = Cli::command();
+            let name = cmd.get_name().to_string();
+            render_help_recursive(&mut cmd, &name, 1, &mut std::io::stdout())?;
+            Ok(())
+        }
     }
+}
+
+fn render_help_recursive<W: std::io::Write>(
+    cmd: &mut clap::Command,
+    path: &str,
+    depth: usize,
+    out: &mut W,
+) -> std::io::Result<()> {
+    writeln!(out, "{} {path}", "#".repeat(depth))?;
+    writeln!(out)?;
+    writeln!(out, "{}", cmd.render_long_help())?;
+    let sub_names: Vec<String> = cmd
+        .get_subcommands()
+        .filter(|c| !c.is_hide_set() && c.get_name() != "help")
+        .map(|c| c.get_name().to_string())
+        .collect();
+    for name in sub_names {
+        let child_path = format!("{path} {name}");
+        if let Some(child) = cmd.find_subcommand_mut(&name) {
+            render_help_recursive(child, &child_path, depth + 1, out)?;
+        }
+    }
+    Ok(())
 }

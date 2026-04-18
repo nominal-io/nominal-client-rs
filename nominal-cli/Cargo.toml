@@ -15,6 +15,7 @@ path = "src/main.rs"
 nominal = { version = "0.1", path = "../nominal" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 chrono = { version = "0.4" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
