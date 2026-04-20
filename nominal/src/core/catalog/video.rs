@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
-use nominal_api::api::{Label, Property, PropertyName, PropertyValue};
-use nominal_api::api::rids::WorkspaceRid;
-use nominal_api::scout::video::api::{
+use nominal_api::objects::api::{Label, Property, PropertyName, PropertyValue};
+use nominal_api::objects::api::rids::WorkspaceRid;
+use nominal_api::objects::scout::video::api::{
     CreateVideoRequest, SearchVideosQuery, UpdateVideoMetadataRequest, Video as ApiVideo,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -303,7 +303,7 @@ mod tests {
         let q = VideoQuery::label("my-label");
         assert_eq!(
             q.into_conjure(),
-            SearchVideosQuery::Label(nominal_api::api::Label("my-label".into()))
+            SearchVideosQuery::Label(nominal_api::objects::api::Label("my-label".into()))
         );
     }
 
@@ -313,8 +313,8 @@ mod tests {
         let SearchVideosQuery::Property(p) = q.into_conjure() else {
             panic!("expected Property variant");
         };
-        assert_eq!(p.name(), &nominal_api::api::PropertyName("cam".into()));
-        assert_eq!(p.value(), &nominal_api::api::PropertyValue("front".into()));
+        assert_eq!(p.name(), &nominal_api::objects::api::PropertyName("cam".into()));
+        assert_eq!(p.value(), &nominal_api::objects::api::PropertyValue("front".into()));
     }
 
     #[test]

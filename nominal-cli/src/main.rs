@@ -1,22 +1,24 @@
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::Shell;
 mod commands;
 use commands::api::ApiArgs;
 use commands::asset::AssetCommands;
+use commands::channel::ChannelCommands;
 use commands::config::ConfigCommands;
 use commands::connection::ConnectionCommands;
 use commands::dataset::DatasetCommands;
 use commands::endpoint::EndpointCommands;
 use commands::ingest::IngestCommands;
+use commands::run::RunCommands;
 use commands::user::UserCommands;
 use commands::video::VideoCommands;
 
 #[derive(Parser)]
-#[command(name = "nom")]
-#[command(about = "Interact with Nominal", long_about = None)]
+#[command(name = "nom", version, about = "Nominal CLI")]
 struct Cli {
-    /// Named profile to use from config
-    #[arg(short, long, default_value = "default")]
-    profile: String,
+    /// Named profile to use from config (overrides NOMINAL_PROFILE env var)
+    #[arg(short, long)]
+    profile: Option<String>,
     #[command(subcommand)]
     command: Commands,
 }
@@ -29,6 +31,11 @@ enum Commands {
     Asset {
         #[command(subcommand)]
         asset_command: AssetCommands,
+    },
+    /// Channel management commands
+    Channel {
+        #[command(subcommand)]
+        channel_command: ChannelCommands,
     },
     /// Config management commands
     Config {
@@ -55,6 +62,11 @@ enum Commands {
         #[command(subcommand)]
         ingest_command: Box<IngestCommands>,
     },
+    /// Run management commands
+    Run {
+        #[command(subcommand)]
+        run_command: RunCommands,
+    },
     /// User management commands
     User {
         #[command(subcommand)]
@@ -65,6 +77,34 @@ enum Commands {
         #[command(subcommand)]
         video_command: VideoCommands,
     },
+    /// Print shell completions to stdout
+    #[command(long_about = "\
+Print a shell completion script for the given shell to stdout.
+
+Pipe the output into the location your shell loads completions from:
+
+  bash:
+    nom completions bash | sudo tee /etc/bash_completion.d/nom
+
+  zsh (ensure a writable dir is on $fpath, e.g. ~/.zfunc):
+    nom completions zsh > ~/.zfunc/_nom
+    # in ~/.zshrc:   fpath+=(~/.zfunc); autoload -U compinit && compinit
+
+  fish:
+    nom completions fish > ~/.config/fish/completions/nom.fish
+
+  powershell:
+    nom completions powershell >> $PROFILE
+
+  elvish:
+    nom completions elvish >> ~/.config/elvish/rc.elv
+")]
+    Completions {
+        /// Shell to generate completions for
+        shell: Shell,
+    },
+    /// Print full --help for every command and subcommand in one stream
+    HelpAll,
 }
 
 #[tokio::main]
@@ -80,34 +120,77 @@ async fn run() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Api(args) => {
-            let profile = commands::load_profile(&cli.profile)?;
+            let profile = commands::load_profile(cli.profile.as_deref())?;
             commands::api::handle(args, profile.base_url(), profile.token()).await
         }
         Commands::Asset { asset_command } => {
-            let client = commands::load_client(&cli.profile)?;
+            let client = commands::load_client(cli.profile.as_deref())?;
             commands::asset::handle(asset_command, client).await
+        }
+        Commands::Channel { channel_command } => {
+            let client = commands::load_client(cli.profile.as_deref())?;
+            commands::channel::handle(channel_command, client).await
         }
         Commands::Config { config_command } => commands::config::handle(config_command),
         Commands::Connection { connection_command } => {
-            let client = commands::load_client(&cli.profile)?;
+            let client = commands::load_client(cli.profile.as_deref())?;
             commands::connection::handle(connection_command, client).await
         }
         Commands::Dataset { dataset_command } => {
-            let client = commands::load_client(&cli.profile)?;
+            let client = commands::load_client(cli.profile.as_deref())?;
             commands::dataset::handle(dataset_command, client).await
         }
         Commands::Endpoint { endpoint_command } => commands::endpoint::handle(endpoint_command),
         Commands::Ingest { ingest_command } => {
-            let client = commands::load_client(&cli.profile)?;
+            let client = commands::load_client(cli.profile.as_deref())?;
             commands::ingest::handle(*ingest_command, client).await
         }
+        Commands::Run { run_command } => {
+            let client = commands::load_client(cli.profile.as_deref())?;
+            commands::run::handle(run_command, client).await
+        }
         Commands::User { user_command } => {
-            let client = commands::load_client(&cli.profile)?;
+            let client = commands::load_client(cli.profile.as_deref())?;
             commands::user::handle(user_command, client).await
         }
         Commands::Video { video_command } => {
-            let client = commands::load_client(&cli.profile)?;
+            let client = commands::load_client(cli.profile.as_deref())?;
             commands::video::handle(video_command, client).await
         }
+        Commands::Completions { shell } => {
+            let mut cmd = Cli::command();
+            let name = cmd.get_name().to_string();
+            clap_complete::generate(shell, &mut cmd, name, &mut std::io::stdout());
+            Ok(())
+        }
+        Commands::HelpAll => {
+            let mut cmd = Cli::command();
+            let name = cmd.get_name().to_string();
+            render_help_recursive(&mut cmd, &name, 1, &mut std::io::stdout())?;
+            Ok(())
+        }
     }
+}
+
+fn render_help_recursive<W: std::io::Write>(
+    cmd: &mut clap::Command,
+    path: &str,
+    depth: usize,
+    out: &mut W,
+) -> std::io::Result<()> {
+    writeln!(out, "{} {path}", "#".repeat(depth))?;
+    writeln!(out)?;
+    writeln!(out, "{}", cmd.render_long_help())?;
+    let sub_names: Vec<String> = cmd
+        .get_subcommands()
+        .filter(|c| !c.is_hide_set() && c.get_name() != "help")
+        .map(|c| c.get_name().to_string())
+        .collect();
+    for name in sub_names {
+        let child_path = format!("{path} {name}");
+        if let Some(child) = cmd.find_subcommand_mut(&name) {
+            render_help_recursive(child, &child_path, depth + 1, out)?;
+        }
+    }
+    Ok(())
 }

@@ -11,15 +11,16 @@ homepage = "https://nominal.io"
 bytes = "1"
 chrono = { version = "0.4", features = ["clock", "std"] }
 futures = "0.3"
-conjure-error = "4.15.0"
-conjure-http = "4.15.0"
-conjure-object = "4.15.0"
-conjure-runtime = "6.2.0"
+conjure-error = "5.10"
+conjure-http = "5.10"
+conjure-object = "5.10"
+conjure-runtime = { package = "conjure-runtime-rustls-platform-verifier", version = "0.2" }
 dirs = "5"
-nominal-api = "0.1151"
+nominal-api = "0.1163"
 regex = "1.11"
 reqwest = { version = "0.12", features = ["http2"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_yaml = "0.9.34"
 thiserror = "2"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "rt", "sync", "time"] }
+tracing = "0.1"

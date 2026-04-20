@@ -1,6 +1,7 @@
 pub(crate) mod asset;
 pub(crate) mod catalog;
 pub(crate) mod client;
+pub(crate) mod datasource;
 pub(crate) mod datetime;
 pub(crate) mod ingest;
 pub(crate) mod rid;
@@ -8,12 +9,14 @@ pub(crate) mod run;
 pub(crate) mod user;
 pub(crate) mod utils;
 
-pub use asset::{Asset, AssetQuery, AssetUpdate, AssetsClient};
+pub use asset::{Asset, AssetCreate, AssetQuery, AssetUpdate, AssetsClient};
 pub use catalog::{
-    CatalogClient, Connection, ConnectionUpdate, Dataset, DatasetCreate, DatasetQuery,
-    DatasetUpdate, Video, VideoCreate, VideoQuery, VideoUpdate,
+    CatalogClient, Channel, ChannelDataType, ChannelQuery, ChannelUpdate, Connection,
+    ConnectionUpdate, Dataset, DatasetCreate, DatasetQuery, DatasetUpdate, Video, VideoCreate,
+    VideoQuery, VideoUpdate,
 };
 pub use client::NominalClient;
+pub use datasource::DataSource;
 pub use ingest::{
     CsvIngest, DatasetTarget, FileType, IngestClient, IngestJob, IngestJobStatus, IngestType,
     ParquetIngest, ProgressCallback, TimeUnit, Timestamp, UploadEvent, UploadOptions,

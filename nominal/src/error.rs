@@ -40,6 +40,9 @@ pub enum Error {
     #[error("profile '{name}' not found in config")]
     ProfileNotFound { name: String },
 
+    #[error("environment variable '{name}' is not set")]
+    EnvVarNotSet { name: &'static str },
+
     #[error("resource not found: {resource}")]
     NotFound { resource: &'static str },
 

@@ -1,7 +1,11 @@
-use conjure_http::client::AsyncService;
+use std::sync::Arc;
+
+use conjure_http::client::{AsyncService, ConjureRuntime};
 use conjure_object::BearerToken;
 use conjure_runtime::Client;
-use nominal_api::authentication::api::AuthenticationServiceV2AsyncClient;
+use nominal_api::clients::authentication::api::{
+    AsyncAuthenticationServiceV2, AsyncAuthenticationServiceV2Client,
+};
 
 use crate::core::rid::rid_to_string;
 use crate::{Error, Result};
@@ -31,7 +35,7 @@ impl User {
         &self.display_name
     }
 
-    pub(crate) fn from_conjure(user: nominal_api::authentication::api::UserV2) -> Self {
+    pub(crate) fn from_conjure(user: nominal_api::objects::authentication::api::UserV2) -> Self {
         Self {
             rid: rid_to_string(user.rid()),
             org_rid: rid_to_string(user.org_rid()),
@@ -43,14 +47,18 @@ impl User {
 
 /// Client for user operations.
 pub struct UsersClient {
-    service: AuthenticationServiceV2AsyncClient<Client>,
+    service: AsyncAuthenticationServiceV2Client<Client>,
     token: BearerToken,
 }
 
 impl UsersClient {
-    pub(crate) fn new(client: Client, token: BearerToken) -> Self {
+    pub(crate) fn new(
+        client: Client,
+        runtime: &Arc<ConjureRuntime>,
+        token: BearerToken,
+    ) -> Self {
         Self {
-            service: AuthenticationServiceV2AsyncClient::new(client),
+            service: AsyncAuthenticationServiceV2Client::new(client, runtime),
             token,
         }
     }

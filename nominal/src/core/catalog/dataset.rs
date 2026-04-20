@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
-use nominal_api::api::{Label, Property, PropertyName, PropertyValue};
-use nominal_api::api::rids::WorkspaceRid;
-use nominal_api::scout::catalog::{
+use nominal_api::objects::api::{Label, Property, PropertyName, PropertyValue};
+use nominal_api::objects::api::rids::WorkspaceRid;
+use nominal_api::objects::scout::catalog::{
     CreateDataset, DatasetOriginMetadata, SearchDatasetsQuery, UpdateDatasetMetadata,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -55,7 +55,7 @@ impl Dataset {
     }
 
     pub(crate) fn from_conjure(
-        dataset: nominal_api::scout::catalog::EnrichedDataset,
+        dataset: nominal_api::objects::scout::catalog::EnrichedDataset,
         app_base_url: &str,
     ) -> Self {
         Self {
@@ -163,7 +163,7 @@ impl DatasetCreate {
     pub(crate) fn into_new_ingest_destination(
         self,
         workspace_rid: Option<&str>,
-    ) -> Result<nominal_api::ingest::api::NewDatasetIngestDestination> {
+    ) -> Result<nominal_api::objects::ingest::api::NewDatasetIngestDestination> {
         let DatasetCreate {
             name,
             description,
@@ -171,8 +171,8 @@ impl DatasetCreate {
             labels,
         } = self;
 
-        let mut b =
-            nominal_api::ingest::api::NewDatasetIngestDestination::builder().dataset_name(name);
+        let mut b = nominal_api::objects::ingest::api::NewDatasetIngestDestination::builder()
+            .dataset_name(name);
         if let Some(d) = description {
             b = b.dataset_description(d);
         }
@@ -357,7 +357,7 @@ mod tests {
         let q = DatasetQuery::label("my-label");
         assert_eq!(
             q.into_conjure(),
-            SearchDatasetsQuery::Label(nominal_api::api::Label("my-label".into()))
+            SearchDatasetsQuery::Label(nominal_api::objects::api::Label("my-label".into()))
         );
     }
 
@@ -367,8 +367,8 @@ mod tests {
         let SearchDatasetsQuery::Properties(p) = q.into_conjure() else {
             panic!("expected Properties variant");
         };
-        assert_eq!(p.name(), &nominal_api::api::PropertyName("key".into()));
-        assert_eq!(p.value(), &nominal_api::api::PropertyValue("val".into()));
+        assert_eq!(p.name(), &nominal_api::objects::api::PropertyName("key".into()));
+        assert_eq!(p.value(), &nominal_api::objects::api::PropertyValue("val".into()));
     }
 
     #[test]

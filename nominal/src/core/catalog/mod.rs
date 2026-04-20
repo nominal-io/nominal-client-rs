@@ -1,26 +1,43 @@
+mod channel;
 mod connection;
 mod dataset;
 mod video;
 
+pub use channel::{Channel, ChannelDataType, ChannelQuery, ChannelUpdate};
 pub use connection::{Connection, ConnectionUpdate};
 pub use dataset::{Dataset, DatasetCreate, DatasetQuery, DatasetUpdate};
 pub use video::{Video, VideoCreate, VideoQuery, VideoUpdate};
 
-use conjure_http::client::AsyncService;
+use std::sync::Arc;
+
+use conjure_http::client::{AsyncService, ConjureRuntime};
 use conjure_object::BearerToken;
 use conjure_runtime::Client;
 use futures::Stream;
-use nominal_api::api::rids::VideoRid;
-use nominal_api::scout::catalog::{
-    CatalogServiceAsyncClient, GetDatasetsRequest, SearchDatasetsRequest,
+use nominal_api::clients::scout::catalog::{AsyncCatalogService, AsyncCatalogServiceClient};
+use nominal_api::clients::scout::datasource::{
+    AsyncDataSourceService, AsyncDataSourceServiceClient,
+};
+use nominal_api::clients::scout::datasource::connection::{
+    AsyncConnectionService, AsyncConnectionServiceClient,
+};
+use nominal_api::clients::scout::video::{AsyncVideoService, AsyncVideoServiceClient};
+use nominal_api::clients::timeseries::channelmetadata::{
+    AsyncChannelMetadataService, AsyncChannelMetadataServiceClient,
+};
+use nominal_api::objects::api::rids::{DataSourceRid, VideoRid};
+use nominal_api::objects::datasource::api::{SearchChannelsRequest, SearchChannelsResponse};
+use nominal_api::objects::scout::catalog::{
+    GetDatasetsRequest, SearchDatasetsRequest, SearchDatasetsResponse,
     SortField as DatasetSortField, SortOptions as DatasetSortOptions,
 };
-use nominal_api::scout::datasource::connection::ConnectionServiceAsyncClient;
-use nominal_api::scout::datasource::connection::api::ConnectionRid;
-use nominal_api::scout::video::VideoServiceAsyncClient;
-use nominal_api::scout::video::api::{
-    GetVideosRequest, SearchVideosRequest, SortField as VideoSortField,
+use nominal_api::objects::scout::datasource::connection::api::{ConnectionRid, ListConnectionsResponse};
+use nominal_api::objects::scout::video::api::{
+    GetVideosRequest, SearchVideosRequest, SearchVideosResponse, SortField as VideoSortField,
     SortOptions as VideoSortOptions,
+};
+use nominal_api::objects::timeseries::channelmetadata::api::{
+    ChannelIdentifier, GetChannelMetadataRequest,
 };
 use std::collections::{BTreeSet, HashMap};
 
@@ -29,11 +46,13 @@ use crate::core::utils::paginate_stream;
 use crate::{Error, Result};
 use futures::TryStreamExt;
 
-/// Client for catalog operations: datasets, videos, and connections.
+/// Client for catalog operations: datasets, videos, connections, and channels.
 pub struct CatalogClient {
-    catalog_service: CatalogServiceAsyncClient<Client>,
-    video_service: VideoServiceAsyncClient<Client>,
-    connection_service: ConnectionServiceAsyncClient<Client>,
+    catalog_service: AsyncCatalogServiceClient<Client>,
+    video_service: AsyncVideoServiceClient<Client>,
+    connection_service: AsyncConnectionServiceClient<Client>,
+    data_source_service: AsyncDataSourceServiceClient<Client>,
+    channel_metadata_service: AsyncChannelMetadataServiceClient<Client>,
     token: BearerToken,
     workspace_rid: Option<String>,
     app_base_url: String,
@@ -42,14 +61,17 @@ pub struct CatalogClient {
 impl CatalogClient {
     pub(crate) fn new(
         client: Client,
+        runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
         workspace_rid: Option<String>,
         app_base_url: String,
     ) -> Self {
         Self {
-            catalog_service: CatalogServiceAsyncClient::new(client.clone()),
-            video_service: VideoServiceAsyncClient::new(client.clone()),
-            connection_service: ConnectionServiceAsyncClient::new(client),
+            catalog_service: AsyncCatalogServiceClient::new(client.clone(), runtime),
+            video_service: AsyncVideoServiceClient::new(client.clone(), runtime),
+            connection_service: AsyncConnectionServiceClient::new(client.clone(), runtime),
+            data_source_service: AsyncDataSourceServiceClient::new(client.clone(), runtime),
+            channel_metadata_service: AsyncChannelMetadataServiceClient::new(client, runtime),
             token,
             workspace_rid,
             app_base_url,
@@ -145,7 +167,7 @@ impl CatalogClient {
                         .map_err(Error::from)
                 }
             },
-            |resp| resp.next_page_token().cloned(),
+            |resp: &SearchDatasetsResponse| resp.next_page_token().cloned(),
             move |resp| {
                 resp.results()
                     .iter()
@@ -294,7 +316,7 @@ impl CatalogClient {
                         .map_err(Error::from)
                 }
             },
-            |resp| resp.next_page_token().cloned(),
+            |resp: &SearchVideosResponse| resp.next_page_token().cloned(),
             move |resp| {
                 resp.results()
                     .iter()
@@ -426,7 +448,7 @@ impl CatalogClient {
                         .map_err(Error::from)
                 }
             },
-            |resp| resp.next_page_token().cloned(),
+            |resp: &ListConnectionsResponse| resp.next_page_token().cloned(),
             |resp| {
                 resp.connections()
                     .iter()
@@ -477,5 +499,110 @@ impl CatalogClient {
             .await
             .map_err(Error::from)?;
         Ok(())
+    }
+
+    // ── Channel operations ───────────────────────────────────────────────────
+
+    fn search_channels_stream(
+        &self,
+        query: ChannelQuery,
+    ) -> Result<impl Stream<Item = Result<Channel>> + use<>> {
+        let parts = query.into_parts()?;
+        let service = self.data_source_service.clone();
+        let token = self.token.clone();
+        Ok(paginate_stream(
+            move |page_token| {
+                let mut b = SearchChannelsRequest::builder()
+                    .fuzzy_search_text(parts.fuzzy_text.clone())
+                    .data_sources(parts.data_source_rids.clone())
+                    .data_types(parts.data_types.clone())
+                    .exact_match(parts.exact_matches.clone());
+                if let Some(t) = page_token {
+                    b = b.next_page_token(t);
+                }
+                b.build()
+            },
+            move |req| {
+                let service = service.clone();
+                let token = token.clone();
+                async move {
+                    service
+                        .search_channels(&token, &req)
+                        .await
+                        .map_err(Error::from)
+                }
+            },
+            |resp: &SearchChannelsResponse| resp.next_page_token().cloned(),
+            |resp| {
+                resp.results()
+                    .iter()
+                    .cloned()
+                    .map(Channel::from_search)
+                    .collect()
+            },
+        ))
+    }
+
+    /// List every channel on a data source.
+    ///
+    /// `data_source_rid` can be any data source (dataset, video, connection, etc.).
+    /// Paginates internally and returns all results.
+    pub async fn list_channels(&self, data_source_rid: &str) -> Result<Vec<Channel>> {
+        self.search_channels(ChannelQuery::new().data_source(data_source_rid))
+            .await
+    }
+
+    /// Search channels with a query, collecting all pages eagerly.
+    ///
+    /// Accepts any data source RID — datasets, videos, connections.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # async fn example(client: nominal::core::NominalClient) -> nominal::Result<()> {
+    /// use nominal::core::ChannelQuery;
+    /// let channels = client.catalog()
+    ///     .search_channels(
+    ///         ChannelQuery::new()
+    ///             .fuzzy_text("temperature")
+    ///             .data_source("ri.catalog.gov-staging.dataset.abc"),
+    ///     )
+    ///     .await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn search_channels(&self, query: ChannelQuery) -> Result<Vec<Channel>> {
+        self.search_channels_stream(query)?.try_collect().await
+    }
+
+    /// Get a single channel's metadata.
+    pub async fn get_channel(&self, data_source_rid: &str, name: &str) -> Result<Channel> {
+        let id = ChannelIdentifier::new(
+            nominal_api::objects::api::Channel(name.to_string()),
+            parse_rid::<DataSourceRid>(data_source_rid)?,
+        );
+        let request = GetChannelMetadataRequest::new(id);
+        let response = self
+            .channel_metadata_service
+            .get_channel_metadata(&self.token, &request)
+            .await
+            .map_err(Error::from)?;
+        Ok(Channel::from_stored(response))
+    }
+
+    /// Set a channel's metadata (description and/or unit). Only fields set
+    /// on the update are written; the rest remain untouched. Returns the
+    /// resulting channel.
+    pub async fn set_channel_metadata(
+        &self,
+        data_source_rid: &str,
+        name: &str,
+        update: ChannelUpdate,
+    ) -> Result<Channel> {
+        let request = update.into_request(data_source_rid, name)?;
+        let response = self
+            .channel_metadata_service
+            .update_channel_metadata(&self.token, &request)
+            .await
+            .map_err(Error::from)?;
+        Ok(Channel::from_stored(response))
     }
 }

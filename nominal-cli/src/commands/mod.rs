@@ -1,11 +1,13 @@
 pub mod api;
 pub mod asset;
+pub mod channel;
 pub mod config;
 pub mod connection;
 pub mod dataset;
 pub mod endpoint;
 pub mod grpc;
 pub mod ingest;
+pub mod run;
 pub mod user;
 pub mod video;
 
@@ -24,16 +26,25 @@ pub(crate) fn descriptor_pool() -> &'static DescriptorPool {
     })
 }
 
-pub(crate) fn load_profile(profile_name: &str) -> anyhow::Result<Profile> {
-    let config = Config::from_file(None).context("Failed to load config")?;
+fn resolve_profile(flag: Option<&str>) -> anyhow::Result<String> {
+    if let Some(name) = flag {
+        return Ok(name.to_string());
+    }
+    std::env::var("NOMINAL_PROFILE").map_err(|_| {
+        anyhow::anyhow!("no profile specified: pass --profile or set NOMINAL_PROFILE")
+    })
+}
+
+pub(crate) fn load_profile(flag: Option<&str>) -> anyhow::Result<Profile> {
+    let profile_name = resolve_profile(flag)?;
+    let config = Config::load().context("Failed to load config")?;
     config
-        .get_profile(profile_name)
+        .get_profile(&profile_name)
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("Profile '{profile_name}' not found"))
 }
 
-pub(crate) fn load_client(profile_name: &str) -> anyhow::Result<NominalClient> {
-    let profile = load_profile(profile_name)?;
-    NominalClient::from_profile_config(&profile)
-        .with_context(|| format!("Failed to create client for profile '{profile_name}'"))
+pub(crate) fn load_client(flag: Option<&str>) -> anyhow::Result<NominalClient> {
+    let profile = load_profile(flag)?;
+    NominalClient::from_profile_config(&profile).context("Failed to create client")
 }
