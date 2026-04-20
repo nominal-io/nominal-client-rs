@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use nominal_api::api::{ColumnName, TagName, TagValue};
-use nominal_api::ingest::api::{
+use nominal_api::objects::api::{ColumnName, TagName, TagValue};
+use nominal_api::objects::ingest::api::{
     ChannelPrefix, CsvOpts, DatasetIngestTarget as ApiDatasetIngestTarget,
     ExistingDatasetIngestDestination, IngestSource, ParquetOpts, S3IngestSource,
 };

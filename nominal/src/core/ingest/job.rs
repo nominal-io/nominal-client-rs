@@ -1,4 +1,4 @@
-use nominal_api::ingest::api::{
+use nominal_api::objects::ingest::api::{
     IngestJob as ApiIngestJob, IngestJobStatus as ApiIngestJobStatus, IngestType as ApiIngestType,
 };
 

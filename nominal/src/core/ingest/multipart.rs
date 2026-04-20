@@ -1,14 +1,15 @@
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use conjure_http::client::AsyncService;
+use conjure_http::client::{AsyncService, ConjureRuntime};
 use conjure_object::BearerToken;
 use conjure_runtime::Client;
 use futures::{TryStreamExt, stream};
-use nominal_api::api::rids::WorkspaceRid;
-use nominal_api::ingest::api::{InitiateMultipartUploadRequest, Part};
-use nominal_api::upload::api::UploadServiceAsyncClient;
+use nominal_api::clients::upload::api::{AsyncUploadService, AsyncUploadServiceClient};
+use nominal_api::objects::api::rids::WorkspaceRid;
+use nominal_api::objects::ingest::api::{InitiateMultipartUploadRequest, Part};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 use crate::core::ingest::options::UploadOptions;
@@ -28,6 +29,7 @@ use crate::{Error, Result};
 /// Returns the storage location (S3 path) of the completed upload.
 pub(crate) async fn upload_file(
     conjure_client: Client,
+    runtime: &Arc<ConjureRuntime>,
     token: BearerToken,
     workspace_rid: Option<String>,
     path: impl AsRef<Path>,
@@ -39,6 +41,7 @@ pub(crate) async fn upload_file(
     let total_bytes = file.metadata().await?.len();
     upload_reader(
         conjure_client,
+        runtime,
         token,
         workspace_rid,
         file,
@@ -57,6 +60,7 @@ pub(crate) async fn upload_file(
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn upload_reader<R>(
     conjure_client: Client,
+    runtime: &Arc<ConjureRuntime>,
     token: BearerToken,
     workspace_rid: Option<String>,
     reader: R,
@@ -84,7 +88,7 @@ where
         });
     }
 
-    let upload_service = UploadServiceAsyncClient::new(conjure_client);
+    let upload_service = AsyncUploadServiceClient::new(conjure_client, runtime);
     let workspace = workspace_rid
         .as_deref()
         .map(parse_rid::<WorkspaceRid>)
@@ -158,7 +162,7 @@ where
 
 /// Everything needed to sign and PUT an individual part.
 struct PartCtx<'a> {
-    upload_service: &'a UploadServiceAsyncClient<Client>,
+    upload_service: &'a AsyncUploadServiceClient<Client>,
     token: &'a BearerToken,
     http: &'a reqwest::Client,
     key: &'a str,
@@ -169,7 +173,7 @@ struct PartCtx<'a> {
 /// Owned version of [`PartCtx`] used inside per-part async tasks.
 #[derive(Clone)]
 struct OwnedPartCtx {
-    upload_service: UploadServiceAsyncClient<Client>,
+    upload_service: AsyncUploadServiceClient<Client>,
     token: BearerToken,
     http: reqwest::Client,
     key: String,

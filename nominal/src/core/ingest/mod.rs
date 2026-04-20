@@ -12,15 +12,17 @@ pub use progress::{ProgressCallback, UploadEvent};
 pub use timestamp::{TimeUnit, Timestamp};
 
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
-use conjure_http::client::AsyncService;
+use conjure_http::client::{AsyncService, ConjureRuntime};
 use conjure_object::BearerToken;
 use conjure_runtime::Client;
-use nominal_api::ingest::api::{
-    IngestJobRid, IngestJobServiceAsyncClient, IngestOptions, IngestRequest,
-    IngestServiceAsyncClient,
+use nominal_api::clients::ingest::api::{
+    AsyncIngestJobService, AsyncIngestJobServiceClient, AsyncIngestService,
+    AsyncIngestServiceClient,
 };
+use nominal_api::objects::ingest::api::{IngestJobRid, IngestOptions, IngestRequest};
 
 use crate::core::rid::{parse_rid, rid_to_string};
 use crate::{Error, Result};
@@ -29,19 +31,26 @@ const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Client for uploading files and managing ingest jobs.
 pub struct IngestClient {
-    ingest_service: IngestServiceAsyncClient<Client>,
-    ingest_job_service: IngestJobServiceAsyncClient<Client>,
+    ingest_service: AsyncIngestServiceClient<Client>,
+    ingest_job_service: AsyncIngestJobServiceClient<Client>,
     conjure_client: Client,
+    runtime: Arc<ConjureRuntime>,
     token: BearerToken,
     workspace_rid: Option<String>,
 }
 
 impl IngestClient {
-    pub(crate) fn new(client: Client, token: BearerToken, workspace_rid: Option<String>) -> Self {
+    pub(crate) fn new(
+        client: Client,
+        runtime: &Arc<ConjureRuntime>,
+        token: BearerToken,
+        workspace_rid: Option<String>,
+    ) -> Self {
         Self {
-            ingest_service: IngestServiceAsyncClient::new(client.clone()),
-            ingest_job_service: IngestJobServiceAsyncClient::new(client.clone()),
+            ingest_service: AsyncIngestServiceClient::new(client.clone(), runtime),
+            ingest_job_service: AsyncIngestJobServiceClient::new(client.clone(), runtime),
             conjure_client: client,
+            runtime: runtime.clone(),
             token,
             workspace_rid,
         }
@@ -72,6 +81,7 @@ impl IngestClient {
         let filename = upload_filename(path, file_type);
         let s3_path = multipart::upload_file(
             self.conjure_client.clone(),
+            &self.runtime,
             self.token.clone(),
             self.workspace_rid.clone(),
             path,
@@ -106,6 +116,7 @@ impl IngestClient {
         let filename = upload_filename(path, file_type);
         let s3_path = multipart::upload_file(
             self.conjure_client.clone(),
+            &self.runtime,
             self.token.clone(),
             self.workspace_rid.clone(),
             path,

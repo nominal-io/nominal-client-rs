@@ -123,6 +123,7 @@ impl NominalClient {
     pub fn ingest(&self) -> IngestClient {
         IngestClient::new(
             self.client.clone(),
+            &self.runtime,
             self.token.clone(),
             self.workspace_rid.clone(),
         )

@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
-use nominal_api::api::TimeUnit as ApiTimeUnit;
-use nominal_api::ingest::api::{
+use nominal_api::objects::api::TimeUnit as ApiTimeUnit;
+use nominal_api::objects::ingest::api::{
     AbsoluteTimestamp, CustomTimestamp, EpochTimestamp, Iso8601Timestamp, RelativeTimestamp,
     TimestampMetadata, TimestampType,
 };
