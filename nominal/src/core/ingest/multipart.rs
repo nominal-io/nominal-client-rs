@@ -279,8 +279,6 @@ async fn put_once(ctx: &OwnedPartCtx, part_number: i32, bytes: Bytes) -> Result<
             details: format!("PUT part {part_number} returned {status}: {body}"),
         });
     }
-    // S3 returns the etag wrapped in double quotes per RFC; CompleteMultipartUpload
-    // normalizes but list_parts returns the bare value, so strip to match.
     let etag = resp
         .headers()
         .get(reqwest::header::ETAG)
@@ -288,7 +286,6 @@ async fn put_once(ctx: &OwnedPartCtx, part_number: i32, bytes: Bytes) -> Result<
         .ok_or_else(|| Error::Upload {
             details: format!("PUT part {part_number} response missing ETag header"),
         })?
-        .trim_matches('"')
         .to_string();
     Ok(etag)
 }
