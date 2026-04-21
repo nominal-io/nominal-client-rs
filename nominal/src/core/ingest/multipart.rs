@@ -2,11 +2,11 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use conjure_http::client::{AsyncService, ConjureRuntime};
 use conjure_object::BearerToken;
 use conjure_runtime::Client;
-use futures::{TryStreamExt, stream};
+use futures::{Stream, StreamExt, TryStreamExt, stream};
 use nominal_api::clients::upload::api::{AsyncUploadService, AsyncUploadServiceClient};
 use nominal_api::objects::api::rids::WorkspaceRid;
 use nominal_api::objects::ingest::api::{InitiateMultipartUploadRequest, Part};
@@ -198,33 +198,10 @@ async fn upload_all_parts<R>(ctx: &PartCtx<'_>, reader: R) -> Result<Vec<(i32, S
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
-    let chunks = stream::unfold(
-        (reader, 1i32, ctx.options.chunk_size),
-        |(mut reader, part, chunk_size)| async move {
-            let mut buf = vec![0u8; chunk_size];
-            let mut total = 0;
-            while total < chunk_size {
-                match reader.read(&mut buf[total..]).await {
-                    Ok(0) => break,
-                    Ok(n) => total += n,
-                    Err(e) => {
-                        return Some((Err(Error::from(e)), (reader, part, chunk_size)));
-                    }
-                }
-            }
-            if total == 0 {
-                return None;
-            }
-            buf.truncate(total);
-            Some((
-                Ok((part, Bytes::from(buf))),
-                (reader, part + 1, chunk_size),
-            ))
-        },
-    );
-
     let max_concurrency = ctx.options.max_concurrency;
-    chunks
+    chunk_stream(reader, ctx.options.chunk_size)
+        .enumerate()
+        .map(|(i, res)| res.map(|bytes| (i as i32 + 1, bytes)))
         .map_ok(|(part_number, bytes)| {
             let ctx = ctx.to_owned();
             async move {
@@ -235,6 +212,24 @@ where
         .try_buffer_unordered(max_concurrency)
         .try_collect()
         .await
+}
+
+/// Stream an `AsyncRead` as `chunk_size`-sized `Bytes`. The final chunk may be
+/// shorter; EOF ends the stream. A read error ends the stream after yielding
+/// the error (via `try_unfold`, which drops the reader on failure).
+fn chunk_stream<R>(reader: R, chunk_size: usize) -> impl Stream<Item = Result<Bytes>>
+where
+    R: AsyncRead + Unpin + Send + 'static,
+{
+    stream::try_unfold(reader, move |mut reader| async move {
+        let mut buf = BytesMut::with_capacity(chunk_size);
+        while buf.len() < chunk_size {
+            if reader.read_buf(&mut buf).await? == 0 {
+                break;
+            }
+        }
+        Ok((!buf.is_empty()).then(|| (buf.freeze(), reader)))
+    })
 }
 
 async fn sign_and_put(ctx: &OwnedPartCtx, part_number: i32, bytes: Bytes) -> Result<String> {
