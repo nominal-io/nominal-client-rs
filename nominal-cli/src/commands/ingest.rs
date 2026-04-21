@@ -73,20 +73,20 @@ struct UploadArgs {
     #[arg(long, value_name = "COLUMN")]
     timestamp_column: String,
 
-    /// Timestamp encoding (iso8601 / epoch:<unit> / relative:<unit>)
+    /// Timestamp encoding: iso8601 or a time unit (ns/us/ms/s) for epoch
     #[arg(
         long,
         value_name = "SPEC",
         long_help = "Timestamp encoding. One of:\n\
             \x20\x20iso8601\n\
-            \x20\x20epoch:<unit>       (e.g. epoch:milliseconds, epoch:ns)\n\
-            \x20\x20relative:<unit>    (e.g. relative:us)"
+            \x20\x20<unit>             epoch timestamps (e.g. milliseconds, ns)\n\
+            Combine a unit with --relative-to to treat values as offsets from a start time."
     )]
     timestamp_type: TimestampSpec,
 
-    /// Start time (RFC3339) for relative timestamps.
+    /// Interpret timestamps as offsets from this RFC3339 start time (relative mode)
     #[arg(long, value_name = "RFC3339")]
-    timestamp_offset: Option<DateTime<Utc>>,
+    relative_to: Option<DateTime<Utc>>,
 
     // ── Ingest options ───────────────────────────────────────────────────────
     /// Prepend this prefix to every channel name in the file
@@ -125,7 +125,6 @@ struct UploadArgs {
 enum TimestampSpec {
     Iso8601,
     Epoch(TimeUnit),
-    Relative(TimeUnit),
 }
 
 impl FromStr for TimestampSpec {
@@ -136,15 +135,7 @@ impl FromStr for TimestampSpec {
         if lowered == "iso8601" {
             return Ok(Self::Iso8601);
         }
-        if let Some(unit) = lowered.strip_prefix("epoch:") {
-            return parse_time_unit(unit).map(Self::Epoch);
-        }
-        if let Some(unit) = lowered.strip_prefix("relative:") {
-            return parse_time_unit(unit).map(Self::Relative);
-        }
-        Err(format!(
-            "unknown timestamp type '{s}': expected one of iso8601, epoch:<unit>, relative:<unit>"
-        ))
+        parse_time_unit(&lowered).map(Self::Epoch)
     }
 }
 
@@ -155,7 +146,7 @@ fn parse_time_unit(s: &str) -> Result<TimeUnit, String> {
         "ms" | "millis" | "milliseconds" => Ok(TimeUnit::Milliseconds),
         "s" | "secs" | "seconds" => Ok(TimeUnit::Seconds),
         other => Err(format!(
-            "unknown time unit '{other}': expected one of nanoseconds, microseconds, milliseconds, seconds"
+            "unknown timestamp type '{other}': expected iso8601 or a time unit (nanoseconds, microseconds, milliseconds, seconds)"
         )),
     }
 }
@@ -170,7 +161,7 @@ pub async fn handle(cmd: IngestCommands, client: NominalClient) -> anyhow::Resul
 async fn handle_csv(args: CsvArgs, client: NominalClient) -> anyhow::Result<()> {
     let CsvArgs { common } = args;
     let target = build_target(&common);
-    let timestamp = build_timestamp(&common);
+    let timestamp = build_timestamp(&common)?;
 
     let mut ingest = CsvIngest::new(timestamp);
     if let Some(prefix) = &common.channel_prefix {
@@ -199,7 +190,7 @@ async fn handle_csv(args: CsvArgs, client: NominalClient) -> anyhow::Result<()> 
 async fn handle_parquet(args: ParquetArgs, client: NominalClient) -> anyhow::Result<()> {
     let ParquetArgs { common, archive } = args;
     let target = build_target(&common);
-    let timestamp = build_timestamp(&common);
+    let timestamp = build_timestamp(&common)?;
 
     let mut ingest = ParquetIngest::new(timestamp);
     if let Some(prefix) = &common.channel_prefix {
@@ -255,17 +246,16 @@ fn build_target(common: &UploadArgs) -> DatasetTarget {
     DatasetTarget::New(create)
 }
 
-fn build_timestamp(common: &UploadArgs) -> Timestamp {
+fn build_timestamp(common: &UploadArgs) -> anyhow::Result<Timestamp> {
     let col = common.timestamp_column.clone();
-    match common.timestamp_type.clone() {
-        TimestampSpec::Iso8601 => Timestamp::iso8601(col),
-        TimestampSpec::Epoch(unit) => Timestamp::epoch(col, unit),
-        TimestampSpec::Relative(unit) => {
-            let mut ts = Timestamp::relative(col, unit);
-            if let Some(offset) = common.timestamp_offset {
-                ts = ts.with_offset(offset);
-            }
-            ts
+    match (common.timestamp_type.clone(), common.relative_to) {
+        (TimestampSpec::Iso8601, None) => Ok(Timestamp::iso8601(col)),
+        (TimestampSpec::Iso8601, Some(_)) => {
+            anyhow::bail!("--relative-to cannot be combined with iso8601 timestamps")
+        }
+        (TimestampSpec::Epoch(unit), None) => Ok(Timestamp::epoch(col, unit)),
+        (TimestampSpec::Epoch(unit), Some(offset)) => {
+            Ok(Timestamp::relative(col, unit).with_offset(offset))
         }
     }
 }
