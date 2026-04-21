@@ -3,6 +3,7 @@ pub(crate) mod catalog;
 pub(crate) mod client;
 pub(crate) mod datasource;
 pub(crate) mod datetime;
+pub(crate) mod ingest;
 pub(crate) mod rid;
 pub(crate) mod run;
 pub(crate) mod user;
@@ -16,5 +17,9 @@ pub use catalog::{
 };
 pub use client::NominalClient;
 pub use datasource::DataSource;
+pub use ingest::{
+    CsvIngest, DatasetTarget, FileType, IngestClient, IngestJob, IngestJobStatus, IngestType,
+    ParquetIngest, ProgressCallback, TimeUnit, Timestamp, UploadEvent, UploadOptions,
+};
 pub use run::{Run, RunQuery, RunUpdate, RunsClient};
 pub use user::{User, UsersClient};

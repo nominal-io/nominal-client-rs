@@ -45,6 +45,12 @@ pub enum Error {
 
     #[error("resource not found: {resource}")]
     NotFound { resource: &'static str },
+
+    #[error("multipart upload failed: {details}")]
+    Upload { details: String },
+
+    #[error("ingest error: {details}")]
+    Ingest { details: String },
 }
 
 impl From<RidConversionError> for Error {

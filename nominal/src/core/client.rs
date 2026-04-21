@@ -6,8 +6,8 @@ use conjure_runtime::{Agent, Client, UserAgent};
 
 use crate::config::{Config, Profile};
 use crate::core::{
-    asset::AssetsClient, catalog::CatalogClient, run::RunsClient, user::UsersClient,
-    utils::api_base_url_to_app_base_url,
+    asset::AssetsClient, catalog::CatalogClient, ingest::IngestClient, run::RunsClient,
+    user::UsersClient, utils::api_base_url_to_app_base_url,
 };
 use crate::{Error, Result};
 
@@ -116,6 +116,16 @@ impl NominalClient {
             self.token.clone(),
             self.workspace_rid.clone(),
             api_base_url_to_app_base_url(&self.base_url),
+        )
+    }
+
+    /// Access ingest operations: uploading files and triggering ingest jobs.
+    pub fn ingest(&self) -> IngestClient {
+        IngestClient::new(
+            self.client.clone(),
+            &self.runtime,
+            self.token.clone(),
+            self.workspace_rid.clone(),
         )
     }
 }
