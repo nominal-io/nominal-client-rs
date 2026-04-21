@@ -1,13 +1,13 @@
 use chrono::{DateTime, Utc};
-use nominal_api::objects::api::{Label, Property, PropertyName, PropertyValue};
 use nominal_api::objects::api::rids::WorkspaceRid;
+use nominal_api::objects::api::{Label, Property, PropertyName, PropertyValue};
 use nominal_api::objects::scout::video::api::{
     CreateVideoRequest, SearchVideosQuery, UpdateVideoMetadataRequest, Video as ApiVideo,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use crate::core::rid::{parse_rid, rid_to_string};
 use crate::Result;
+use crate::core::rid::{parse_rid, rid_to_string};
 
 /// Represents a video in Nominal.
 #[derive(Debug, Clone)]
@@ -279,10 +279,14 @@ impl VideoQuery {
                 SearchVideosQuery::Property(Property::new(PropertyName(k), PropertyValue(v)))
             }
             Self::And(qs) => SearchVideosQuery::And(
-                qs.into_iter().map(Self::into_conjure).collect::<BTreeSet<_>>(),
+                qs.into_iter()
+                    .map(Self::into_conjure)
+                    .collect::<BTreeSet<_>>(),
             ),
             Self::Or(qs) => SearchVideosQuery::Or(
-                qs.into_iter().map(Self::into_conjure).collect::<BTreeSet<_>>(),
+                qs.into_iter()
+                    .map(Self::into_conjure)
+                    .collect::<BTreeSet<_>>(),
             ),
         }
     }
@@ -295,7 +299,10 @@ mod tests {
     #[test]
     fn query_search_text() {
         let q = VideoQuery::search_text("clip");
-        assert_eq!(q.into_conjure(), SearchVideosQuery::SearchText("clip".into()));
+        assert_eq!(
+            q.into_conjure(),
+            SearchVideosQuery::SearchText("clip".into())
+        );
     }
 
     #[test]
@@ -313,8 +320,14 @@ mod tests {
         let SearchVideosQuery::Property(p) = q.into_conjure() else {
             panic!("expected Property variant");
         };
-        assert_eq!(p.name(), &nominal_api::objects::api::PropertyName("cam".into()));
-        assert_eq!(p.value(), &nominal_api::objects::api::PropertyValue("front".into()));
+        assert_eq!(
+            p.name(),
+            &nominal_api::objects::api::PropertyName("cam".into())
+        );
+        assert_eq!(
+            p.value(),
+            &nominal_api::objects::api::PropertyValue("front".into())
+        );
     }
 
     #[test]

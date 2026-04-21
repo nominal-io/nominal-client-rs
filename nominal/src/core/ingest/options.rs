@@ -51,19 +51,14 @@ impl From<DatasetCreate> for DatasetTarget {
 }
 
 impl DatasetTarget {
-    pub(crate) fn into_api(
-        self,
-        workspace_rid: Option<&str>,
-    ) -> Result<ApiDatasetIngestTarget> {
+    pub(crate) fn into_api(self, workspace_rid: Option<&str>) -> Result<ApiDatasetIngestTarget> {
         Ok(match self {
-            DatasetTarget::Existing(rid) => {
-                ApiDatasetIngestTarget::Existing(ExistingDatasetIngestDestination::new(
-                    parse_rid(&rid)?,
-                ))
-            }
-            DatasetTarget::New(create) => ApiDatasetIngestTarget::New(
-                create.into_new_ingest_destination(workspace_rid)?,
+            DatasetTarget::Existing(rid) => ApiDatasetIngestTarget::Existing(
+                ExistingDatasetIngestDestination::new(parse_rid(&rid)?),
             ),
+            DatasetTarget::New(create) => {
+                ApiDatasetIngestTarget::New(create.into_new_ingest_destination(workspace_rid)?)
+            }
         })
     }
 }
@@ -183,11 +178,7 @@ impl CsvIngest {
 
     /// Apply a fixed tag value to every row in this file.
     #[must_use]
-    pub fn additional_file_tag(
-        mut self,
-        tag: impl Into<String>,
-        value: impl Into<String>,
-    ) -> Self {
+    pub fn additional_file_tag(mut self, tag: impl Into<String>, value: impl Into<String>) -> Self {
         self.additional_file_tags.insert(tag.into(), value.into());
         self
     }
@@ -283,11 +274,7 @@ impl ParquetIngest {
     }
 
     #[must_use]
-    pub fn additional_file_tag(
-        mut self,
-        tag: impl Into<String>,
-        value: impl Into<String>,
-    ) -> Self {
+    pub fn additional_file_tag(mut self, tag: impl Into<String>, value: impl Into<String>) -> Self {
         self.additional_file_tags.insert(tag.into(), value.into());
         self
     }
@@ -353,4 +340,3 @@ impl ParquetIngest {
         Ok(b.build())
     }
 }
-

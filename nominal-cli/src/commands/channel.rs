@@ -104,7 +104,9 @@ pub async fn handle(cmd: ChannelCommands, client: NominalClient) -> anyhow::Resu
                 .catalog()
                 .get_channel(&data_source_rid, &name)
                 .await
-                .with_context(|| format!("Failed to get channel '{name}' on '{data_source_rid}'"))?;
+                .with_context(|| {
+                    format!("Failed to get channel '{name}' on '{data_source_rid}'")
+                })?;
             print_channel(&channel);
         }
         ChannelCommands::Set {

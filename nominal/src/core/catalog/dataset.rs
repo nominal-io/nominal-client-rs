@@ -1,13 +1,13 @@
 use chrono::{DateTime, Utc};
-use nominal_api::objects::api::{Label, Property, PropertyName, PropertyValue};
 use nominal_api::objects::api::rids::WorkspaceRid;
+use nominal_api::objects::api::{Label, Property, PropertyName, PropertyValue};
 use nominal_api::objects::scout::catalog::{
     CreateDataset, DatasetOriginMetadata, SearchDatasetsQuery, UpdateDatasetMetadata,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use crate::core::rid::{parse_rid, rid_to_string};
 use crate::Result;
+use crate::core::rid::{parse_rid, rid_to_string};
 
 /// Represents a dataset in Nominal.
 ///
@@ -327,10 +327,14 @@ impl DatasetQuery {
                 SearchDatasetsQuery::Properties(Property::new(PropertyName(k), PropertyValue(v)))
             }
             Self::And(qs) => SearchDatasetsQuery::And(
-                qs.into_iter().map(Self::into_conjure).collect::<BTreeSet<_>>(),
+                qs.into_iter()
+                    .map(Self::into_conjure)
+                    .collect::<BTreeSet<_>>(),
             ),
             Self::Or(qs) => SearchDatasetsQuery::Or(
-                qs.into_iter().map(Self::into_conjure).collect::<BTreeSet<_>>(),
+                qs.into_iter()
+                    .map(Self::into_conjure)
+                    .collect::<BTreeSet<_>>(),
             ),
         }
     }
@@ -343,13 +347,19 @@ mod tests {
     #[test]
     fn query_search_text() {
         let q = DatasetQuery::search_text("hello");
-        assert_eq!(q.into_conjure(), SearchDatasetsQuery::SearchText("hello".into()));
+        assert_eq!(
+            q.into_conjure(),
+            SearchDatasetsQuery::SearchText("hello".into())
+        );
     }
 
     #[test]
     fn query_exact_match() {
         let q = DatasetQuery::exact_match("exact");
-        assert_eq!(q.into_conjure(), SearchDatasetsQuery::ExactMatch("exact".into()));
+        assert_eq!(
+            q.into_conjure(),
+            SearchDatasetsQuery::ExactMatch("exact".into())
+        );
     }
 
     #[test]
@@ -367,8 +377,14 @@ mod tests {
         let SearchDatasetsQuery::Properties(p) = q.into_conjure() else {
             panic!("expected Properties variant");
         };
-        assert_eq!(p.name(), &nominal_api::objects::api::PropertyName("key".into()));
-        assert_eq!(p.value(), &nominal_api::objects::api::PropertyValue("val".into()));
+        assert_eq!(
+            p.name(),
+            &nominal_api::objects::api::PropertyName("key".into())
+        );
+        assert_eq!(
+            p.value(),
+            &nominal_api::objects::api::PropertyValue("val".into())
+        );
     }
 
     #[test]
@@ -405,11 +421,15 @@ mod tests {
             panic!("expected And");
         };
         assert!(matches!(
-            children.iter().find(|c| matches!(c, SearchDatasetsQuery::Label(_))),
+            children
+                .iter()
+                .find(|c| matches!(c, SearchDatasetsQuery::Label(_))),
             Some(_)
         ));
         assert!(matches!(
-            children.iter().find(|c| matches!(c, SearchDatasetsQuery::Or(_))),
+            children
+                .iter()
+                .find(|c| matches!(c, SearchDatasetsQuery::Or(_))),
             Some(_)
         ));
     }

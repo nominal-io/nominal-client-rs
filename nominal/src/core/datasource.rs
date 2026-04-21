@@ -64,11 +64,14 @@ impl DataSource {
 mod tests {
     use super::*;
 
-    const DATASET_RID: &str = "ri.catalog.cerulean-staging.dataset.00000000-0000-0000-0000-000000000001";
-    const VIDEO_RID: &str = "ri.catalog.cerulean-staging.video.00000000-0000-0000-0000-000000000002";
+    const DATASET_RID: &str =
+        "ri.catalog.cerulean-staging.dataset.00000000-0000-0000-0000-000000000001";
+    const VIDEO_RID: &str =
+        "ri.catalog.cerulean-staging.video.00000000-0000-0000-0000-000000000002";
     const CONNECTION_RID: &str =
         "ri.datasource.cerulean-staging.connection.00000000-0000-0000-0000-000000000003";
-    const LOGSET_RID: &str = "ri.logset.cerulean-staging.log-set.00000000-0000-0000-0000-000000000004";
+    const LOGSET_RID: &str =
+        "ri.logset.cerulean-staging.log-set.00000000-0000-0000-0000-000000000004";
 
     #[test]
     fn rid_accessor() {
@@ -93,7 +96,10 @@ mod tests {
     fn log_sets_are_filtered() {
         use nominal_api::objects::scout::run::api::LogSetRid;
         let rid = parse_rid::<LogSetRid>(LOGSET_RID).unwrap();
-        assert_eq!(DataSource::from_conjure(&ConjureDataSource::LogSet(rid)), None);
+        assert_eq!(
+            DataSource::from_conjure(&ConjureDataSource::LogSet(rid)),
+            None
+        );
     }
 
     #[test]

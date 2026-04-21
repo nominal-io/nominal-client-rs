@@ -15,11 +15,11 @@ use conjure_object::BearerToken;
 use conjure_runtime::Client;
 use futures::Stream;
 use nominal_api::clients::scout::catalog::{AsyncCatalogService, AsyncCatalogServiceClient};
-use nominal_api::clients::scout::datasource::{
-    AsyncDataSourceService, AsyncDataSourceServiceClient,
-};
 use nominal_api::clients::scout::datasource::connection::{
     AsyncConnectionService, AsyncConnectionServiceClient,
+};
+use nominal_api::clients::scout::datasource::{
+    AsyncDataSourceService, AsyncDataSourceServiceClient,
 };
 use nominal_api::clients::scout::video::{AsyncVideoService, AsyncVideoServiceClient};
 use nominal_api::clients::timeseries::channelmetadata::{
@@ -31,7 +31,9 @@ use nominal_api::objects::scout::catalog::{
     GetDatasetsRequest, SearchDatasetsRequest, SearchDatasetsResponse,
     SortField as DatasetSortField, SortOptions as DatasetSortOptions,
 };
-use nominal_api::objects::scout::datasource::connection::api::{ConnectionRid, ListConnectionsResponse};
+use nominal_api::objects::scout::datasource::connection::api::{
+    ConnectionRid, ListConnectionsResponse,
+};
 use nominal_api::objects::scout::video::api::{
     GetVideosRequest, SearchVideosRequest, SearchVideosResponse, SortField as VideoSortField,
     SortOptions as VideoSortOptions,
@@ -106,7 +108,9 @@ impl CatalogClient {
         response
             .into_iter()
             .next()
-            .ok_or(Error::NotFound { resource: "dataset with given RID" })
+            .ok_or(Error::NotFound {
+                resource: "dataset with given RID",
+            })
             .map(|d| Dataset::from_conjure(d, &self.app_base_url))
     }
 
@@ -122,9 +126,7 @@ impl CatalogClient {
             .into_iter()
             .map(|s| parse_rid(s.as_ref()).map_err(Error::from))
             .collect::<Result<BTreeSet<_>>>()?;
-        let request = GetDatasetsRequest::builder()
-            .dataset_rids(rid_set)
-            .build();
+        let request = GetDatasetsRequest::builder().dataset_rids(rid_set).build();
         let response = self
             .catalog_service
             .get_enriched_datasets(&self.token, &request)
@@ -309,12 +311,7 @@ impl CatalogClient {
             move |req| {
                 let service = service.clone();
                 let token = token.clone();
-                async move {
-                    service
-                        .search(&token, &req)
-                        .await
-                        .map_err(Error::from)
-                }
+                async move { service.search(&token, &req).await.map_err(Error::from) }
             },
             |resp: &SearchVideosResponse| resp.next_page_token().cloned(),
             move |resp| {
@@ -401,10 +398,7 @@ impl CatalogClient {
     /// Get multiple connections by RID.
     ///
     /// Returns a map from RID string to Connection. RIDs not found in Nominal are omitted.
-    pub async fn get_connection_batch<I, S>(
-        &self,
-        rids: I,
-    ) -> Result<HashMap<String, Connection>>
+    pub async fn get_connection_batch<I, S>(&self, rids: I) -> Result<HashMap<String, Connection>>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,

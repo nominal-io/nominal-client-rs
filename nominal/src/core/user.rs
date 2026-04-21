@@ -52,11 +52,7 @@ pub struct UsersClient {
 }
 
 impl UsersClient {
-    pub(crate) fn new(
-        client: Client,
-        runtime: &Arc<ConjureRuntime>,
-        token: BearerToken,
-    ) -> Self {
+    pub(crate) fn new(client: Client, runtime: &Arc<ConjureRuntime>, token: BearerToken) -> Self {
         Self {
             service: AsyncAuthenticationServiceV2Client::new(client, runtime),
             token,

@@ -9,9 +9,8 @@ use nominal_api::clients::scout::{AsyncRunService, AsyncRunServiceClient};
 use nominal_api::objects::api::{Label, PropertyName, PropertyValue, SetOperator};
 use nominal_api::objects::scout::rids::api::{LabelsFilter, PropertiesFilter};
 use nominal_api::objects::scout::run::api::{
-    CreateRunDataSource, CustomTimeframeFilter, SearchQuery, SearchRunsRequest,
-    SearchRunsResponse, SortField, SortKey, SortOptions, TimeframeFilter,
-    UpdateAttachmentsRequest, UpdateRunRequest,
+    CreateRunDataSource, CustomTimeframeFilter, SearchQuery, SearchRunsRequest, SearchRunsResponse,
+    SortField, SortKey, SortOptions, TimeframeFilter, UpdateAttachmentsRequest, UpdateRunRequest,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -98,7 +97,10 @@ impl Run {
         format!("{}/runs/{}", self.app_base_url, self.run_number)
     }
 
-    pub(crate) fn from_conjure(run: nominal_api::objects::scout::run::api::Run, app_base_url: &str) -> Self {
+    pub(crate) fn from_conjure(
+        run: nominal_api::objects::scout::run::api::Run,
+        app_base_url: &str,
+    ) -> Self {
         let data_sources = run
             .data_sources()
             .iter()
@@ -321,7 +323,9 @@ impl RunQuery {
             Self::StartTimeInclusive(t) => {
                 let ts = NominalDateTime::try_from(t)?.into();
                 SearchQuery::StartTime(Box::new(TimeframeFilter::Custom(
-                    CustomTimeframeFilter::builder().start_time(Some(ts)).build(),
+                    CustomTimeframeFilter::builder()
+                        .start_time(Some(ts))
+                        .build(),
                 )))
             }
             Self::EndTimeInclusive(t) => {
@@ -356,13 +360,19 @@ mod tests {
     #[test]
     fn query_search_text() {
         let q = RunQuery::search_text("hello");
-        assert_eq!(q.into_conjure().unwrap(), SearchQuery::SearchText("hello".into()));
+        assert_eq!(
+            q.into_conjure().unwrap(),
+            SearchQuery::SearchText("hello".into())
+        );
     }
 
     #[test]
     fn query_exact_match() {
         let q = RunQuery::exact_match("exact");
-        assert_eq!(q.into_conjure().unwrap(), SearchQuery::ExactMatch("exact".into()));
+        assert_eq!(
+            q.into_conjure().unwrap(),
+            SearchQuery::ExactMatch("exact".into())
+        );
     }
 
     #[test]
@@ -371,7 +381,10 @@ mod tests {
         let SearchQuery::Labels(f) = q.into_conjure().unwrap() else {
             panic!("expected Labels variant");
         };
-        assert_eq!(f.labels(), [nominal_api::objects::api::Label("my-label".into())]);
+        assert_eq!(
+            f.labels(),
+            [nominal_api::objects::api::Label("my-label".into())]
+        );
     }
 
     #[test]
@@ -380,8 +393,14 @@ mod tests {
         let SearchQuery::Properties(f) = q.into_conjure().unwrap() else {
             panic!("expected Properties variant");
         };
-        assert_eq!(f.name(), &nominal_api::objects::api::PropertyName("key".into()));
-        assert_eq!(f.values(), [nominal_api::objects::api::PropertyValue("val".into())]);
+        assert_eq!(
+            f.name(),
+            &nominal_api::objects::api::PropertyName("key".into())
+        );
+        assert_eq!(
+            f.values(),
+            [nominal_api::objects::api::PropertyValue("val".into())]
+        );
     }
 
     #[test]
@@ -616,12 +635,7 @@ impl RunsClient {
             move |req| {
                 let service = service.clone();
                 let token = token.clone();
-                async move {
-                    service
-                        .search_runs(&token, &req)
-                        .await
-                        .map_err(Error::from)
-                }
+                async move { service.search_runs(&token, &req).await.map_err(Error::from) }
             },
             |resp: &SearchRunsResponse| resp.next_page_token().cloned(),
             move |resp| {
@@ -702,7 +716,9 @@ impl RunsClient {
                 ds.into_conjure().map(|conjure_ds| {
                     (
                         ref_name.into().into(),
-                        CreateRunDataSource::builder().data_source(conjure_ds).build(),
+                        CreateRunDataSource::builder()
+                            .data_source(conjure_ds)
+                            .build(),
                     )
                 })
             })

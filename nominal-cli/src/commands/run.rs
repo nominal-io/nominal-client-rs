@@ -234,8 +234,7 @@ fn print_run(run: &Run) {
     }
     println!(
         "Created: {}",
-        run.created_at()
-            .to_rfc3339_opts(SecondsFormat::Nanos, true)
+        run.created_at().to_rfc3339_opts(SecondsFormat::Nanos, true)
     );
     println!("URL: {}", run.nominal_url());
 }

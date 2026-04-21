@@ -9,8 +9,8 @@ use nominal_api::objects::timeseries::channelmetadata::api::{
 use nominal_api::objects::timeseries::logicalseries::api::UnitUpdate as ApiUnitUpdate;
 use std::collections::BTreeSet;
 
-use crate::core::rid::{parse_rid, rid_to_string};
 use crate::Result;
+use crate::core::rid::{parse_rid, rid_to_string};
 
 /// A time-series channel on a data source (dataset, video, connection, etc.).
 ///

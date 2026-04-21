@@ -30,9 +30,8 @@ fn resolve_profile(flag: Option<&str>) -> anyhow::Result<String> {
     if let Some(name) = flag {
         return Ok(name.to_string());
     }
-    std::env::var("NOMINAL_PROFILE").map_err(|_| {
-        anyhow::anyhow!("no profile specified: pass --profile or set NOMINAL_PROFILE")
-    })
+    std::env::var("NOMINAL_PROFILE")
+        .map_err(|_| anyhow::anyhow!("no profile specified: pass --profile or set NOMINAL_PROFILE"))
 }
 
 pub(crate) fn load_profile(flag: Option<&str>) -> anyhow::Result<Profile> {

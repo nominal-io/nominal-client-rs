@@ -52,7 +52,9 @@ impl NominalClient {
         let config = Config::load()?;
         let profile = config
             .get_profile(name)
-            .ok_or_else(|| Error::ProfileNotFound { name: name.to_string() })?;
+            .ok_or_else(|| Error::ProfileNotFound {
+                name: name.to_string(),
+            })?;
         Self::from_profile_config(profile)
     }
 
@@ -80,7 +82,6 @@ impl NominalClient {
     pub fn workspace_rid(&self) -> Option<&str> {
         self.workspace_rid.as_deref()
     }
-
 
     /// Access run operations.
     pub fn runs(&self) -> RunsClient {

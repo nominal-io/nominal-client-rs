@@ -27,7 +27,11 @@ fn main() {
 
     generate_conjure_endpoints(conjure_json.as_std_path(), &out_dir);
     generate_grpc_http_endpoints(protos_dir.as_std_path(), &out_dir);
-    generate_proto_descriptor(protos_dir.as_std_path(), includes_dir.as_std_path(), &out_dir);
+    generate_proto_descriptor(
+        protos_dir.as_std_path(),
+        includes_dir.as_std_path(),
+        &out_dir,
+    );
 }
 
 // ── Conjure ───────────────────────────────────────────────────────────────────
@@ -35,8 +39,7 @@ fn main() {
 fn generate_conjure_endpoints(json_path: &std::path::Path, out_dir: &PathBuf) {
     let raw = fs::read_to_string(json_path)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", json_path.display()));
-    let def: serde_json::Value =
-        serde_json::from_str(&raw).expect("failed to parse conjure JSON");
+    let def: serde_json::Value = serde_json::from_str(&raw).expect("failed to parse conjure JSON");
 
     let mut entries = String::new();
 
@@ -286,22 +289,24 @@ fn parse_http_binding(lines: &[&str]) -> Option<HttpBinding> {
     }
     let snippet = block_lines.join(" ");
 
-    let method_path = ["get", "post", "put", "delete", "patch"].iter().find_map(|&m| {
-        let pattern = format!("{m}:");
-        if let Some(pos) = snippet.find(&pattern) {
-            let after = snippet[pos + pattern.len()..].trim_start();
-            let path = after
-                .trim_start_matches('"')
-                .split('"')
-                .next()
-                .unwrap_or("")
-                .to_owned();
-            if !path.is_empty() {
-                return Some((m.to_uppercase(), path));
+    let method_path = ["get", "post", "put", "delete", "patch"]
+        .iter()
+        .find_map(|&m| {
+            let pattern = format!("{m}:");
+            if let Some(pos) = snippet.find(&pattern) {
+                let after = snippet[pos + pattern.len()..].trim_start();
+                let path = after
+                    .trim_start_matches('"')
+                    .split('"')
+                    .next()
+                    .unwrap_or("")
+                    .to_owned();
+                if !path.is_empty() {
+                    return Some((m.to_uppercase(), path));
+                }
             }
-        }
-        None
-    })?;
+            None
+        })?;
 
     let body = extract_field_value(&snippet, "body");
     let response_body = extract_field_value(&snippet, "response_body");
@@ -352,8 +357,7 @@ fn generate_proto_descriptor(
     let descriptor_path = out_dir.join("nominal_descriptor.bin");
 
     let proto_files = collect_proto_files(protos_dir);
-    let proto_file_paths: Vec<&std::path::Path> =
-        proto_files.iter().map(|p| p.as_path()).collect();
+    let proto_file_paths: Vec<&std::path::Path> = proto_files.iter().map(|p| p.as_path()).collect();
 
     tonic_build::configure()
         .build_server(false)

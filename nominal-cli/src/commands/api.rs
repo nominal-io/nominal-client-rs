@@ -146,12 +146,20 @@ trait EndpointSignature {
     fn path_template(&self) -> &str;
 }
 impl EndpointSignature for ConjureEndpoint {
-    fn http_method(&self) -> &str { self.method }
-    fn path_template(&self) -> &str { self.path_template }
+    fn http_method(&self) -> &str {
+        self.method
+    }
+    fn path_template(&self) -> &str {
+        self.path_template
+    }
 }
 impl EndpointSignature for GrpcHttpEndpoint {
-    fn http_method(&self) -> &str { self.method }
-    fn path_template(&self) -> &str { self.path_template }
+    fn http_method(&self) -> &str {
+        self.method
+    }
+    fn path_template(&self) -> &str {
+        self.path_template
+    }
 }
 
 fn find_conjure<'a>(path: &str, method: &str) -> anyhow::Result<&'a ConjureEndpoint> {

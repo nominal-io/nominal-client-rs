@@ -54,7 +54,10 @@ mod tests {
         assert_eq!(FileType::from_path("FOO.CSV"), Some(FileType::Csv));
         assert_eq!(FileType::from_path("foo.csv.gz"), Some(FileType::CsvGz));
         assert_eq!(FileType::from_path("data.parquet"), Some(FileType::Parquet));
-        assert_eq!(FileType::from_path("/tmp/nested/data.parquet"), Some(FileType::Parquet));
+        assert_eq!(
+            FileType::from_path("/tmp/nested/data.parquet"),
+            Some(FileType::Parquet)
+        );
     }
 
     #[test]

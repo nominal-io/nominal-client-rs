@@ -1,4 +1,4 @@
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use bytes::{BufMut, BytesMut};
 use prost::Message;
 use prost_reflect::{DescriptorPool, DynamicMessage, MethodDescriptor, ServiceDescriptor};
@@ -87,7 +87,10 @@ async fn grpc_unary(
         bail!("HTTP {status}: {body}");
     }
 
-    let body = response.bytes().await.context("failed to read gRPC response")?;
+    let body = response
+        .bytes()
+        .await
+        .context("failed to read gRPC response")?;
 
     if body.len() < 5 {
         bail!("gRPC response too short ({} bytes)", body.len());

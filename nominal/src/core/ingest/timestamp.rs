@@ -130,16 +130,12 @@ impl Timestamp {
 
     pub(crate) fn into_conjure(self) -> TimestampMetadata {
         let ts_type = match self.kind {
-            TimestampKind::Iso8601 => {
-                TimestampType::Absolute(Box::new(AbsoluteTimestamp::Iso8601(
-                    Iso8601Timestamp::new(),
-                )))
-            }
-            TimestampKind::Epoch(unit) => {
-                TimestampType::Absolute(Box::new(AbsoluteTimestamp::EpochOfTimeUnit(
-                    EpochTimestamp::new(unit.into_conjure()),
-                )))
-            }
+            TimestampKind::Iso8601 => TimestampType::Absolute(Box::new(
+                AbsoluteTimestamp::Iso8601(Iso8601Timestamp::new()),
+            )),
+            TimestampKind::Epoch(unit) => TimestampType::Absolute(Box::new(
+                AbsoluteTimestamp::EpochOfTimeUnit(EpochTimestamp::new(unit.into_conjure())),
+            )),
             TimestampKind::Custom {
                 format,
                 default_year,

@@ -1,7 +1,10 @@
-use futures::{StreamExt, stream::{self, Stream}};
-use std::sync::Arc;
+use futures::{
+    StreamExt,
+    stream::{self, Stream},
+};
 use nominal_api::objects::api::Token;
 use regex::Regex;
+use std::sync::Arc;
 use std::sync::LazyLock;
 
 static API_TO_APP_RE: LazyLock<Regex> =

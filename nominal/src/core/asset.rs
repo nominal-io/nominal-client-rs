@@ -327,7 +327,9 @@ impl AssetQuery {
                     .extend_values([PropertyValue(v)])
                     .build(),
             ),
-            Self::And(qs) => SearchAssetsQuery::And(qs.into_iter().map(Self::into_conjure).collect()),
+            Self::And(qs) => {
+                SearchAssetsQuery::And(qs.into_iter().map(Self::into_conjure).collect())
+            }
             Self::Or(qs) => SearchAssetsQuery::Or(qs.into_iter().map(Self::into_conjure).collect()),
         }
     }
@@ -343,13 +345,19 @@ mod tests {
     #[test]
     fn query_search_text() {
         let q = AssetQuery::search_text("hello");
-        assert_eq!(q.into_conjure(), SearchAssetsQuery::SearchText("hello".into()));
+        assert_eq!(
+            q.into_conjure(),
+            SearchAssetsQuery::SearchText("hello".into())
+        );
     }
 
     #[test]
     fn query_exact_substring() {
         let q = AssetQuery::exact_substring("foo");
-        assert_eq!(q.into_conjure(), SearchAssetsQuery::ExactSubstring("foo".into()));
+        assert_eq!(
+            q.into_conjure(),
+            SearchAssetsQuery::ExactSubstring("foo".into())
+        );
     }
 
     #[test]
@@ -358,7 +366,10 @@ mod tests {
         let SearchAssetsQuery::Labels(f) = q.into_conjure() else {
             panic!("expected Labels variant");
         };
-        assert_eq!(f.labels(), [nominal_api::objects::api::Label("my-label".into())]);
+        assert_eq!(
+            f.labels(),
+            [nominal_api::objects::api::Label("my-label".into())]
+        );
     }
 
     #[test]
@@ -367,16 +378,19 @@ mod tests {
         let SearchAssetsQuery::Properties(f) = q.into_conjure() else {
             panic!("expected Properties variant");
         };
-        assert_eq!(f.name(), &nominal_api::objects::api::PropertyName("key".into()));
-        assert_eq!(f.values(), [nominal_api::objects::api::PropertyValue("val".into())]);
+        assert_eq!(
+            f.name(),
+            &nominal_api::objects::api::PropertyName("key".into())
+        );
+        assert_eq!(
+            f.values(),
+            [nominal_api::objects::api::PropertyValue("val".into())]
+        );
     }
 
     #[test]
     fn query_and_flattens_children() {
-        let q = AssetQuery::and([
-            AssetQuery::search_text("a"),
-            AssetQuery::search_text("b"),
-        ]);
+        let q = AssetQuery::and([AssetQuery::search_text("a"), AssetQuery::search_text("b")]);
         let SearchAssetsQuery::And(children) = q.into_conjure() else {
             panic!("expected And variant");
         };
@@ -554,7 +568,12 @@ impl AssetsClient {
             .map_err(Error::from)?;
         Ok(response
             .into_iter()
-            .map(|(k, v)| (rid_to_string(&k), Asset::from_conjure(v, &self.app_base_url)))
+            .map(|(k, v)| {
+                (
+                    rid_to_string(&k),
+                    Asset::from_conjure(v, &self.app_base_url),
+                )
+            })
             .collect())
     }
 
