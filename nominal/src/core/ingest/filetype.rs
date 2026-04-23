@@ -9,6 +9,11 @@ pub enum FileType {
     Csv,
     CsvGz,
     Parquet,
+    Mcap,
+    JournalJsonl,
+    JournalJsonlGz,
+    AvroStream,
+    Dataflash,
 }
 
 impl FileType {
@@ -17,6 +22,11 @@ impl FileType {
             FileType::Csv => ".csv",
             FileType::CsvGz => ".csv.gz",
             FileType::Parquet => ".parquet",
+            FileType::Mcap => ".mcap",
+            FileType::JournalJsonl => ".jsonl",
+            FileType::JournalJsonlGz => ".jsonl.gz",
+            FileType::AvroStream => ".avro",
+            FileType::Dataflash => ".bin",
         }
     }
 
@@ -25,6 +35,10 @@ impl FileType {
             FileType::Csv => "text/csv",
             FileType::CsvGz => "application/gzip",
             FileType::Parquet => "application/vnd.apache.parquet",
+            FileType::Mcap => "application/octet-stream",
+            FileType::JournalJsonl | FileType::JournalJsonlGz => "application/jsonl",
+            FileType::AvroStream => "application/avro",
+            FileType::Dataflash => "application/octet-stream",
         }
     }
 
@@ -38,6 +52,16 @@ impl FileType {
             Some(FileType::Csv)
         } else if name.ends_with(".parquet") {
             Some(FileType::Parquet)
+        } else if name.ends_with(".mcap") {
+            Some(FileType::Mcap)
+        } else if name.ends_with(".jsonl.gz") {
+            Some(FileType::JournalJsonlGz)
+        } else if name.ends_with(".jsonl") {
+            Some(FileType::JournalJsonl)
+        } else if name.ends_with(".avro") {
+            Some(FileType::AvroStream)
+        } else if name.ends_with(".bin") {
+            Some(FileType::Dataflash)
         } else {
             None
         }
@@ -64,5 +88,26 @@ mod tests {
     fn from_path_returns_none_for_unknown() {
         assert_eq!(FileType::from_path("foo.txt"), None);
         assert_eq!(FileType::from_path("foo"), None);
+    }
+
+    #[test]
+    fn from_path_matches_new_extensions() {
+        assert_eq!(FileType::from_path("log.mcap"), Some(FileType::Mcap));
+        assert_eq!(
+            FileType::from_path("journal.jsonl"),
+            Some(FileType::JournalJsonl)
+        );
+        assert_eq!(
+            FileType::from_path("journal.jsonl.gz"),
+            Some(FileType::JournalJsonlGz)
+        );
+        assert_eq!(
+            FileType::from_path("stream.avro"),
+            Some(FileType::AvroStream)
+        );
+        assert_eq!(
+            FileType::from_path("flight.bin"),
+            Some(FileType::Dataflash)
+        );
     }
 }

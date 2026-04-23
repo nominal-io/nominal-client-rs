@@ -1,17 +1,21 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use nominal_api::objects::api::{ColumnName, TagName, TagValue};
+use nominal_api::objects::api::{
+    Channel, ColumnName, Empty, McapChannelLocator, McapChannelTopic, TagName, TagValue,
+};
 use nominal_api::objects::ingest::api::{
-    ChannelPrefix, CsvOpts, DatasetIngestTarget as ApiDatasetIngestTarget,
-    ExistingDatasetIngestDestination, IngestSource, ParquetOpts, S3IngestSource,
+    AvroStreamOpts, ChannelPrefix, CsvOpts, DataflashOpts,
+    DatasetIngestTarget as ApiDatasetIngestTarget, ExistingDatasetIngestDestination, IngestSource,
+    JournalJsonOpts, LogTime, McapChannels, McapProtobufTimeseriesOpts, McapTimestampType,
+    ParquetOpts, S3IngestSource,
 };
 
-use crate::Result;
 use crate::core::catalog::DatasetCreate;
 use crate::core::ingest::progress::{ProgressCallback, UploadEvent};
 use crate::core::ingest::timestamp::Timestamp;
 use crate::core::rid::parse_rid;
+use crate::{Error, Result};
 
 /// Where an ingest should land. Either an existing dataset (by RID) or a new
 /// dataset, which will be created atomically alongside the ingest — a failed
@@ -336,6 +340,240 @@ impl ParquetIngest {
         }
         if !self.exclude_columns.is_empty() {
             b = b.exclude_columns(self.exclude_columns.into_iter().map(ColumnName));
+        }
+        Ok(b.build())
+    }
+}
+
+/// Configuration for ingesting an MCAP file's protobuf timeseries data into a
+/// dataset. MCAP video tracks are a separate path and not yet wired up.
+#[derive(Debug, Clone, Default)]
+pub struct McapIngest {
+    include_topics: Vec<String>,
+    exclude_topics: Vec<String>,
+    additional_file_tags: BTreeMap<String, String>,
+    ignore_invalid_topics: Option<bool>,
+    pub(crate) upload_options: UploadOptions,
+}
+
+impl McapIngest {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Ingest only the given topic (call repeatedly to include multiple).
+    /// Mutually exclusive with [`Self::exclude_topic`].
+    #[must_use]
+    pub fn include_topic(mut self, topic: impl Into<String>) -> Self {
+        self.include_topics.push(topic.into());
+        self
+    }
+
+    /// Skip the given topic during ingest (call repeatedly to exclude
+    /// multiple). Mutually exclusive with [`Self::include_topic`].
+    #[must_use]
+    pub fn exclude_topic(mut self, topic: impl Into<String>) -> Self {
+        self.exclude_topics.push(topic.into());
+        self
+    }
+
+    /// Apply a fixed tag value to every row in this file.
+    #[must_use]
+    pub fn additional_file_tag(mut self, tag: impl Into<String>, value: impl Into<String>) -> Self {
+        self.additional_file_tags.insert(tag.into(), value.into());
+        self
+    }
+
+    /// If `true`, skip invalid MCAP topics instead of failing the whole
+    /// ingest. Defaults to the server-side default (false).
+    #[must_use]
+    pub fn ignore_invalid_topics(mut self, value: bool) -> Self {
+        self.ignore_invalid_topics = Some(value);
+        self
+    }
+
+    #[must_use]
+    pub fn upload_options(mut self, options: UploadOptions) -> Self {
+        self.upload_options = options;
+        self
+    }
+
+    pub(crate) fn into_opts(
+        self,
+        target: DatasetTarget,
+        workspace_rid: Option<&str>,
+        s3_path: String,
+    ) -> Result<McapProtobufTimeseriesOpts> {
+        let target = target.into_api(workspace_rid)?;
+        let source = IngestSource::S3(S3IngestSource::new(s3_path));
+
+        let channel_filter = match (
+            self.include_topics.is_empty(),
+            self.exclude_topics.is_empty(),
+        ) {
+            (true, true) => McapChannels::All(Empty::new()),
+            (false, true) => McapChannels::Include(
+                self.include_topics
+                    .into_iter()
+                    .map(topic_locator)
+                    .collect(),
+            ),
+            (true, false) => McapChannels::Exclude(
+                self.exclude_topics
+                    .into_iter()
+                    .map(topic_locator)
+                    .collect(),
+            ),
+            (false, false) => {
+                return Err(Error::Ingest {
+                    details: "mcap ingest cannot set both include_topic and exclude_topic".into(),
+                });
+            }
+        };
+
+        let mut b = McapProtobufTimeseriesOpts::builder()
+            .source(source)
+            .target(target)
+            .channel_filter(channel_filter)
+            .timestamp_type(McapTimestampType::LogTime(LogTime::new()));
+        if let Some(ignore) = self.ignore_invalid_topics {
+            b = b.ignore_invalid_topics(ignore);
+        }
+        if !self.additional_file_tags.is_empty() {
+            b = b.additional_file_tags(
+                self.additional_file_tags
+                    .into_iter()
+                    .map(|(k, v)| (TagName(k), TagValue(v)))
+                    .collect::<BTreeMap<_, _>>(),
+            );
+        }
+        Ok(b.build())
+    }
+}
+
+fn topic_locator(topic: String) -> McapChannelLocator {
+    McapChannelLocator::Topic(McapChannelTopic(topic))
+}
+
+/// Configuration for ingesting a journald JSON (`.jsonl` / `.jsonl.gz`) file
+/// into a dataset.
+#[derive(Debug, Clone, Default)]
+pub struct JournalJsonIngest {
+    channel: Option<String>,
+    pub(crate) upload_options: UploadOptions,
+}
+
+impl JournalJsonIngest {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Name of the channel the log lines should land in. Defaults to `logs`
+    /// server-side when unset.
+    #[must_use]
+    pub fn channel(mut self, name: impl Into<String>) -> Self {
+        self.channel = Some(name.into());
+        self
+    }
+
+    #[must_use]
+    pub fn upload_options(mut self, options: UploadOptions) -> Self {
+        self.upload_options = options;
+        self
+    }
+
+    pub(crate) fn into_opts(
+        self,
+        target: DatasetTarget,
+        workspace_rid: Option<&str>,
+        s3_path: String,
+    ) -> Result<JournalJsonOpts> {
+        let target = target.into_api(workspace_rid)?;
+        let source = IngestSource::S3(S3IngestSource::new(s3_path));
+
+        let mut b = JournalJsonOpts::builder().source(source).target(target);
+        if let Some(ch) = self.channel {
+            b = b.channel(Channel(ch));
+        }
+        Ok(b.build())
+    }
+}
+
+/// Configuration for ingesting a Nominal Avro-stream (`.avro`) file into a
+/// dataset. The Avro record schema is fixed; see the server-side docs.
+#[derive(Debug, Clone, Default)]
+pub struct AvroStreamIngest {
+    pub(crate) upload_options: UploadOptions,
+}
+
+impl AvroStreamIngest {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn upload_options(mut self, options: UploadOptions) -> Self {
+        self.upload_options = options;
+        self
+    }
+
+    pub(crate) fn into_opts(
+        self,
+        target: DatasetTarget,
+        workspace_rid: Option<&str>,
+        s3_path: String,
+    ) -> Result<AvroStreamOpts> {
+        let target = target.into_api(workspace_rid)?;
+        let source = IngestSource::S3(S3IngestSource::new(s3_path));
+        Ok(AvroStreamOpts::builder()
+            .source(source)
+            .target(target)
+            .build())
+    }
+}
+
+/// Configuration for ingesting an ArduPilot DataFlash (`.bin`) file into a
+/// dataset.
+#[derive(Debug, Clone, Default)]
+pub struct DataflashIngest {
+    additional_file_tags: BTreeMap<String, String>,
+    pub(crate) upload_options: UploadOptions,
+}
+
+impl DataflashIngest {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn additional_file_tag(mut self, tag: impl Into<String>, value: impl Into<String>) -> Self {
+        self.additional_file_tags.insert(tag.into(), value.into());
+        self
+    }
+
+    #[must_use]
+    pub fn upload_options(mut self, options: UploadOptions) -> Self {
+        self.upload_options = options;
+        self
+    }
+
+    pub(crate) fn into_opts(
+        self,
+        target: DatasetTarget,
+        workspace_rid: Option<&str>,
+        s3_path: String,
+    ) -> Result<DataflashOpts> {
+        let target = target.into_api(workspace_rid)?;
+        let source = IngestSource::S3(S3IngestSource::new(s3_path));
+
+        let mut b = DataflashOpts::builder().source(source).target(target);
+        if !self.additional_file_tags.is_empty() {
+            b = b.additional_file_tags(
+                self.additional_file_tags
+                    .into_iter()
+                    .map(|(k, v)| (TagName(k), TagValue(v)))
+                    .collect::<BTreeMap<_, _>>(),
+            );
         }
         Ok(b.build())
     }

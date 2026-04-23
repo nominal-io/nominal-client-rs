@@ -7,7 +7,10 @@ mod timestamp;
 
 pub use filetype::FileType;
 pub use job::{IngestJob, IngestJobStatus, IngestType};
-pub use options::{CsvIngest, DatasetTarget, ParquetIngest, UploadOptions};
+pub use options::{
+    AvroStreamIngest, CsvIngest, DataflashIngest, DatasetTarget, JournalJsonIngest, McapIngest,
+    ParquetIngest, UploadOptions,
+};
 pub use progress::{ProgressCallback, UploadEvent};
 pub use timestamp::{TimeUnit, Timestamp};
 
@@ -128,6 +131,128 @@ impl IngestClient {
 
         let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
         self.trigger_ingest(IngestOptions::Parquet(opts)).await
+    }
+
+    /// Upload an MCAP file and ingest its protobuf timeseries data into the
+    /// given dataset.
+    ///
+    /// Returns the newly-created ingest job.
+    pub async fn upload_mcap(
+        &self,
+        path: impl AsRef<Path>,
+        target: impl Into<DatasetTarget>,
+        ingest: McapIngest,
+    ) -> Result<IngestJob> {
+        let path = path.as_ref();
+        let upload_options = ingest.upload_options.clone();
+        let file_type = FileType::Mcap;
+        let filename = upload_filename(path, file_type);
+        let s3_path = multipart::upload_file(
+            self.conjure_client.clone(),
+            &self.runtime,
+            self.token.clone(),
+            self.workspace_rid.clone(),
+            path,
+            filename,
+            file_type.mime_type().to_string(),
+            upload_options,
+        )
+        .await?;
+
+        let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
+        self.trigger_ingest(IngestOptions::McapProtobufTimeseries(opts))
+            .await
+    }
+
+    /// Upload a journald JSON file (`.jsonl` or `.jsonl.gz`) and ingest it
+    /// into the given dataset.
+    ///
+    /// Returns the newly-created ingest job.
+    pub async fn upload_journal_json(
+        &self,
+        path: impl AsRef<Path>,
+        target: impl Into<DatasetTarget>,
+        ingest: JournalJsonIngest,
+    ) -> Result<IngestJob> {
+        let path = path.as_ref();
+        let upload_options = ingest.upload_options.clone();
+        let file_type = FileType::from_path(path)
+            .filter(|ft| matches!(ft, FileType::JournalJsonl | FileType::JournalJsonlGz))
+            .unwrap_or(FileType::JournalJsonl);
+        let filename = upload_filename(path, file_type);
+        let s3_path = multipart::upload_file(
+            self.conjure_client.clone(),
+            &self.runtime,
+            self.token.clone(),
+            self.workspace_rid.clone(),
+            path,
+            filename,
+            file_type.mime_type().to_string(),
+            upload_options,
+        )
+        .await?;
+
+        let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
+        self.trigger_ingest(IngestOptions::JournalJson(opts)).await
+    }
+
+    /// Upload a Nominal Avro-stream file and ingest it into the given dataset.
+    ///
+    /// Returns the newly-created ingest job.
+    pub async fn upload_avro_stream(
+        &self,
+        path: impl AsRef<Path>,
+        target: impl Into<DatasetTarget>,
+        ingest: AvroStreamIngest,
+    ) -> Result<IngestJob> {
+        let path = path.as_ref();
+        let upload_options = ingest.upload_options.clone();
+        let file_type = FileType::AvroStream;
+        let filename = upload_filename(path, file_type);
+        let s3_path = multipart::upload_file(
+            self.conjure_client.clone(),
+            &self.runtime,
+            self.token.clone(),
+            self.workspace_rid.clone(),
+            path,
+            filename,
+            file_type.mime_type().to_string(),
+            upload_options,
+        )
+        .await?;
+
+        let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
+        self.trigger_ingest(IngestOptions::AvroStream(opts)).await
+    }
+
+    /// Upload an ArduPilot DataFlash (`.bin`) file and ingest it into the
+    /// given dataset.
+    ///
+    /// Returns the newly-created ingest job.
+    pub async fn upload_ardupilot_dataflash(
+        &self,
+        path: impl AsRef<Path>,
+        target: impl Into<DatasetTarget>,
+        ingest: DataflashIngest,
+    ) -> Result<IngestJob> {
+        let path = path.as_ref();
+        let upload_options = ingest.upload_options.clone();
+        let file_type = FileType::Dataflash;
+        let filename = upload_filename(path, file_type);
+        let s3_path = multipart::upload_file(
+            self.conjure_client.clone(),
+            &self.runtime,
+            self.token.clone(),
+            self.workspace_rid.clone(),
+            path,
+            filename,
+            file_type.mime_type().to_string(),
+            upload_options,
+        )
+        .await?;
+
+        let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
+        self.trigger_ingest(IngestOptions::Dataflash(opts)).await
     }
 
     async fn trigger_ingest(&self, options: IngestOptions) -> Result<IngestJob> {
