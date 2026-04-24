@@ -6,8 +6,7 @@ use chrono::{DateTime, Utc};
 use clap::{ArgGroup, Args, Subcommand};
 use nominal::core::{
     AvroStreamIngest, CsvIngest, DataflashIngest, DatasetCreate, DatasetTarget, IngestJob,
-    IngestJobStatus, JournalJsonIngest, McapIngest, NominalClient, ParquetIngest, TimeUnit,
-    Timestamp,
+    JournalJsonIngest, McapIngest, NominalClient, ParquetIngest, TimeUnit, Timestamp,
 };
 
 #[derive(Subcommand)]
@@ -136,9 +135,11 @@ struct TargetArgs {
     properties: Vec<String>,
 
     // ── Control ──────────────────────────────────────────────────────────────
-    /// Block until the ingest job reaches a terminal state
+    /// Skip waiting for the ingest job to finish; print the ingest job RID and
+    /// return immediately. Otherwise the command blocks until the job reaches
+    /// a terminal state and prints the resulting dataset RID.
     #[arg(long)]
-    wait: bool,
+    no_wait: bool,
 }
 
 #[derive(Args)]
@@ -255,13 +256,13 @@ async fn handle_csv(args: CsvArgs, client: NominalClient) -> anyhow::Result<()> 
     }
 
     let path = common.target.path.clone();
-    let job = client
+    let (dataset_rid, job) = client
         .ingest()
         .upload_csv(&path, target, ingest)
         .await
         .with_context(|| format!("Failed to upload CSV '{}'", path.display()))?;
 
-    print_result(&job, common.target.wait, client).await
+    print_result(&dataset_rid, &job, common.target.no_wait, client).await
 }
 
 async fn handle_parquet(args: ParquetArgs, client: NominalClient) -> anyhow::Result<()> {
@@ -287,13 +288,13 @@ async fn handle_parquet(args: ParquetArgs, client: NominalClient) -> anyhow::Res
     }
 
     let path = common.target.path.clone();
-    let job = client
+    let (dataset_rid, job) = client
         .ingest()
         .upload_parquet(&path, target, ingest)
         .await
         .with_context(|| format!("Failed to upload Parquet '{}'", path.display()))?;
 
-    print_result(&job, common.target.wait, client).await
+    print_result(&dataset_rid, &job, common.target.no_wait, client).await
 }
 
 async fn handle_mcap(args: McapArgs, client: NominalClient) -> anyhow::Result<()> {
@@ -321,13 +322,13 @@ async fn handle_mcap(args: McapArgs, client: NominalClient) -> anyhow::Result<()
     }
 
     let path = target_args.path.clone();
-    let job = client
+    let (dataset_rid, job) = client
         .ingest()
         .upload_mcap(&path, target, ingest)
         .await
         .with_context(|| format!("Failed to upload MCAP '{}'", path.display()))?;
 
-    print_result(&job, target_args.wait, client).await
+    print_result(&dataset_rid, &job, target_args.no_wait, client).await
 }
 
 async fn handle_journal_json(args: JournalJsonArgs, client: NominalClient) -> anyhow::Result<()> {
@@ -343,13 +344,13 @@ async fn handle_journal_json(args: JournalJsonArgs, client: NominalClient) -> an
     }
 
     let path = target_args.path.clone();
-    let job = client
+    let (dataset_rid, job) = client
         .ingest()
         .upload_journal_json(&path, target, ingest)
         .await
         .with_context(|| format!("Failed to upload journal JSON '{}'", path.display()))?;
 
-    print_result(&job, target_args.wait, client).await
+    print_result(&dataset_rid, &job, target_args.no_wait, client).await
 }
 
 async fn handle_avro_stream(args: AvroStreamArgs, client: NominalClient) -> anyhow::Result<()> {
@@ -359,13 +360,13 @@ async fn handle_avro_stream(args: AvroStreamArgs, client: NominalClient) -> anyh
     let target = build_target(&target_args);
 
     let path = target_args.path.clone();
-    let job = client
+    let (dataset_rid, job) = client
         .ingest()
         .upload_avro_stream(&path, target, AvroStreamIngest::new())
         .await
         .with_context(|| format!("Failed to upload Avro stream '{}'", path.display()))?;
 
-    print_result(&job, target_args.wait, client).await
+    print_result(&dataset_rid, &job, target_args.no_wait, client).await
 }
 
 async fn handle_dataflash(args: DataflashArgs, client: NominalClient) -> anyhow::Result<()> {
@@ -381,13 +382,13 @@ async fn handle_dataflash(args: DataflashArgs, client: NominalClient) -> anyhow:
     }
 
     let path = target_args.path.clone();
-    let job = client
+    let (dataset_rid, job) = client
         .ingest()
         .upload_ardupilot_dataflash(&path, target, ingest)
         .await
         .with_context(|| format!("Failed to upload DataFlash '{}'", path.display()))?;
 
-    print_result(&job, target_args.wait, client).await
+    print_result(&dataset_rid, &job, target_args.no_wait, client).await
 }
 
 fn build_target(target: &TargetArgs) -> DatasetTarget {
@@ -431,29 +432,26 @@ fn build_timestamp(common: &UploadArgs) -> anyhow::Result<Timestamp> {
     }
 }
 
-async fn print_result(job: &IngestJob, wait: bool, client: NominalClient) -> anyhow::Result<()> {
-    println!("Ingest job RID: {}", job.rid());
-    println!("Status: {}", status_str(job.status()));
-
-    if wait {
-        let terminal = client
-            .ingest()
-            .wait_for_ingest_job(job.rid())
-            .await
-            .with_context(|| format!("ingest job '{}' did not complete successfully", job.rid()))?;
-        println!("Final status: {}", status_str(terminal.status()));
+async fn print_result(
+    dataset_rid: &str,
+    job: &IngestJob,
+    no_wait: bool,
+    client: NominalClient,
+) -> anyhow::Result<()> {
+    if no_wait {
+        println!("Ingest job RID: {}", job.rid());
+        println!("Dataset RID: {dataset_rid}");
+        return Ok(());
     }
+
+    // `wait_for_ingest_job` returns Err for Failed / Cancelled / Unknown, so
+    // reaching past it means the job completed successfully.
+    client
+        .ingest()
+        .wait_for_ingest_job(job.rid())
+        .await
+        .with_context(|| format!("ingest job '{}' did not complete successfully", job.rid()))?;
+
+    println!("Dataset RID: {dataset_rid}");
     Ok(())
-}
-
-fn status_str(status: &IngestJobStatus) -> String {
-    match status {
-        IngestJobStatus::Submitted => "Submitted".into(),
-        IngestJobStatus::Queued => "Queued".into(),
-        IngestJobStatus::InProgress => "InProgress".into(),
-        IngestJobStatus::Completed => "Completed".into(),
-        IngestJobStatus::Failed => "Failed".into(),
-        IngestJobStatus::Cancelled => "Cancelled".into(),
-        IngestJobStatus::Unknown(s) => format!("Unknown({s})"),
-    }
 }
