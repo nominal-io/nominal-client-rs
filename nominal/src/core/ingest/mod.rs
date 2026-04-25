@@ -69,10 +69,10 @@ impl IngestClient {
     /// `&str` / `String` for an existing dataset RID, or a [`DatasetCreate`]
     /// for a new dataset (created atomically with the ingest).
     ///
-    /// Returns `(dataset_rid, job)`: the RID of the dataset the data is
-    /// landing in (the existing one, or the freshly-created one) and the
-    /// newly-created ingest job. Use [`Self::wait_for_ingest_job`] to block
-    /// until the job reaches a terminal state.
+    /// Returns `(job, dataset_rid)`: the newly-created ingest job (use
+    /// [`Self::wait_for_ingest_job`] to block until it reaches a terminal
+    /// state) and the RID of the dataset the data is landing in (the existing
+    /// one, or the freshly-created one).
     ///
     /// [`DatasetCreate`]: crate::core::DatasetCreate
     pub async fn upload_csv(
@@ -80,7 +80,7 @@ impl IngestClient {
         path: impl AsRef<Path>,
         target: impl Into<DatasetTarget>,
         ingest: CsvIngest,
-    ) -> Result<(String, IngestJob)> {
+    ) -> Result<(IngestJob, String)> {
         let path = path.as_ref();
         let upload_options = ingest.upload_options.clone();
         let file_type = FileType::Csv;
@@ -107,7 +107,7 @@ impl IngestClient {
     /// `&str` / `String` for an existing dataset RID, or a [`DatasetCreate`]
     /// for a new dataset (created atomically with the ingest).
     ///
-    /// Returns `(dataset_rid, job)`.
+    /// Returns `(job, dataset_rid)`.
     ///
     /// [`DatasetCreate`]: crate::core::DatasetCreate
     pub async fn upload_parquet(
@@ -115,7 +115,7 @@ impl IngestClient {
         path: impl AsRef<Path>,
         target: impl Into<DatasetTarget>,
         ingest: ParquetIngest,
-    ) -> Result<(String, IngestJob)> {
+    ) -> Result<(IngestJob, String)> {
         let path = path.as_ref();
         let upload_options = ingest.upload_options.clone();
         let file_type = FileType::Parquet;
@@ -139,13 +139,13 @@ impl IngestClient {
     /// Upload an MCAP file and ingest its protobuf timeseries data into the
     /// given dataset.
     ///
-    /// Returns `(dataset_rid, job)`.
+    /// Returns `(job, dataset_rid)`.
     pub async fn upload_mcap(
         &self,
         path: impl AsRef<Path>,
         target: impl Into<DatasetTarget>,
         ingest: McapIngest,
-    ) -> Result<(String, IngestJob)> {
+    ) -> Result<(IngestJob, String)> {
         let path = path.as_ref();
         let upload_options = ingest.upload_options.clone();
         let file_type = FileType::Mcap;
@@ -170,13 +170,13 @@ impl IngestClient {
     /// Upload a journald JSON file (`.jsonl` or `.jsonl.gz`) and ingest it
     /// into the given dataset.
     ///
-    /// Returns `(dataset_rid, job)`.
+    /// Returns `(job, dataset_rid)`.
     pub async fn upload_journal_json(
         &self,
         path: impl AsRef<Path>,
         target: impl Into<DatasetTarget>,
         ingest: JournalJsonIngest,
-    ) -> Result<(String, IngestJob)> {
+    ) -> Result<(IngestJob, String)> {
         let path = path.as_ref();
         let upload_options = ingest.upload_options.clone();
         let file_type = FileType::from_path(path)
@@ -201,13 +201,13 @@ impl IngestClient {
 
     /// Upload a Nominal Avro-stream file and ingest it into the given dataset.
     ///
-    /// Returns `(dataset_rid, job)`.
+    /// Returns `(job, dataset_rid)`.
     pub async fn upload_avro_stream(
         &self,
         path: impl AsRef<Path>,
         target: impl Into<DatasetTarget>,
         ingest: AvroStreamIngest,
-    ) -> Result<(String, IngestJob)> {
+    ) -> Result<(IngestJob, String)> {
         let path = path.as_ref();
         let upload_options = ingest.upload_options.clone();
         let file_type = FileType::AvroStream;
@@ -231,13 +231,13 @@ impl IngestClient {
     /// Upload an ArduPilot DataFlash (`.bin`) file and ingest it into the
     /// given dataset.
     ///
-    /// Returns `(dataset_rid, job)`.
+    /// Returns `(job, dataset_rid)`.
     pub async fn upload_ardupilot_dataflash(
         &self,
         path: impl AsRef<Path>,
         target: impl Into<DatasetTarget>,
         ingest: DataflashIngest,
-    ) -> Result<(String, IngestJob)> {
+    ) -> Result<(IngestJob, String)> {
         let path = path.as_ref();
         let upload_options = ingest.upload_options.clone();
         let file_type = FileType::Dataflash;
@@ -258,7 +258,7 @@ impl IngestClient {
         self.trigger_ingest(IngestOptions::Dataflash(opts)).await
     }
 
-    async fn trigger_ingest(&self, options: IngestOptions) -> Result<(String, IngestJob)> {
+    async fn trigger_ingest(&self, options: IngestOptions) -> Result<(IngestJob, String)> {
         let request = IngestRequest::new(options);
         let response = self
             .ingest_service
@@ -280,7 +280,7 @@ impl IngestClient {
             }
         };
         let job = self.get_ingest_job(&rid).await?;
-        Ok((dataset_rid, job))
+        Ok((job, dataset_rid))
     }
 
     // ── Ingest job queries ───────────────────────────────────────────────────

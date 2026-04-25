@@ -256,13 +256,13 @@ async fn handle_csv(args: CsvArgs, client: NominalClient) -> anyhow::Result<()> 
     }
 
     let path = common.target.path.clone();
-    let (dataset_rid, job) = client
+    let (job, dataset_rid) = client
         .ingest()
         .upload_csv(&path, target, ingest)
         .await
         .with_context(|| format!("Failed to upload CSV '{}'", path.display()))?;
 
-    print_result(&dataset_rid, &job, common.target.no_wait, client).await
+    print_result(&job, &dataset_rid, common.target.no_wait, client).await
 }
 
 async fn handle_parquet(args: ParquetArgs, client: NominalClient) -> anyhow::Result<()> {
@@ -288,13 +288,13 @@ async fn handle_parquet(args: ParquetArgs, client: NominalClient) -> anyhow::Res
     }
 
     let path = common.target.path.clone();
-    let (dataset_rid, job) = client
+    let (job, dataset_rid) = client
         .ingest()
         .upload_parquet(&path, target, ingest)
         .await
         .with_context(|| format!("Failed to upload Parquet '{}'", path.display()))?;
 
-    print_result(&dataset_rid, &job, common.target.no_wait, client).await
+    print_result(&job, &dataset_rid, common.target.no_wait, client).await
 }
 
 async fn handle_mcap(args: McapArgs, client: NominalClient) -> anyhow::Result<()> {
@@ -322,13 +322,13 @@ async fn handle_mcap(args: McapArgs, client: NominalClient) -> anyhow::Result<()
     }
 
     let path = target_args.path.clone();
-    let (dataset_rid, job) = client
+    let (job, dataset_rid) = client
         .ingest()
         .upload_mcap(&path, target, ingest)
         .await
         .with_context(|| format!("Failed to upload MCAP '{}'", path.display()))?;
 
-    print_result(&dataset_rid, &job, target_args.no_wait, client).await
+    print_result(&job, &dataset_rid, target_args.no_wait, client).await
 }
 
 async fn handle_journal_json(args: JournalJsonArgs, client: NominalClient) -> anyhow::Result<()> {
@@ -344,13 +344,13 @@ async fn handle_journal_json(args: JournalJsonArgs, client: NominalClient) -> an
     }
 
     let path = target_args.path.clone();
-    let (dataset_rid, job) = client
+    let (job, dataset_rid) = client
         .ingest()
         .upload_journal_json(&path, target, ingest)
         .await
         .with_context(|| format!("Failed to upload journal JSON '{}'", path.display()))?;
 
-    print_result(&dataset_rid, &job, target_args.no_wait, client).await
+    print_result(&job, &dataset_rid, target_args.no_wait, client).await
 }
 
 async fn handle_avro_stream(args: AvroStreamArgs, client: NominalClient) -> anyhow::Result<()> {
@@ -360,13 +360,13 @@ async fn handle_avro_stream(args: AvroStreamArgs, client: NominalClient) -> anyh
     let target = build_target(&target_args);
 
     let path = target_args.path.clone();
-    let (dataset_rid, job) = client
+    let (job, dataset_rid) = client
         .ingest()
         .upload_avro_stream(&path, target, AvroStreamIngest::new())
         .await
         .with_context(|| format!("Failed to upload Avro stream '{}'", path.display()))?;
 
-    print_result(&dataset_rid, &job, target_args.no_wait, client).await
+    print_result(&job, &dataset_rid, target_args.no_wait, client).await
 }
 
 async fn handle_dataflash(args: DataflashArgs, client: NominalClient) -> anyhow::Result<()> {
@@ -382,13 +382,13 @@ async fn handle_dataflash(args: DataflashArgs, client: NominalClient) -> anyhow:
     }
 
     let path = target_args.path.clone();
-    let (dataset_rid, job) = client
+    let (job, dataset_rid) = client
         .ingest()
         .upload_ardupilot_dataflash(&path, target, ingest)
         .await
         .with_context(|| format!("Failed to upload DataFlash '{}'", path.display()))?;
 
-    print_result(&dataset_rid, &job, target_args.no_wait, client).await
+    print_result(&job, &dataset_rid, target_args.no_wait, client).await
 }
 
 fn build_target(target: &TargetArgs) -> DatasetTarget {
@@ -433,8 +433,8 @@ fn build_timestamp(common: &UploadArgs) -> anyhow::Result<Timestamp> {
 }
 
 async fn print_result(
-    dataset_rid: &str,
     job: &IngestJob,
+    dataset_rid: &str,
     no_wait: bool,
     client: NominalClient,
 ) -> anyhow::Result<()> {
