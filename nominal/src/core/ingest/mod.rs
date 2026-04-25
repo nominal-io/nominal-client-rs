@@ -9,7 +9,7 @@ pub use filetype::FileType;
 pub use job::{IngestJob, IngestJobStatus, IngestType};
 pub use options::{
     AvroStreamIngest, CsvIngest, DataflashIngest, DatasetTarget, JournalJsonIngest, McapIngest,
-    ParquetIngest, UploadOptions,
+    ParquetIngest, UploadOptions, VideoIngest, VideoTarget,
 };
 pub use progress::{ProgressCallback, UploadEvent};
 pub use timestamp::{TimeUnit, Timestamp};
@@ -256,7 +256,79 @@ impl IngestClient {
         self.trigger_ingest(IngestOptions::Dataflash(opts)).await
     }
 
+    /// Upload a video file (`.mp4` / `.mkv` / `.avi` / `.ts`) or an MCAP file
+    /// containing a video stream and ingest it into the given video resource.
+    ///
+    /// Build the `ingest` argument with [`VideoIngest::starting_at`] for a
+    /// plain video file, or [`VideoIngest::mcap_topic`] to extract a single
+    /// stream out of an MCAP.
+    ///
+    /// Returns `(job, video_rid)`.
+    pub async fn upload_video(
+        &self,
+        path: impl AsRef<Path>,
+        target: impl Into<VideoTarget>,
+        ingest: VideoIngest,
+    ) -> Result<(IngestJob, String)> {
+        let path = path.as_ref();
+        let upload_options = ingest.upload_options.clone();
+        let file_type = if ingest.is_mcap() {
+            FileType::Mcap
+        } else {
+            FileType::from_path(path)
+                .filter(|ft| ft.is_video())
+                .unwrap_or(FileType::Mp4)
+        };
+        let filename = upload_filename(path, file_type);
+        let s3_path = multipart::upload_file(
+            self.conjure_client.clone(),
+            &self.runtime,
+            self.token.clone(),
+            self.workspace_rid.clone(),
+            path,
+            filename,
+            file_type.mime_type().to_string(),
+            upload_options,
+        )
+        .await?;
+
+        let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
+        self.trigger_video_ingest(IngestOptions::Video(opts)).await
+    }
+
     async fn trigger_ingest(&self, options: IngestOptions) -> Result<(IngestJob, String)> {
+        let (job, details) = self.send_ingest(options).await?;
+        let dataset_rid = match details {
+            IngestDetails::Dataset(d) => d.dataset_rid().to_string(),
+            _ => {
+                return Err(Error::Ingest {
+                    details: "ingest response did not include a dataset RID".into(),
+                });
+            }
+        };
+        Ok((job, dataset_rid))
+    }
+
+    async fn trigger_video_ingest(
+        &self,
+        options: IngestOptions,
+    ) -> Result<(IngestJob, String)> {
+        let (job, details) = self.send_ingest(options).await?;
+        let video_rid = match details {
+            IngestDetails::Video(d) => d.video_rid().to_string(),
+            _ => {
+                return Err(Error::Ingest {
+                    details: "ingest response did not include a video RID".into(),
+                });
+            }
+        };
+        Ok((job, video_rid))
+    }
+
+    async fn send_ingest(
+        &self,
+        options: IngestOptions,
+    ) -> Result<(IngestJob, IngestDetails)> {
         let request = IngestRequest::new(options);
         let response = self
             .ingest_service
@@ -269,16 +341,9 @@ impl IngestClient {
                 details: "ingest response did not include an ingest_job_rid".into(),
             })
             .map(rid_to_string)?;
-        let dataset_rid = match response.details() {
-            IngestDetails::Dataset(d) => d.dataset_rid().to_string(),
-            _ => {
-                return Err(Error::Ingest {
-                    details: "ingest response did not include a dataset RID".into(),
-                });
-            }
-        };
+        let details = response.details().clone();
         let job = self.get_ingest_job(&rid).await?;
-        Ok((job, dataset_rid))
+        Ok((job, details))
     }
 
     /// Fetch the current state of an ingest job.
