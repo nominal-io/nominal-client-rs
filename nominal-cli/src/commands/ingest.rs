@@ -145,7 +145,6 @@ struct UploadArgs {
     #[command(flatten)]
     target: TargetArgs,
 
-    // ── Timestamp ────────────────────────────────────────────────────────────
     /// Name of the column that contains timestamps
     #[arg(long, value_name = "COLUMN")]
     timestamp_column: String,
@@ -165,7 +164,6 @@ struct UploadArgs {
     #[arg(long, value_name = "RFC3339")]
     relative_to: Option<DateTime<Utc>>,
 
-    // ── Ingest options ───────────────────────────────────────────────────────
     /// Prepend this prefix to every channel name in the file
     #[arg(long, value_name = "PREFIX")]
     channel_prefix: Option<String>,
