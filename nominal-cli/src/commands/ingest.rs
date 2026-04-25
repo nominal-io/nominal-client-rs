@@ -107,7 +107,6 @@ struct TargetArgs {
     /// Path to the file to upload
     path: PathBuf,
 
-    // ── Target ───────────────────────────────────────────────────────────────
     /// Existing dataset RID to ingest into
     #[arg(long, value_name = "RID")]
     dataset: Option<String>,
@@ -134,7 +133,6 @@ struct TargetArgs {
     )]
     properties: Vec<String>,
 
-    // ── Control ──────────────────────────────────────────────────────────────
     /// Skip waiting for the ingest job to finish; print the ingest job RID and
     /// return immediately. Otherwise the command blocks until the job reaches
     /// a terminal state and prints the resulting dataset RID.

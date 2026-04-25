@@ -61,8 +61,6 @@ impl IngestClient {
         }
     }
 
-    // ── Upload + ingest ──────────────────────────────────────────────────────
-
     /// Upload a CSV file and ingest it into the given dataset.
     ///
     /// The target accepts anything that converts to [`DatasetTarget`]:
@@ -282,8 +280,6 @@ impl IngestClient {
         let job = self.get_ingest_job(&rid).await?;
         Ok((job, dataset_rid))
     }
-
-    // ── Ingest job queries ───────────────────────────────────────────────────
 
     /// Fetch the current state of an ingest job.
     pub async fn get_ingest_job(&self, rid: &str) -> Result<IngestJob> {
