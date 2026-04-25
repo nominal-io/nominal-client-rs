@@ -80,8 +80,6 @@ impl CatalogClient {
         }
     }
 
-    // ── Dataset operations ───────────────────────────────────────────────────
-
     /// Create a new dataset.
     pub async fn create_dataset(&self, create: DatasetCreate) -> Result<Dataset> {
         let request = create.into_request(self.workspace_rid.as_deref())?;
@@ -238,8 +236,6 @@ impl CatalogClient {
         Ok(())
     }
 
-    // ── Video operations ─────────────────────────────────────────────────────
-
     /// Create a new video.
     pub async fn create_video(&self, create: VideoCreate) -> Result<Video> {
         let request = create.into_request(self.workspace_rid.as_deref())?;
@@ -382,8 +378,6 @@ impl CatalogClient {
         Ok(())
     }
 
-    // ── Connection operations ────────────────────────────────────────────────
-
     /// Get a connection by RID.
     pub async fn get_connection(&self, rid: &str) -> Result<Connection> {
         let connection_rid = parse_rid::<ConnectionRid>(rid)?;
@@ -494,8 +488,6 @@ impl CatalogClient {
             .map_err(Error::from)?;
         Ok(())
     }
-
-    // ── Channel operations ───────────────────────────────────────────────────
 
     fn search_channels_stream(
         &self,

@@ -51,8 +51,6 @@ pub async fn call_grpc_method(
     Ok(())
 }
 
-// ── gRPC/HTTP2 transport ──────────────────────────────────────────────────────
-
 async fn grpc_unary(
     base_url: &str,
     grpc_path: &str,
@@ -106,8 +104,6 @@ async fn grpc_unary(
 
     Ok(body.slice(5..5 + msg_len))
 }
-
-// ── Descriptor helpers ────────────────────────────────────────────────────────
 
 pub(crate) fn find_service(pool: &DescriptorPool, name: &str) -> Option<ServiceDescriptor> {
     pool.get_service_by_name(name)

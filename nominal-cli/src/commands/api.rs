@@ -100,8 +100,6 @@ pub(crate) fn is_grpc_method(input: &str) -> bool {
     !input.starts_with('/') && input.contains('.') && input.contains('/')
 }
 
-// ── Path utilities ────────────────────────────────────────────────────────────
-
 /// Extract just the path (no scheme/host/query) and strip the base URL's path prefix.
 pub(crate) fn normalize_path(input: &str, base_url: &str) -> String {
     let path: String = if input.contains("://") {
@@ -138,8 +136,6 @@ pub(crate) fn path_matches(template: &str, path: &str) -> bool {
         .zip(p.iter())
         .all(|(t_seg, p_seg)| (t_seg.starts_with('{') && t_seg.ends_with('}')) || t_seg == p_seg)
 }
-
-// ── Endpoint lookup ───────────────────────────────────────────────────────────
 
 trait EndpointSignature {
     fn http_method(&self) -> &str;
@@ -206,8 +202,6 @@ fn find_endpoint<'a, E: EndpointSignature>(
     }
 }
 
-// ── Conjure call ──────────────────────────────────────────────────────────────
-
 async fn call_conjure(
     ep: &ConjureEndpoint,
     original_input: &str,
@@ -237,8 +231,6 @@ async fn call_conjure(
     send_request(ep.method, &url, body, token).await
 }
 
-// ── gRPC-HTTP validation ──────────────────────────────────────────────────────
-
 fn validate_grpc_http_body(ep: &GrpcHttpEndpoint, json: &str) -> anyhow::Result<()> {
     let pool = super::descriptor_pool();
 
@@ -261,8 +253,6 @@ fn validate_grpc_http_body(ep: &GrpcHttpEndpoint, json: &str) -> anyhow::Result<
 
     Ok(())
 }
-
-// ── gRPC-HTTP call ────────────────────────────────────────────────────────────
 
 async fn call_grpc_http(
     ep: &GrpcHttpEndpoint,
@@ -298,8 +288,6 @@ async fn call_grpc_http(
 
     send_request(ep.method, &url, body, token).await
 }
-
-// ── Shared HTTP logic ─────────────────────────────────────────────────────────
 
 pub(crate) fn resolve_url(input: &str, base_url: &str) -> String {
     if input.contains("://") {

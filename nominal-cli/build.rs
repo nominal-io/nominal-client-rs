@@ -34,8 +34,6 @@ fn main() {
     );
 }
 
-// ── Conjure ───────────────────────────────────────────────────────────────────
-
 fn generate_conjure_endpoints(json_path: &std::path::Path, out_dir: &PathBuf) {
     let raw = fs::read_to_string(json_path)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", json_path.display()));
@@ -143,8 +141,6 @@ fn conjure_type_to_rust(ty: &serde_json::Value) -> Result<String, String> {
         other => Err(format!("unknown conjure type kind: {other}")),
     }
 }
-
-// ── gRPC-over-HTTP (google.api.http transcoding) ─────────────────────────────
 
 fn generate_grpc_http_endpoints(protos_dir: &std::path::Path, out_dir: &PathBuf) {
     let mut entries = String::new();
@@ -346,8 +342,6 @@ fn extract_field_value(snippet: &str, field: &str) -> Option<String> {
         search = after;
     }
 }
-
-// ── Proto file descriptor set ────────────────────────────────────────────────
 
 fn generate_proto_descriptor(
     protos_dir: &std::path::Path,
