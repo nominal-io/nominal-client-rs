@@ -16,7 +16,7 @@ pub enum ChannelCommands {
         data_sources: Vec<String>,
 
         /// Require channel name to contain this substring (case-insensitive). Repeatable
-        #[arg(short = 'm', long = "substring-match", value_name = "SUBSTR")]
+        #[arg(short = 's', long = "substring", value_name = "SUBSTR")]
         substring_matches: Vec<String>,
 
         /// Restrict to a specific data type. Repeatable.
