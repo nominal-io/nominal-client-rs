@@ -1,0 +1,27 @@
+name: Lint PR Title
+
+on:
+  pull_request:
+    types: ["opened", "reopened", "edited", "synchronize"]
+
+jobs:
+  lint-pr-title:
+    name: Lint PR Title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v5
+      - name: Install Dependencies
+        run: npm install -g @commitlint/cli@20 @commitlint/config-conventional@20
+      - name: Lint PR name
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          echo "$TITLE" | commitlint --config .github/commitlint.config.js
+      - name: Display helpful error message
+        if: failure()
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          echo "🚨 Your PR Title: \"${TITLE}\" did not pass linting" >> $GITHUB_STEP_SUMMARY
+          echo "Please update it to follow conventional commit format: https://www.conventionalcommits.org/" >> $GITHUB_STEP_SUMMARY

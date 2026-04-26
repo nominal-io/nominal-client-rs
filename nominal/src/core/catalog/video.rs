@@ -163,8 +163,8 @@ impl VideoCreate {
             labels,
         } = self;
 
-        let mut b = nominal_api::objects::ingest::api::NewVideoIngestDestination::builder()
-            .title(name);
+        let mut b =
+            nominal_api::objects::ingest::api::NewVideoIngestDestination::builder().title(name);
         if let Some(d) = description {
             b = b.description(d);
         }

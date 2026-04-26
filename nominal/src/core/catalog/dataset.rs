@@ -436,18 +436,16 @@ mod tests {
         let SearchDatasetsQuery::And(children) = q.into_conjure() else {
             panic!("expected And");
         };
-        assert!(matches!(
+        assert!(
             children
                 .iter()
-                .find(|c| matches!(c, SearchDatasetsQuery::Label(_))),
-            Some(_)
-        ));
-        assert!(matches!(
+                .any(|c| matches!(c, SearchDatasetsQuery::Label(_)))
+        );
+        assert!(
             children
                 .iter()
-                .find(|c| matches!(c, SearchDatasetsQuery::Or(_))),
-            Some(_)
-        ));
+                .any(|c| matches!(c, SearchDatasetsQuery::Or(_)))
+        );
     }
 
     #[test]

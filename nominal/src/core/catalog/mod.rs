@@ -188,8 +188,8 @@ impl CatalogClient {
     ///
     /// # Example
     /// ```no_run
-    /// # async fn example(client: nominal::NominalClient) -> nominal::Result<()> {
-    /// use nominal::DatasetQuery;
+    /// # async fn example(client: nominal::core::NominalClient) -> nominal::Result<()> {
+    /// use nominal::core::DatasetQuery;
     /// let datasets = client.catalog()
     ///     .search_datasets(DatasetQuery::and([
     ///         DatasetQuery::label("production"),
@@ -335,8 +335,8 @@ impl CatalogClient {
     ///
     /// # Example
     /// ```no_run
-    /// # async fn example(client: nominal::NominalClient) -> nominal::Result<()> {
-    /// use nominal::VideoQuery;
+    /// # async fn example(client: nominal::core::NominalClient) -> nominal::Result<()> {
+    /// use nominal::core::VideoQuery;
     /// let videos = client.catalog()
     ///     .search_videos(VideoQuery::and([
     ///         VideoQuery::label("flight"),
@@ -501,8 +501,7 @@ impl CatalogClient {
         let parts = query.into_parts()?;
         let service = self.data_source_service.clone();
         let token = self.token.clone();
-        let substring_matches: BTreeSet<String> =
-            parts.substring_matches.iter().cloned().collect();
+        let substring_matches: BTreeSet<String> = parts.substring_matches.iter().cloned().collect();
         Ok(paginate_stream(
             move |page_token| {
                 let mut b = SearchChannelsRequest::builder()
@@ -556,7 +555,7 @@ impl CatalogClient {
     /// let channels = client.catalog()
     ///     .search_channels(
     ///         ChannelQuery::new()
-    ///             .fuzzy_text("temperature")
+    ///             .substring_match("temperature")
     ///             .data_source("ri.catalog.gov-staging.dataset.abc"),
     ///     )
     ///     .await?;

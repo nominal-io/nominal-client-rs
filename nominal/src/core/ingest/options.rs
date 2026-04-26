@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use nominal_api::objects::api::{
-    Channel, ColumnName, Empty, McapChannelLocator, McapChannelTopic,
-    TagName, TagValue, Timestamp as ApiTimestamp,
+    Channel, ColumnName, Empty, McapChannelLocator, McapChannelTopic, TagName, TagValue,
+    Timestamp as ApiTimestamp,
 };
 use nominal_api::objects::ingest::api::{
     AvroStreamOpts, ChannelPrefix, CsvOpts, DataflashOpts,
@@ -418,18 +418,12 @@ impl McapIngest {
             self.exclude_topics.is_empty(),
         ) {
             (true, true) => McapChannels::All(Empty::new()),
-            (false, true) => McapChannels::Include(
-                self.include_topics
-                    .into_iter()
-                    .map(topic_locator)
-                    .collect(),
-            ),
-            (true, false) => McapChannels::Exclude(
-                self.exclude_topics
-                    .into_iter()
-                    .map(topic_locator)
-                    .collect(),
-            ),
+            (false, true) => {
+                McapChannels::Include(self.include_topics.into_iter().map(topic_locator).collect())
+            }
+            (true, false) => {
+                McapChannels::Exclude(self.exclude_topics.into_iter().map(topic_locator).collect())
+            }
             (false, false) => {
                 return Err(Error::Ingest {
                     details: "mcap ingest cannot set both include_topic and exclude_topic".into(),

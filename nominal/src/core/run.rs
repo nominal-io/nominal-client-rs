@@ -295,6 +295,7 @@ impl RunQuery {
         Self::Or(queries.into_iter().collect())
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn not(query: RunQuery) -> Self {
         Self::Not(Box::new(query))
     }
@@ -362,6 +363,283 @@ impl RunQuery {
             ),
             Self::Not(q) => SearchQuery::Not(Box::new(q.into_conjure()?)),
         })
+    }
+}
+
+/// Client for run collection operations (list, get).
+pub struct RunsClient {
+    service: AsyncRunServiceClient<Client>,
+    token: BearerToken,
+    app_base_url: String,
+}
+
+impl RunsClient {
+    pub(crate) fn new(
+        client: Client,
+        runtime: &Arc<ConjureRuntime>,
+        token: BearerToken,
+        app_base_url: String,
+    ) -> Self {
+        Self {
+            service: AsyncRunServiceClient::new(client, runtime),
+            token,
+            app_base_url,
+        }
+    }
+
+    /// Get a run by RID.
+    pub async fn get(&self, rid: &str) -> Result<Run> {
+        let run_rid = parse_rid(rid)?;
+        let response = self
+            .service
+            .get_run(&self.token, &run_rid)
+            .await
+            .map_err(Error::from)?;
+        Ok(Run::from_conjure(response, &self.app_base_url))
+    }
+
+    /// Get multiple runs by RID.
+    ///
+    /// Returns a map from RID string to Run. RIDs not found in Nominal are omitted.
+    pub async fn get_batch<I, S>(&self, rids: I) -> Result<HashMap<String, Run>>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let rid_set = rids
+            .into_iter()
+            .map(|s| parse_rid(s.as_ref()).map_err(Error::from))
+            .collect::<Result<std::collections::BTreeSet<_>>>()?;
+        let response = self
+            .service
+            .get_runs(&self.token, &rid_set)
+            .await
+            .map_err(Error::from)?;
+        Ok(response
+            .into_iter()
+            .map(|(k, v)| (rid_to_string(&k), Run::from_conjure(v, &self.app_base_url)))
+            .collect())
+    }
+
+    /// List runs, sorted by creation date descending.
+    pub async fn list(&self) -> Result<Vec<Run>> {
+        self.search(RunQuery::search_text("")).await
+    }
+
+    fn search_stream(&self, query: RunQuery) -> Result<impl Stream<Item = Result<Run>>> {
+        let conjure_query = query.into_conjure()?;
+        let service = self.service.clone();
+        let token = self.token.clone();
+        let app_base_url = self.app_base_url.clone();
+        Ok(paginate_stream(
+            move |page_token| {
+                SearchRunsRequest::builder()
+                    .sort(
+                        SortOptions::builder()
+                            .is_descending(true)
+                            .sort_key(SortKey::Field(SortField::CreatedAt))
+                            .build(),
+                    )
+                    .page_size(100)
+                    .query(conjure_query.clone())
+                    .next_page_token(page_token)
+                    .build()
+            },
+            move |req| {
+                let service = service.clone();
+                let token = token.clone();
+                async move { service.search_runs(&token, &req).await.map_err(Error::from) }
+            },
+            |resp: &SearchRunsResponse| resp.next_page_token().cloned(),
+            move |resp| {
+                resp.results()
+                    .iter()
+                    .map(|r| Run::from_conjure(r.clone(), &app_base_url))
+                    .collect()
+            },
+        ))
+    }
+
+    /// Search runs with a query, collecting all pages eagerly.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # async fn example(client: nominal::core::NominalClient) -> nominal::Result<()> {
+    /// use nominal::core::RunQuery;
+    /// let runs = client.runs()
+    ///     .search(RunQuery::and([
+    ///         RunQuery::label("production"),
+    ///         RunQuery::property("vehicle", "rocket"),
+    ///     ]))
+    ///     .await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn search(&self, query: RunQuery) -> Result<Vec<Run>> {
+        let substrings = query.collect_substring_matches();
+        let runs: Vec<Run> = self.search_stream(query)?.try_collect().await?;
+        Ok(runs
+            .into_iter()
+            .filter(|r| crate::core::utils::name_matches_all(r.name(), &substrings))
+            .collect())
+    }
+
+    /// Update run metadata. Returns the updated run.
+    ///
+    /// Only fields set on the update will be changed; the rest remain untouched.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use nominal::core::RunUpdate;
+    /// # async fn example(client: nominal::core::NominalClient) -> nominal::Result<()> {
+    /// let run = client.runs()
+    ///     .update("ri.scout.cerulean-staging.run.<uuid>", RunUpdate::new().name("New Name").labels(["tag1", "tag2"]))
+    ///     .await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn update(&self, rid: &str, update: RunUpdate) -> Result<Run> {
+        let request = update.into_request()?;
+        let run_rid = parse_rid(rid)?;
+        let response = self
+            .service
+            .update_run(&self.token, &run_rid, &request)
+            .await
+            .map_err(Error::from)?;
+        Ok(Run::from_conjure(response, &self.app_base_url))
+    }
+
+    /// Attach data sources to a run under the given ref names.
+    ///
+    /// Ref names should be stable across runs of the same type, since
+    /// checklists and templates use them to reference data sources.
+    /// Returns the updated run.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # async fn example(client: nominal::core::NominalClient) -> nominal::Result<()> {
+    /// use nominal::core::DataSource;
+    /// client.runs().add_data_sources("ri.scout.cerulean-staging.run.<uuid>", [
+    ///     ("flight-data", DataSource::dataset("ri.catalog.cerulean-staging.dataset.<uuid>")),
+    ///     ("cockpit-cam", DataSource::video("ri.catalog.cerulean-staging.video.<uuid>")),
+    /// ]).await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn add_data_sources<I, N>(&self, rid: &str, sources: I) -> Result<Run>
+    where
+        I: IntoIterator<Item = (N, DataSource)>,
+        N: Into<String>,
+    {
+        let data_sources = sources
+            .into_iter()
+            .map(|(ref_name, ds)| {
+                ds.into_conjure().map(|conjure_ds| {
+                    (
+                        ref_name.into().into(),
+                        CreateRunDataSource::builder()
+                            .data_source(conjure_ds)
+                            .build(),
+                    )
+                })
+            })
+            .collect::<Result<BTreeMap<_, _>>>()?;
+
+        let run_rid = parse_rid(rid)?;
+        let response = self
+            .service
+            .add_data_sources_to_run(&self.token, &run_rid, &data_sources)
+            .await
+            .map_err(Error::from)?;
+        Ok(Run::from_conjure(response, &self.app_base_url))
+    }
+
+    /// Attach a dataset to a run under the given ref name. See [`add_data_sources`](Self::add_data_sources).
+    pub async fn add_dataset(&self, rid: &str, ref_name: &str, dataset_rid: &str) -> Result<Run> {
+        self.add_data_sources(rid, [(ref_name, DataSource::dataset(dataset_rid))])
+            .await
+    }
+
+    /// Attach a video to a run under the given ref name. See [`add_data_sources`](Self::add_data_sources).
+    pub async fn add_video(&self, rid: &str, ref_name: &str, video_rid: &str) -> Result<Run> {
+        self.add_data_sources(rid, [(ref_name, DataSource::video(video_rid))])
+            .await
+    }
+
+    /// Attach a connection to a run under the given ref name. See [`add_data_sources`](Self::add_data_sources).
+    pub async fn add_connection(
+        &self,
+        rid: &str,
+        ref_name: &str,
+        connection_rid: &str,
+    ) -> Result<Run> {
+        self.add_data_sources(rid, [(ref_name, DataSource::connection(connection_rid))])
+            .await
+    }
+
+    /// Add attachments (by RID) that have already been uploaded to a run.
+    pub async fn add_attachments<I, S>(&self, rid: &str, attachment_rids: I) -> Result<()>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let attachments_to_add = attachment_rids
+            .into_iter()
+            .map(|s| parse_rid(s.as_ref()).map_err(Error::from))
+            .collect::<Result<Vec<_>>>()?;
+
+        let request = UpdateAttachmentsRequest::builder()
+            .attachments_to_add(attachments_to_add)
+            .attachments_to_remove(vec![])
+            .build();
+
+        let run_rid = parse_rid(rid)?;
+        self.service
+            .update_run_attachment(&self.token, &run_rid, &request)
+            .await
+            .map_err(Error::from)?;
+        Ok(())
+    }
+
+    /// Remove attachments from a run. Does not delete them from Nominal.
+    pub async fn remove_attachments<I, S>(&self, rid: &str, attachment_rids: I) -> Result<()>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let attachments_to_remove = attachment_rids
+            .into_iter()
+            .map(|s| parse_rid(s.as_ref()).map_err(Error::from))
+            .collect::<Result<Vec<_>>>()?;
+
+        let request = UpdateAttachmentsRequest::builder()
+            .attachments_to_add(vec![])
+            .attachments_to_remove(attachments_to_remove)
+            .build();
+
+        let run_rid = parse_rid(rid)?;
+        self.service
+            .update_run_attachment(&self.token, &run_rid, &request)
+            .await
+            .map_err(Error::from)?;
+        Ok(())
+    }
+
+    /// Archive a run. Archived runs are hidden from the UI but not deleted.
+    pub async fn archive(&self, rid: &str) -> Result<()> {
+        let run_rid = parse_rid(rid)?;
+        self.service
+            .archive_run(&self.token, &run_rid, None)
+            .await
+            .map_err(Error::from)?;
+        Ok(())
+    }
+
+    /// Unarchive a run, restoring its visibility in the UI.
+    pub async fn unarchive(&self, rid: &str) -> Result<()> {
+        let run_rid = parse_rid(rid)?;
+        self.service
+            .unarchive_run(&self.token, &run_rid, None)
+            .await
+            .map_err(Error::from)?;
+        Ok(())
     }
 }
 
@@ -566,282 +844,5 @@ mod tests {
         let got_end = api_timestamp_to_utc(req.end_time().unwrap()).unwrap();
         assert_eq!(got_start, start);
         assert_eq!(got_end, end);
-    }
-}
-
-/// Client for run collection operations (list, get).
-pub struct RunsClient {
-    service: AsyncRunServiceClient<Client>,
-    token: BearerToken,
-    app_base_url: String,
-}
-
-impl RunsClient {
-    pub(crate) fn new(
-        client: Client,
-        runtime: &Arc<ConjureRuntime>,
-        token: BearerToken,
-        app_base_url: String,
-    ) -> Self {
-        Self {
-            service: AsyncRunServiceClient::new(client, runtime),
-            token,
-            app_base_url,
-        }
-    }
-
-    /// Get a run by RID.
-    pub async fn get(&self, rid: &str) -> Result<Run> {
-        let run_rid = parse_rid(rid)?;
-        let response = self
-            .service
-            .get_run(&self.token, &run_rid)
-            .await
-            .map_err(Error::from)?;
-        Ok(Run::from_conjure(response, &self.app_base_url))
-    }
-
-    /// Get multiple runs by RID.
-    ///
-    /// Returns a map from RID string to Run. RIDs not found in Nominal are omitted.
-    pub async fn get_batch<I, S>(&self, rids: I) -> Result<HashMap<String, Run>>
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
-    {
-        let rid_set = rids
-            .into_iter()
-            .map(|s| parse_rid(s.as_ref()).map_err(Error::from))
-            .collect::<Result<std::collections::BTreeSet<_>>>()?;
-        let response = self
-            .service
-            .get_runs(&self.token, &rid_set)
-            .await
-            .map_err(Error::from)?;
-        Ok(response
-            .into_iter()
-            .map(|(k, v)| (rid_to_string(&k), Run::from_conjure(v, &self.app_base_url)))
-            .collect())
-    }
-
-    /// List runs, sorted by creation date descending.
-    pub async fn list(&self) -> Result<Vec<Run>> {
-        self.search(RunQuery::search_text("")).await
-    }
-
-    fn search_stream(&self, query: RunQuery) -> Result<impl Stream<Item = Result<Run>>> {
-        let conjure_query = query.into_conjure()?;
-        let service = self.service.clone();
-        let token = self.token.clone();
-        let app_base_url = self.app_base_url.clone();
-        Ok(paginate_stream(
-            move |page_token| {
-                SearchRunsRequest::builder()
-                    .sort(
-                        SortOptions::builder()
-                            .is_descending(true)
-                            .sort_key(SortKey::Field(SortField::CreatedAt))
-                            .build(),
-                    )
-                    .page_size(100)
-                    .query(conjure_query.clone())
-                    .next_page_token(page_token)
-                    .build()
-            },
-            move |req| {
-                let service = service.clone();
-                let token = token.clone();
-                async move { service.search_runs(&token, &req).await.map_err(Error::from) }
-            },
-            |resp: &SearchRunsResponse| resp.next_page_token().cloned(),
-            move |resp| {
-                resp.results()
-                    .iter()
-                    .map(|r| Run::from_conjure(r.clone(), &app_base_url))
-                    .collect()
-            },
-        ))
-    }
-
-    /// Search runs with a query, collecting all pages eagerly.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # async fn example(client: nominal::NominalClient) -> nominal::Result<()> {
-    /// use nominal::RunQuery;
-    /// let runs = client.runs()
-    ///     .search(RunQuery::and([
-    ///         RunQuery::label("production"),
-    ///         RunQuery::property("vehicle", "rocket"),
-    ///     ]))
-    ///     .await?;
-    /// # Ok(()) }
-    /// ```
-    pub async fn search(&self, query: RunQuery) -> Result<Vec<Run>> {
-        let substrings = query.collect_substring_matches();
-        let runs: Vec<Run> = self.search_stream(query)?.try_collect().await?;
-        Ok(runs
-            .into_iter()
-            .filter(|r| crate::core::utils::name_matches_all(r.name(), &substrings))
-            .collect())
-    }
-
-    /// Update run metadata. Returns the updated run.
-    ///
-    /// Only fields set on the update will be changed; the rest remain untouched.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use nominal::RunUpdate;
-    /// # async fn example(client: nominal::NominalClient) -> nominal::Result<()> {
-    /// let run = client.runs()
-    ///     .update("ri.scout.cerulean-staging.run.<uuid>", RunUpdate::new().name("New Name").labels(["tag1", "tag2"]))
-    ///     .await?;
-    /// # Ok(()) }
-    /// ```
-    pub async fn update(&self, rid: &str, update: RunUpdate) -> Result<Run> {
-        let request = update.into_request()?;
-        let run_rid = parse_rid(rid)?;
-        let response = self
-            .service
-            .update_run(&self.token, &run_rid, &request)
-            .await
-            .map_err(Error::from)?;
-        Ok(Run::from_conjure(response, &self.app_base_url))
-    }
-
-    /// Attach data sources to a run under the given ref names.
-    ///
-    /// Ref names should be stable across runs of the same type, since
-    /// checklists and templates use them to reference data sources.
-    /// Returns the updated run.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # async fn example(client: nominal::NominalClient) -> nominal::Result<()> {
-    /// use nominal::core::DataSource;
-    /// client.runs().add_data_sources("ri.scout.cerulean-staging.run.<uuid>", [
-    ///     ("flight-data", DataSource::dataset("ri.catalog.cerulean-staging.dataset.<uuid>")),
-    ///     ("cockpit-cam", DataSource::video("ri.catalog.cerulean-staging.video.<uuid>")),
-    /// ]).await?;
-    /// # Ok(()) }
-    /// ```
-    pub async fn add_data_sources<I, N>(&self, rid: &str, sources: I) -> Result<Run>
-    where
-        I: IntoIterator<Item = (N, DataSource)>,
-        N: Into<String>,
-    {
-        let data_sources = sources
-            .into_iter()
-            .map(|(ref_name, ds)| {
-                ds.into_conjure().map(|conjure_ds| {
-                    (
-                        ref_name.into().into(),
-                        CreateRunDataSource::builder()
-                            .data_source(conjure_ds)
-                            .build(),
-                    )
-                })
-            })
-            .collect::<Result<BTreeMap<_, _>>>()?;
-
-        let run_rid = parse_rid(rid)?;
-        let response = self
-            .service
-            .add_data_sources_to_run(&self.token, &run_rid, &data_sources)
-            .await
-            .map_err(Error::from)?;
-        Ok(Run::from_conjure(response, &self.app_base_url))
-    }
-
-    /// Attach a dataset to a run under the given ref name. See [`add_data_sources`](Self::add_data_sources).
-    pub async fn add_dataset(&self, rid: &str, ref_name: &str, dataset_rid: &str) -> Result<Run> {
-        self.add_data_sources(rid, [(ref_name, DataSource::dataset(dataset_rid))])
-            .await
-    }
-
-    /// Attach a video to a run under the given ref name. See [`add_data_sources`](Self::add_data_sources).
-    pub async fn add_video(&self, rid: &str, ref_name: &str, video_rid: &str) -> Result<Run> {
-        self.add_data_sources(rid, [(ref_name, DataSource::video(video_rid))])
-            .await
-    }
-
-    /// Attach a connection to a run under the given ref name. See [`add_data_sources`](Self::add_data_sources).
-    pub async fn add_connection(
-        &self,
-        rid: &str,
-        ref_name: &str,
-        connection_rid: &str,
-    ) -> Result<Run> {
-        self.add_data_sources(rid, [(ref_name, DataSource::connection(connection_rid))])
-            .await
-    }
-
-    /// Add attachments (by RID) that have already been uploaded to a run.
-    pub async fn add_attachments<I, S>(&self, rid: &str, attachment_rids: I) -> Result<()>
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
-    {
-        let attachments_to_add = attachment_rids
-            .into_iter()
-            .map(|s| parse_rid(s.as_ref()).map_err(Error::from))
-            .collect::<Result<Vec<_>>>()?;
-
-        let request = UpdateAttachmentsRequest::builder()
-            .attachments_to_add(attachments_to_add)
-            .attachments_to_remove(vec![])
-            .build();
-
-        let run_rid = parse_rid(rid)?;
-        self.service
-            .update_run_attachment(&self.token, &run_rid, &request)
-            .await
-            .map_err(Error::from)?;
-        Ok(())
-    }
-
-    /// Remove attachments from a run. Does not delete them from Nominal.
-    pub async fn remove_attachments<I, S>(&self, rid: &str, attachment_rids: I) -> Result<()>
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
-    {
-        let attachments_to_remove = attachment_rids
-            .into_iter()
-            .map(|s| parse_rid(s.as_ref()).map_err(Error::from))
-            .collect::<Result<Vec<_>>>()?;
-
-        let request = UpdateAttachmentsRequest::builder()
-            .attachments_to_add(vec![])
-            .attachments_to_remove(attachments_to_remove)
-            .build();
-
-        let run_rid = parse_rid(rid)?;
-        self.service
-            .update_run_attachment(&self.token, &run_rid, &request)
-            .await
-            .map_err(Error::from)?;
-        Ok(())
-    }
-
-    /// Archive a run. Archived runs are hidden from the UI but not deleted.
-    pub async fn archive(&self, rid: &str) -> Result<()> {
-        let run_rid = parse_rid(rid)?;
-        self.service
-            .archive_run(&self.token, &run_rid, None)
-            .await
-            .map_err(Error::from)?;
-        Ok(())
-    }
-
-    /// Unarchive a run, restoring its visibility in the UI.
-    pub async fn unarchive(&self, rid: &str) -> Result<()> {
-        let run_rid = parse_rid(rid)?;
-        self.service
-            .unarchive_run(&self.token, &run_rid, None)
-            .await
-            .map_err(Error::from)?;
-        Ok(())
     }
 }

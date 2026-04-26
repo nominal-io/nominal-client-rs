@@ -134,10 +134,7 @@ mod tests {
             FileType::from_path("stream.avro"),
             Some(FileType::AvroStream)
         );
-        assert_eq!(
-            FileType::from_path("flight.bin"),
-            Some(FileType::Dataflash)
-        );
+        assert_eq!(FileType::from_path("flight.bin"), Some(FileType::Dataflash));
     }
 
     #[test]
