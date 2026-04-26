@@ -281,8 +281,8 @@ impl DatasetUpdate {
 pub enum DatasetQuery {
     /// Fuzzy full-text search against name and description.
     SearchText(String),
-    /// Case-insensitive exact substring match on the name.
-    ExactMatch(String),
+    /// Case-insensitive substring match against the dataset name.
+    SubstringMatch(String),
     /// Filter by label.
     Label(String),
     /// Filter by property key and value.
@@ -298,8 +298,8 @@ impl DatasetQuery {
         Self::SearchText(text.into())
     }
 
-    pub fn exact_match(text: impl Into<String>) -> Self {
-        Self::ExactMatch(text.into())
+    pub fn substring_match(text: impl Into<String>) -> Self {
+        Self::SubstringMatch(text.into())
     }
 
     pub fn label(label: impl Into<String>) -> Self {
@@ -318,10 +318,26 @@ impl DatasetQuery {
         Self::Or(queries.into_iter().collect())
     }
 
+    pub(crate) fn collect_substring_matches(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        self.collect_substring_matches_into(&mut out);
+        out
+    }
+
+    fn collect_substring_matches_into(&self, out: &mut Vec<String>) {
+        match self {
+            Self::SubstringMatch(s) => out.push(s.clone()),
+            Self::And(qs) => qs
+                .iter()
+                .for_each(|q| q.collect_substring_matches_into(out)),
+            _ => {}
+        }
+    }
+
     pub(crate) fn into_conjure(self) -> SearchDatasetsQuery {
         match self {
             Self::SearchText(s) => SearchDatasetsQuery::SearchText(s),
-            Self::ExactMatch(s) => SearchDatasetsQuery::ExactMatch(s),
+            Self::SubstringMatch(s) => SearchDatasetsQuery::ExactMatch(s),
             Self::Label(l) => SearchDatasetsQuery::Label(Label(l)),
             Self::Property(k, v) => {
                 SearchDatasetsQuery::Properties(Property::new(PropertyName(k), PropertyValue(v)))
@@ -354,8 +370,8 @@ mod tests {
     }
 
     #[test]
-    fn query_exact_match() {
-        let q = DatasetQuery::exact_match("exact");
+    fn query_substring_match() {
+        let q = DatasetQuery::substring_match("exact");
         assert_eq!(
             q.into_conjure(),
             SearchDatasetsQuery::ExactMatch("exact".into())

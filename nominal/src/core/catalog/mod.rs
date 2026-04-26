@@ -199,7 +199,12 @@ impl CatalogClient {
     /// # Ok(()) }
     /// ```
     pub async fn search_datasets(&self, query: DatasetQuery) -> Result<Vec<Dataset>> {
-        self.search_datasets_stream(query).try_collect().await
+        let substrings = query.collect_substring_matches();
+        let datasets: Vec<Dataset> = self.search_datasets_stream(query).try_collect().await?;
+        Ok(datasets
+            .into_iter()
+            .filter(|d| crate::core::utils::name_matches_all(d.name(), &substrings))
+            .collect())
     }
 
     /// Update dataset metadata. Returns the updated dataset.
@@ -496,13 +501,15 @@ impl CatalogClient {
         let parts = query.into_parts()?;
         let service = self.data_source_service.clone();
         let token = self.token.clone();
+        let substring_matches: BTreeSet<String> =
+            parts.substring_matches.iter().cloned().collect();
         Ok(paginate_stream(
             move |page_token| {
                 let mut b = SearchChannelsRequest::builder()
-                    .fuzzy_search_text(parts.fuzzy_text.clone())
+                    .fuzzy_search_text("")
                     .data_sources(parts.data_source_rids.clone())
                     .data_types(parts.data_types.clone())
-                    .exact_match(parts.exact_matches.clone());
+                    .exact_match(substring_matches.clone());
                 if let Some(t) = page_token {
                     b = b.next_page_token(t);
                 }
@@ -556,7 +563,12 @@ impl CatalogClient {
     /// # Ok(()) }
     /// ```
     pub async fn search_channels(&self, query: ChannelQuery) -> Result<Vec<Channel>> {
-        self.search_channels_stream(query)?.try_collect().await
+        let substrings: Vec<String> = query.substring_match_filters().to_vec();
+        let channels: Vec<Channel> = self.search_channels_stream(query)?.try_collect().await?;
+        Ok(channels
+            .into_iter()
+            .filter(|c| crate::core::utils::name_matches_all(c.name(), &substrings))
+            .collect())
     }
 
     /// Get a single channel's metadata.

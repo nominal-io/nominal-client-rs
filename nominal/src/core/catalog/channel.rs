@@ -128,23 +128,14 @@ impl ChannelDataType {
 /// channel the caller is authorized to see.
 #[derive(Debug, Default, Clone)]
 pub struct ChannelQuery {
-    fuzzy_text: String,
     data_source_rids: Vec<String>,
-    exact_matches: Vec<String>,
+    substring_matches: Vec<String>,
     data_types: Vec<ChannelDataType>,
 }
 
 impl ChannelQuery {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Fuzzy full-text match against channel name. Results are ranked by
-    /// similarity to this text.
-    #[must_use]
-    pub fn fuzzy_text(mut self, text: impl Into<String>) -> Self {
-        self.fuzzy_text = text.into();
-        self
     }
 
     /// Restrict the search to channels on a specific data source. Repeatable.
@@ -167,10 +158,10 @@ impl ChannelQuery {
     }
 
     /// Require the channel name to contain this substring (case-insensitive).
-    /// Repeatable; all exact-match substrings must be present.
+    /// Repeatable; all required substrings must be present.
     #[must_use]
-    pub fn exact_match(mut self, text: impl Into<String>) -> Self {
-        self.exact_matches.push(text.into());
+    pub fn substring_match(mut self, text: impl Into<String>) -> Self {
+        self.substring_matches.push(text.into());
         self
     }
 
@@ -179,6 +170,10 @@ impl ChannelQuery {
     pub fn data_type(mut self, data_type: ChannelDataType) -> Self {
         self.data_types.push(data_type);
         self
+    }
+
+    pub(crate) fn substring_match_filters(&self) -> &[String] {
+        &self.substring_matches
     }
 
     pub(crate) fn into_parts(self) -> Result<ChannelSearchParts> {
@@ -192,20 +187,17 @@ impl ChannelQuery {
             .into_iter()
             .filter_map(ChannelDataType::into_api)
             .collect::<BTreeSet<_>>();
-        let exact_matches = self.exact_matches.into_iter().collect::<BTreeSet<_>>();
         Ok(ChannelSearchParts {
-            fuzzy_text: self.fuzzy_text,
             data_source_rids,
-            exact_matches,
+            substring_matches: self.substring_matches,
             data_types,
         })
     }
 }
 
 pub(crate) struct ChannelSearchParts {
-    pub fuzzy_text: String,
     pub data_source_rids: BTreeSet<DataSourceRid>,
-    pub exact_matches: BTreeSet<String>,
+    pub substring_matches: Vec<String>,
     pub data_types: BTreeSet<ApiSeriesDataType>,
 }
 
