@@ -120,7 +120,7 @@ pub struct McapVideoArgs {
     target: VideoTargetArgs,
 
     /// MCAP topic carrying the single video stream to ingest
-    #[arg(long, value_name = "TOPIC")]
+    #[arg(long)]
     topic: String,
 }
 

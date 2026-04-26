@@ -12,7 +12,7 @@ pub enum ChannelCommands {
     /// Search channels across one or more data sources
     Search {
         /// Fuzzy full-text match against channel name
-        #[arg(short, long = "text", value_name = "TEXT")]
+        #[arg(short, long = "text")]
         text: Option<String>,
 
         /// Restrict to a specific data source. Repeatable
