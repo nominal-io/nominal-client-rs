@@ -11,17 +11,13 @@ pub enum ChannelCommands {
     },
     /// Search channels across one or more data sources
     Search {
-        /// Fuzzy full-text match against channel name
-        #[arg(short, long = "text")]
-        text: Option<String>,
-
         /// Restrict to a specific data source. Repeatable
         #[arg(short, long = "data-source", value_name = "RID")]
         data_sources: Vec<String>,
 
-        /// Require channel name to contain this substring. Repeatable
-        #[arg(short = 'm', long = "exact-match", value_name = "SUBSTR")]
-        exact_matches: Vec<String>,
+        /// Require channel name to contain this substring (case-insensitive). Repeatable
+        #[arg(short = 'm', long = "substring-match", value_name = "SUBSTR")]
+        substring_matches: Vec<String>,
 
         /// Restrict to a specific data type. Repeatable.
         /// One of: double, int, uint, string, log, double-array, string-array, struct, video
@@ -69,20 +65,16 @@ pub async fn handle(cmd: ChannelCommands, client: NominalClient) -> anyhow::Resu
             }
         }
         ChannelCommands::Search {
-            text,
             data_sources,
-            exact_matches,
+            substring_matches,
             data_types,
         } => {
             let mut query = ChannelQuery::new();
-            if let Some(t) = text {
-                query = query.fuzzy_text(t);
-            }
             if !data_sources.is_empty() {
                 query = query.data_sources(data_sources);
             }
-            for m in exact_matches {
-                query = query.exact_match(m);
+            for m in substring_matches {
+                query = query.substring_match(m);
             }
             for dt in data_types {
                 query = query.data_type(parse_data_type(&dt)?);

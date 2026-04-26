@@ -77,9 +77,30 @@ where
     .flat_map(stream::iter)
 }
 
+/// True if `name` (case-insensitive) contains every substring in `subs`.
+pub(crate) fn name_matches_all<S: AsRef<str>>(name: &str, subs: &[S]) -> bool {
+    if subs.is_empty() {
+        return true;
+    }
+    let name_lc = name.to_lowercase();
+    subs.iter()
+        .all(|s| name_lc.contains(&s.as_ref().to_lowercase()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn name_matches_all_empty_passes() {
+        assert!(name_matches_all::<&str>("anything", &[]));
+    }
+
+    #[test]
+    fn name_matches_all_case_insensitive() {
+        assert!(name_matches_all("Flight Test 123", &["flight", "TEST"]));
+        assert!(!name_matches_all("Flight Test 123", &["missing"]));
+    }
 
     #[test]
     fn test_api_app_url_conversion() {

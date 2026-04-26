@@ -238,8 +238,8 @@ impl RunUpdate {
 pub enum RunQuery {
     /// Fuzzy full-text search against title and description.
     SearchText(String),
-    /// Case-insensitive exact substring match on the title.
-    ExactMatch(String),
+    /// Case-insensitive substring match against the run name.
+    SubstringMatch(String),
     /// Filter by label.
     Label(String),
     /// Filter by property key and value.
@@ -263,8 +263,8 @@ impl RunQuery {
         Self::SearchText(text.into())
     }
 
-    pub fn exact_match(text: impl Into<String>) -> Self {
-        Self::ExactMatch(text.into())
+    pub fn substring_match(text: impl Into<String>) -> Self {
+        Self::SubstringMatch(text.into())
     }
 
     pub fn label(label: impl Into<String>) -> Self {
@@ -299,11 +299,27 @@ impl RunQuery {
         Self::Not(Box::new(query))
     }
 
+    pub(crate) fn collect_substring_matches(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        self.collect_substring_matches_into(&mut out);
+        out
+    }
+
+    fn collect_substring_matches_into(&self, out: &mut Vec<String>) {
+        match self {
+            Self::SubstringMatch(s) => out.push(s.clone()),
+            Self::And(qs) => qs
+                .iter()
+                .for_each(|q| q.collect_substring_matches_into(out)),
+            _ => {}
+        }
+    }
+
     fn into_conjure(self) -> crate::Result<SearchQuery> {
         use crate::core::datetime::NominalDateTime;
         Ok(match self {
             Self::SearchText(s) => SearchQuery::SearchText(s),
-            Self::ExactMatch(s) => SearchQuery::ExactMatch(s),
+            Self::SubstringMatch(s) => SearchQuery::ExactMatch(s),
             Self::Label(l) => SearchQuery::Labels(
                 LabelsFilter::builder()
                     .operator(SetOperator::Or)
@@ -367,8 +383,8 @@ mod tests {
     }
 
     #[test]
-    fn query_exact_match() {
-        let q = RunQuery::exact_match("exact");
+    fn query_substring_match() {
+        let q = RunQuery::substring_match("exact");
         assert_eq!(
             q.into_conjure().unwrap(),
             SearchQuery::ExactMatch("exact".into())
@@ -662,7 +678,12 @@ impl RunsClient {
     /// # Ok(()) }
     /// ```
     pub async fn search(&self, query: RunQuery) -> Result<Vec<Run>> {
-        self.search_stream(query)?.try_collect().await
+        let substrings = query.collect_substring_matches();
+        let runs: Vec<Run> = self.search_stream(query)?.try_collect().await?;
+        Ok(runs
+            .into_iter()
+            .filter(|r| crate::core::utils::name_matches_all(r.name(), &substrings))
+            .collect())
     }
 
     /// Update run metadata. Returns the updated run.

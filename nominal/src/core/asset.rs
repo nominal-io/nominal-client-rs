@@ -274,8 +274,8 @@ impl AssetCreate {
 pub enum AssetQuery {
     /// Fuzzy full-text search against title and description.
     SearchText(String),
-    /// Case-insensitive substring match of title or description.
-    ExactSubstring(String),
+    /// Case-insensitive substring match against the asset name.
+    SubstringMatch(String),
     /// Filter by label.
     Label(String),
     /// Filter by property key and value.
@@ -291,8 +291,8 @@ impl AssetQuery {
         Self::SearchText(text.into())
     }
 
-    pub fn exact_substring(text: impl Into<String>) -> Self {
-        Self::ExactSubstring(text.into())
+    pub fn substring_match(text: impl Into<String>) -> Self {
+        Self::SubstringMatch(text.into())
     }
 
     pub fn label(label: impl Into<String>) -> Self {
@@ -311,10 +311,26 @@ impl AssetQuery {
         Self::Or(queries.into_iter().collect())
     }
 
+    pub(crate) fn collect_substring_matches(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        self.collect_substring_matches_into(&mut out);
+        out
+    }
+
+    fn collect_substring_matches_into(&self, out: &mut Vec<String>) {
+        match self {
+            Self::SubstringMatch(s) => out.push(s.clone()),
+            Self::And(qs) => qs
+                .iter()
+                .for_each(|q| q.collect_substring_matches_into(out)),
+            _ => {}
+        }
+    }
+
     fn into_conjure(self) -> SearchAssetsQuery {
         match self {
             Self::SearchText(s) => SearchAssetsQuery::SearchText(s),
-            Self::ExactSubstring(s) => SearchAssetsQuery::ExactSubstring(s),
+            Self::SubstringMatch(s) => SearchAssetsQuery::ExactSubstring(s),
             Self::Label(l) => SearchAssetsQuery::Labels(
                 LabelsFilter::builder()
                     .operator(SetOperator::Or)
@@ -352,8 +368,8 @@ mod tests {
     }
 
     #[test]
-    fn query_exact_substring() {
-        let q = AssetQuery::exact_substring("foo");
+    fn query_substring_match() {
+        let q = AssetQuery::substring_match("foo");
         assert_eq!(
             q.into_conjure(),
             SearchAssetsQuery::ExactSubstring("foo".into())
@@ -639,7 +655,12 @@ impl AssetsClient {
     /// # Ok(()) }
     /// ```
     pub async fn search(&self, query: AssetQuery) -> Result<Vec<Asset>> {
-        self.search_stream(query).try_collect().await
+        let substrings = query.collect_substring_matches();
+        let assets: Vec<Asset> = self.search_stream(query).try_collect().await?;
+        Ok(assets
+            .into_iter()
+            .filter(|a| crate::core::utils::name_matches_all(a.name(), &substrings))
+            .collect())
     }
 
     /// Update asset metadata. Returns the updated asset.
