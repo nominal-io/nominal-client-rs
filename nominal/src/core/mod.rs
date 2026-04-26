@@ -20,7 +20,7 @@ pub use datasource::DataSource;
 pub use ingest::{
     AvroStreamIngest, CsvIngest, DataflashIngest, DatasetTarget, FileType, IngestClient,
     IngestJob, IngestJobStatus, IngestType, JournalJsonIngest, McapIngest, ParquetIngest,
-    ProgressCallback, TimeUnit, Timestamp, UploadEvent, UploadOptions,
+    ProgressCallback, TimeUnit, Timestamp, UploadEvent, UploadOptions, VideoIngest, VideoTarget,
 };
 pub use run::{Run, RunQuery, RunUpdate, RunsClient};
 pub use user::{User, UsersClient};

@@ -1,17 +1,23 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
 use nominal_api::objects::api::{
-    Channel, ColumnName, Empty, McapChannelLocator, McapChannelTopic, TagName, TagValue,
+    Channel, ColumnName, Empty, McapChannelLocator, McapChannelTopic,
+    TagName, TagValue, Timestamp as ApiTimestamp,
 };
 use nominal_api::objects::ingest::api::{
     AvroStreamOpts, ChannelPrefix, CsvOpts, DataflashOpts,
-    DatasetIngestTarget as ApiDatasetIngestTarget, ExistingDatasetIngestDestination, IngestSource,
-    JournalJsonOpts, LogTime, McapChannels, McapProtobufTimeseriesOpts, McapTimestampType,
-    ParquetOpts, S3IngestSource,
+    DatasetIngestTarget as ApiDatasetIngestTarget, ExistingDatasetIngestDestination,
+    ExistingVideoIngestDestination, IngestSource, JournalJsonOpts, LogTime, McapChannels,
+    McapProtobufTimeseriesOpts, McapTimestampType, ParquetOpts, S3IngestSource,
+    VideoIngestTarget as ApiVideoIngestTarget, VideoOpts,
+};
+use nominal_api::objects::scout::video::api::{
+    McapTimestampManifest, NoTimestampManifest, VideoFileTimestampManifest,
 };
 
-use crate::core::catalog::DatasetCreate;
+use crate::core::catalog::{DatasetCreate, VideoCreate};
 use crate::core::ingest::progress::{ProgressCallback, UploadEvent};
 use crate::core::ingest::timestamp::Timestamp;
 use crate::core::rid::parse_rid;
@@ -577,4 +583,141 @@ impl DataflashIngest {
         }
         Ok(b.build())
     }
+}
+
+/// Where a video ingest should land. Either an existing video resource (by
+/// RID) or a new one, created atomically with the ingest.
+///
+/// `&str` / `String` convert to [`VideoTarget::Existing`]; [`VideoCreate`]
+/// converts to [`VideoTarget::New`].
+#[derive(Debug, Clone)]
+pub enum VideoTarget {
+    Existing(String),
+    New(VideoCreate),
+}
+
+impl From<String> for VideoTarget {
+    fn from(rid: String) -> Self {
+        Self::Existing(rid)
+    }
+}
+
+impl From<&str> for VideoTarget {
+    fn from(rid: &str) -> Self {
+        Self::Existing(rid.to_string())
+    }
+}
+
+impl From<&String> for VideoTarget {
+    fn from(rid: &String) -> Self {
+        Self::Existing(rid.clone())
+    }
+}
+
+impl From<VideoCreate> for VideoTarget {
+    fn from(create: VideoCreate) -> Self {
+        Self::New(create)
+    }
+}
+
+impl VideoTarget {
+    pub(crate) fn into_api(self, workspace_rid: Option<&str>) -> Result<ApiVideoIngestTarget> {
+        Ok(match self {
+            VideoTarget::Existing(rid) => ApiVideoIngestTarget::Existing(
+                ExistingVideoIngestDestination::new(parse_rid(&rid)?),
+            ),
+            VideoTarget::New(create) => {
+                ApiVideoIngestTarget::New(create.into_new_ingest_destination(workspace_rid)?)
+            }
+        })
+    }
+}
+
+/// How the timestamps for a video ingest are derived.
+#[derive(Debug, Clone)]
+enum VideoManifest {
+    /// The first frame is at this absolute UTC timestamp; subsequent frames
+    /// are spaced by the video file's own metadata.
+    StartingAt(DateTime<Utc>),
+    /// The video is one stream inside an MCAP file, on this topic. Per-frame
+    /// timestamps come from the MCAP log times.
+    McapTopic(String),
+}
+
+/// Configuration for ingesting a video into an existing or new video resource.
+#[derive(Debug, Clone)]
+pub struct VideoIngest {
+    manifest: VideoManifest,
+    pub(crate) upload_options: UploadOptions,
+}
+
+impl VideoIngest {
+    /// Ingest a standalone video file (`.mp4` / `.mkv` / `.avi` / `.ts`) whose
+    /// first frame is at `start`.
+    pub fn starting_at(start: DateTime<Utc>) -> Self {
+        Self {
+            manifest: VideoManifest::StartingAt(start),
+            upload_options: UploadOptions::default(),
+        }
+    }
+
+    /// Extract the video stream on `topic` from an MCAP file. Each upload may
+    /// only target a single MCAP topic.
+    pub fn mcap_topic(topic: impl Into<String>) -> Self {
+        Self {
+            manifest: VideoManifest::McapTopic(topic.into()),
+            upload_options: UploadOptions::default(),
+        }
+    }
+
+    #[must_use]
+    pub fn upload_options(mut self, options: UploadOptions) -> Self {
+        self.upload_options = options;
+        self
+    }
+
+    /// True if this ingest targets an MCAP video stream rather than a plain
+    /// video file. Used by the upload path to pick the right MIME type.
+    pub(crate) fn is_mcap(&self) -> bool {
+        matches!(self.manifest, VideoManifest::McapTopic(_))
+    }
+
+    pub(crate) fn into_opts(
+        self,
+        target: VideoTarget,
+        workspace_rid: Option<&str>,
+        s3_path: String,
+    ) -> Result<VideoOpts> {
+        let target = target.into_api(workspace_rid)?;
+        let source = IngestSource::S3(S3IngestSource::new(s3_path));
+        let manifest = match self.manifest {
+            VideoManifest::StartingAt(dt) => VideoFileTimestampManifest::NoManifest(
+                NoTimestampManifest::builder()
+                    .starting_timestamp(api_timestamp_from_datetime(dt)?)
+                    .build(),
+            ),
+            VideoManifest::McapTopic(topic) => VideoFileTimestampManifest::Mcap(
+                McapTimestampManifest::builder()
+                    .mcap_channel_locator(McapChannelLocator::Topic(McapChannelTopic(topic)))
+                    .build(),
+            ),
+        };
+        Ok(VideoOpts::builder()
+            .source(source)
+            .target(target)
+            .timestamp_manifest(manifest)
+            .build())
+    }
+}
+
+fn api_timestamp_from_datetime(dt: DateTime<Utc>) -> Result<ApiTimestamp> {
+    let seconds = dt.timestamp();
+    let nanos = i64::from(dt.timestamp_subsec_nanos());
+    let seconds_safe = conjure_object::SafeLong::try_from(seconds).map_err(|_| Error::Ingest {
+        details: format!("video starting timestamp seconds out of range: {seconds}"),
+    })?;
+    let nanos_safe = conjure_object::SafeLong::try_from(nanos).map_err(|_| Error::Ingest {
+        details: format!("video starting timestamp nanos out of range: {nanos}"),
+    })?;
+    Ok(ApiTimestamp::new(seconds_safe, nanos_safe))
 }

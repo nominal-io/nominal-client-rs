@@ -14,6 +14,10 @@ pub enum FileType {
     JournalJsonlGz,
     AvroStream,
     Dataflash,
+    Mp4,
+    Mkv,
+    Avi,
+    Ts,
 }
 
 impl FileType {
@@ -27,6 +31,10 @@ impl FileType {
             FileType::JournalJsonlGz => ".jsonl.gz",
             FileType::AvroStream => ".avro",
             FileType::Dataflash => ".bin",
+            FileType::Mp4 => ".mp4",
+            FileType::Mkv => ".mkv",
+            FileType::Avi => ".avi",
+            FileType::Ts => ".ts",
         }
     }
 
@@ -39,7 +47,20 @@ impl FileType {
             FileType::JournalJsonl | FileType::JournalJsonlGz => "application/jsonl",
             FileType::AvroStream => "application/avro",
             FileType::Dataflash => "application/octet-stream",
+            FileType::Mp4 => "video/mp4",
+            FileType::Mkv => "video/x-matroska",
+            FileType::Avi => "video/x-msvideo",
+            FileType::Ts => "video/mp2t",
         }
+    }
+
+    /// True if this file type is a recognized standalone video container
+    /// (i.e. not MCAP, which is also a possible video carrier).
+    pub const fn is_video(self) -> bool {
+        matches!(
+            self,
+            FileType::Mp4 | FileType::Mkv | FileType::Avi | FileType::Ts
+        )
     }
 
     /// Infer a [`FileType`] from the file name portion of `path`. Matches are
@@ -62,6 +83,14 @@ impl FileType {
             Some(FileType::AvroStream)
         } else if name.ends_with(".bin") {
             Some(FileType::Dataflash)
+        } else if name.ends_with(".mp4") {
+            Some(FileType::Mp4)
+        } else if name.ends_with(".mkv") {
+            Some(FileType::Mkv)
+        } else if name.ends_with(".avi") {
+            Some(FileType::Avi)
+        } else if name.ends_with(".ts") {
+            Some(FileType::Ts)
         } else {
             None
         }
@@ -109,5 +138,23 @@ mod tests {
             FileType::from_path("flight.bin"),
             Some(FileType::Dataflash)
         );
+    }
+
+    #[test]
+    fn from_path_matches_video_extensions() {
+        assert_eq!(FileType::from_path("clip.mp4"), Some(FileType::Mp4));
+        assert_eq!(FileType::from_path("clip.MKV"), Some(FileType::Mkv));
+        assert_eq!(FileType::from_path("clip.avi"), Some(FileType::Avi));
+        assert_eq!(FileType::from_path("clip.ts"), Some(FileType::Ts));
+    }
+
+    #[test]
+    fn is_video_matches_only_video_extensions() {
+        assert!(FileType::Mp4.is_video());
+        assert!(FileType::Mkv.is_video());
+        assert!(FileType::Avi.is_video());
+        assert!(FileType::Ts.is_video());
+        assert!(!FileType::Mcap.is_video());
+        assert!(!FileType::Csv.is_video());
     }
 }
