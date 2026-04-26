@@ -37,6 +37,11 @@ jobs:
           toolchain: stable
           target: ${{ matrix.target }}
 
+      - uses: arduino/setup-protoc@v3
+        if: ${{ !matrix.cross }}
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Install cross
         if: matrix.cross
         run: cargo install cross --locked

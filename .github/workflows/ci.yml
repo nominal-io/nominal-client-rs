@@ -37,6 +37,9 @@ jobs:
         with:
           toolchain: stable
           components: clippy
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - run: echo "::add-matcher::.github/rust.json"
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
@@ -52,6 +55,9 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - run: echo "::add-matcher::.github/rust.json"
       - name: Build
         run: cargo build --workspace --all-targets
