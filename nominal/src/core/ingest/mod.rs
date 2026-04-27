@@ -309,10 +309,7 @@ impl IngestClient {
         Ok((job, dataset_rid))
     }
 
-    async fn trigger_video_ingest(
-        &self,
-        options: IngestOptions,
-    ) -> Result<(IngestJob, String)> {
+    async fn trigger_video_ingest(&self, options: IngestOptions) -> Result<(IngestJob, String)> {
         let (job, details) = self.send_ingest(options).await?;
         let video_rid = match details {
             IngestDetails::Video(d) => d.video_rid().to_string(),
@@ -325,10 +322,7 @@ impl IngestClient {
         Ok((job, video_rid))
     }
 
-    async fn send_ingest(
-        &self,
-        options: IngestOptions,
-    ) -> Result<(IngestJob, IngestDetails)> {
+    async fn send_ingest(&self, options: IngestOptions) -> Result<(IngestJob, IngestDetails)> {
         let request = IngestRequest::new(options);
         let response = self
             .ingest_service

@@ -351,6 +351,272 @@ impl AssetQuery {
     }
 }
 
+/// Client for asset collection operations (list, get).
+pub struct AssetsClient {
+    service: AsyncAssetServiceClient<Client>,
+    token: BearerToken,
+    workspace_rid: Option<String>,
+    app_base_url: String,
+}
+
+impl AssetsClient {
+    pub(crate) fn new(
+        client: Client,
+        runtime: &Arc<ConjureRuntime>,
+        token: BearerToken,
+        workspace_rid: Option<String>,
+        app_base_url: String,
+    ) -> Self {
+        Self {
+            service: AsyncAssetServiceClient::new(client, runtime),
+            token,
+            workspace_rid,
+            app_base_url,
+        }
+    }
+
+    /// Create a new asset.
+    pub async fn create(&self, create: AssetCreate) -> Result<Asset> {
+        let request = create.into_request(self.workspace_rid.as_deref())?;
+        let response = self
+            .service
+            .create_asset(&self.token, &request)
+            .await
+            .map_err(Error::from)?;
+        Ok(Asset::from_conjure(response, &self.app_base_url))
+    }
+
+    /// Get an asset by RID.
+    pub async fn get(&self, rid: &str) -> Result<Asset> {
+        let parsed = parse_rid(rid)?;
+        let rid_set = std::collections::BTreeSet::from([parsed]);
+        let response = self
+            .service
+            .get_assets(&self.token, &rid_set)
+            .await
+            .map_err(Error::from)?;
+
+        let asset = response
+            .into_iter()
+            .next()
+            .ok_or(Error::NotFound {
+                resource: "asset with given RID",
+            })?
+            .1;
+
+        Ok(Asset::from_conjure(asset, &self.app_base_url))
+    }
+
+    /// Get multiple assets by RID.
+    ///
+    /// Returns a map from RID string to Asset. RIDs not found in Nominal are omitted.
+    pub async fn get_batch<I, S>(&self, rids: I) -> Result<HashMap<String, Asset>>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let rid_set = rids
+            .into_iter()
+            .map(|s| parse_rid(s.as_ref()).map_err(Error::from))
+            .collect::<Result<std::collections::BTreeSet<_>>>()?;
+        let response = self
+            .service
+            .get_assets(&self.token, &rid_set)
+            .await
+            .map_err(Error::from)?;
+        Ok(response
+            .into_iter()
+            .map(|(k, v)| {
+                (
+                    rid_to_string(&k),
+                    Asset::from_conjure(v, &self.app_base_url),
+                )
+            })
+            .collect())
+    }
+
+    fn list_stream(&self) -> impl Stream<Item = Result<Asset>> {
+        self.search_stream(AssetQuery::search_text(""))
+    }
+
+    /// List assets, sorted by creation date descending.
+    pub async fn list(&self) -> Result<Vec<Asset>> {
+        self.list_stream().try_collect().await
+    }
+
+    fn search_stream(&self, query: AssetQuery) -> impl Stream<Item = Result<Asset>> {
+        let conjure_query = query.into_conjure();
+        let service = self.service.clone();
+        let token = self.token.clone();
+        let app_base_url = self.app_base_url.clone();
+        paginate_stream(
+            move |page_token| {
+                SearchAssetsRequest::builder()
+                    .sort(
+                        AssetSortOptions::builder()
+                            .is_descending(true)
+                            .sort_key(SortKey::Field(AssetSortField::CreatedAt))
+                            .build(),
+                    )
+                    .query(conjure_query.clone())
+                    .next_page_token(page_token)
+                    .build()
+            },
+            move |req| {
+                let service = service.clone();
+                let token = token.clone();
+                async move {
+                    service
+                        .search_assets(&token, &req)
+                        .await
+                        .map_err(Error::from)
+                }
+            },
+            |resp: &SearchAssetsResponse| resp.next_page_token().cloned(),
+            move |resp| {
+                resp.results()
+                    .iter()
+                    .map(|a| Asset::from_conjure(a.clone(), &app_base_url))
+                    .collect()
+            },
+        )
+    }
+
+    /// Search assets with a query, collecting all pages eagerly.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # async fn example(client: nominal::core::NominalClient) -> nominal::Result<()> {
+    /// use nominal::core::AssetQuery;
+    /// let assets = client.assets()
+    ///     .search(AssetQuery::and([
+    ///         AssetQuery::label("production"),
+    ///         AssetQuery::property("vehicle", "rocket"),
+    ///     ]))
+    ///     .await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn search(&self, query: AssetQuery) -> Result<Vec<Asset>> {
+        let substrings = query.collect_substring_matches();
+        let assets: Vec<Asset> = self.search_stream(query).try_collect().await?;
+        Ok(assets
+            .into_iter()
+            .filter(|a| crate::core::utils::name_matches_all(a.name(), &substrings))
+            .collect())
+    }
+
+    /// Update asset metadata. Returns the updated asset.
+    ///
+    /// Only fields set on the update will be changed; the rest remain untouched.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use nominal::core::AssetUpdate;
+    /// # async fn example(client: nominal::core::NominalClient) -> nominal::Result<()> {
+    /// let asset = client.assets()
+    ///     .update("ri.scout.cerulean-staging.asset.<uuid>", AssetUpdate::new().name("New Name").labels(["tag1", "tag2"]))
+    ///     .await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn update(&self, rid: &str, update: AssetUpdate) -> Result<Asset> {
+        let request = update.into_request();
+        let asset_rid = parse_rid(rid)?;
+        let response = self
+            .service
+            .update_asset(&self.token, &asset_rid, &request)
+            .await
+            .map_err(Error::from)?;
+        Ok(Asset::from_conjure(response, &self.app_base_url))
+    }
+
+    /// Attach data sources to an asset under the given scope names.
+    ///
+    /// Scope names should be stable across assets of the same type, since
+    /// checklists and templates use them to reference data sources.
+    /// Returns the updated asset.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # async fn example(client: nominal::core::NominalClient) -> nominal::Result<()> {
+    /// use nominal::core::DataSource;
+    /// client.assets().add_data_sources("ri.scout.cerulean-staging.asset.<uuid>", [
+    ///     ("flight-data", DataSource::dataset("ri.catalog.cerulean-staging.dataset.<uuid>")),
+    ///     ("cockpit-cam", DataSource::video("ri.catalog.cerulean-staging.video.<uuid>")),
+    /// ]).await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn add_data_sources<I, N>(&self, rid: &str, sources: I) -> Result<Asset>
+    where
+        I: IntoIterator<Item = (N, DataSource)>,
+        N: Into<String>,
+    {
+        let scopes = sources
+            .into_iter()
+            .map(|(name, ds)| {
+                ds.into_conjure().map(|conjure_ds| {
+                    CreateAssetDataScope::builder()
+                        .data_scope_name(name.into().into())
+                        .data_source(conjure_ds)
+                        .build()
+                })
+            })
+            .collect::<Result<BTreeSet<_>>>()?;
+        let request = AddDataScopesToAssetRequest::builder()
+            .data_scopes(scopes)
+            .build();
+        let asset_rid = parse_rid(rid)?;
+        let response = self
+            .service
+            .add_data_scopes_to_asset(&self.token, &asset_rid, &request)
+            .await
+            .map_err(Error::from)?;
+        Ok(Asset::from_conjure(response, &self.app_base_url))
+    }
+
+    /// Attach a dataset to an asset under the given scope name. See [`add_data_sources`](Self::add_data_sources).
+    pub async fn add_dataset(&self, rid: &str, name: &str, dataset_rid: &str) -> Result<Asset> {
+        self.add_data_sources(rid, [(name, DataSource::dataset(dataset_rid))])
+            .await
+    }
+
+    /// Attach a video to an asset under the given scope name. See [`add_data_sources`](Self::add_data_sources).
+    pub async fn add_video(&self, rid: &str, name: &str, video_rid: &str) -> Result<Asset> {
+        self.add_data_sources(rid, [(name, DataSource::video(video_rid))])
+            .await
+    }
+
+    /// Attach a connection to an asset under the given scope name. See [`add_data_sources`](Self::add_data_sources).
+    pub async fn add_connection(
+        &self,
+        rid: &str,
+        name: &str,
+        connection_rid: &str,
+    ) -> Result<Asset> {
+        self.add_data_sources(rid, [(name, DataSource::connection(connection_rid))])
+            .await
+    }
+
+    /// Archive an asset. Archived assets are hidden from the UI but not deleted.
+    pub async fn archive(&self, rid: &str) -> Result<()> {
+        let asset_rid = parse_rid(rid)?;
+        self.service
+            .archive(&self.token, &asset_rid, None)
+            .await
+            .map_err(Error::from)?;
+        Ok(())
+    }
+
+    /// Unarchive an asset, restoring its visibility in the UI.
+    pub async fn unarchive(&self, rid: &str) -> Result<()> {
+        let asset_rid = parse_rid(rid)?;
+        self.service
+            .unarchive(&self.token, &asset_rid, None)
+            .await
+            .map_err(Error::from)?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -506,271 +772,5 @@ mod tests {
         assert_eq!(req.description(), Some("desc"));
         assert!(req.properties().is_some());
         assert!(req.labels().is_some());
-    }
-}
-
-/// Client for asset collection operations (list, get).
-pub struct AssetsClient {
-    service: AsyncAssetServiceClient<Client>,
-    token: BearerToken,
-    workspace_rid: Option<String>,
-    app_base_url: String,
-}
-
-impl AssetsClient {
-    pub(crate) fn new(
-        client: Client,
-        runtime: &Arc<ConjureRuntime>,
-        token: BearerToken,
-        workspace_rid: Option<String>,
-        app_base_url: String,
-    ) -> Self {
-        Self {
-            service: AsyncAssetServiceClient::new(client, runtime),
-            token,
-            workspace_rid,
-            app_base_url,
-        }
-    }
-
-    /// Create a new asset.
-    pub async fn create(&self, create: AssetCreate) -> Result<Asset> {
-        let request = create.into_request(self.workspace_rid.as_deref())?;
-        let response = self
-            .service
-            .create_asset(&self.token, &request)
-            .await
-            .map_err(Error::from)?;
-        Ok(Asset::from_conjure(response, &self.app_base_url))
-    }
-
-    /// Get an asset by RID.
-    pub async fn get(&self, rid: &str) -> Result<Asset> {
-        let parsed = parse_rid(rid)?;
-        let rid_set = std::collections::BTreeSet::from([parsed]);
-        let response = self
-            .service
-            .get_assets(&self.token, &rid_set)
-            .await
-            .map_err(Error::from)?;
-
-        let asset = response
-            .into_iter()
-            .next()
-            .ok_or(Error::NotFound {
-                resource: "asset with given RID",
-            })?
-            .1;
-
-        Ok(Asset::from_conjure(asset, &self.app_base_url))
-    }
-
-    /// Get multiple assets by RID.
-    ///
-    /// Returns a map from RID string to Asset. RIDs not found in Nominal are omitted.
-    pub async fn get_batch<I, S>(&self, rids: I) -> Result<HashMap<String, Asset>>
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
-    {
-        let rid_set = rids
-            .into_iter()
-            .map(|s| parse_rid(s.as_ref()).map_err(Error::from))
-            .collect::<Result<std::collections::BTreeSet<_>>>()?;
-        let response = self
-            .service
-            .get_assets(&self.token, &rid_set)
-            .await
-            .map_err(Error::from)?;
-        Ok(response
-            .into_iter()
-            .map(|(k, v)| {
-                (
-                    rid_to_string(&k),
-                    Asset::from_conjure(v, &self.app_base_url),
-                )
-            })
-            .collect())
-    }
-
-    fn list_stream(&self) -> impl Stream<Item = Result<Asset>> {
-        self.search_stream(AssetQuery::search_text(""))
-    }
-
-    /// List assets, sorted by creation date descending.
-    pub async fn list(&self) -> Result<Vec<Asset>> {
-        self.list_stream().try_collect().await
-    }
-
-    fn search_stream(&self, query: AssetQuery) -> impl Stream<Item = Result<Asset>> {
-        let conjure_query = query.into_conjure();
-        let service = self.service.clone();
-        let token = self.token.clone();
-        let app_base_url = self.app_base_url.clone();
-        paginate_stream(
-            move |page_token| {
-                SearchAssetsRequest::builder()
-                    .sort(
-                        AssetSortOptions::builder()
-                            .is_descending(true)
-                            .sort_key(SortKey::Field(AssetSortField::CreatedAt))
-                            .build(),
-                    )
-                    .query(conjure_query.clone())
-                    .next_page_token(page_token)
-                    .build()
-            },
-            move |req| {
-                let service = service.clone();
-                let token = token.clone();
-                async move {
-                    service
-                        .search_assets(&token, &req)
-                        .await
-                        .map_err(Error::from)
-                }
-            },
-            |resp: &SearchAssetsResponse| resp.next_page_token().cloned(),
-            move |resp| {
-                resp.results()
-                    .iter()
-                    .map(|a| Asset::from_conjure(a.clone(), &app_base_url))
-                    .collect()
-            },
-        )
-    }
-
-    /// Search assets with a query, collecting all pages eagerly.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # async fn example(client: nominal::NominalClient) -> nominal::Result<()> {
-    /// use nominal::AssetQuery;
-    /// let assets = client.assets()
-    ///     .search(AssetQuery::and([
-    ///         AssetQuery::label("production"),
-    ///         AssetQuery::property("vehicle", "rocket"),
-    ///     ]))
-    ///     .await?;
-    /// # Ok(()) }
-    /// ```
-    pub async fn search(&self, query: AssetQuery) -> Result<Vec<Asset>> {
-        let substrings = query.collect_substring_matches();
-        let assets: Vec<Asset> = self.search_stream(query).try_collect().await?;
-        Ok(assets
-            .into_iter()
-            .filter(|a| crate::core::utils::name_matches_all(a.name(), &substrings))
-            .collect())
-    }
-
-    /// Update asset metadata. Returns the updated asset.
-    ///
-    /// Only fields set on the update will be changed; the rest remain untouched.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use nominal::AssetUpdate;
-    /// # async fn example(client: nominal::NominalClient) -> nominal::Result<()> {
-    /// let asset = client.assets()
-    ///     .update("ri.scout.cerulean-staging.asset.<uuid>", AssetUpdate::new().name("New Name").labels(["tag1", "tag2"]))
-    ///     .await?;
-    /// # Ok(()) }
-    /// ```
-    pub async fn update(&self, rid: &str, update: AssetUpdate) -> Result<Asset> {
-        let request = update.into_request();
-        let asset_rid = parse_rid(rid)?;
-        let response = self
-            .service
-            .update_asset(&self.token, &asset_rid, &request)
-            .await
-            .map_err(Error::from)?;
-        Ok(Asset::from_conjure(response, &self.app_base_url))
-    }
-
-    /// Attach data sources to an asset under the given scope names.
-    ///
-    /// Scope names should be stable across assets of the same type, since
-    /// checklists and templates use them to reference data sources.
-    /// Returns the updated asset.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # async fn example(client: nominal::NominalClient) -> nominal::Result<()> {
-    /// use nominal::core::DataSource;
-    /// client.assets().add_data_sources("ri.scout.cerulean-staging.asset.<uuid>", [
-    ///     ("flight-data", DataSource::dataset("ri.catalog.cerulean-staging.dataset.<uuid>")),
-    ///     ("cockpit-cam", DataSource::video("ri.catalog.cerulean-staging.video.<uuid>")),
-    /// ]).await?;
-    /// # Ok(()) }
-    /// ```
-    pub async fn add_data_sources<I, N>(&self, rid: &str, sources: I) -> Result<Asset>
-    where
-        I: IntoIterator<Item = (N, DataSource)>,
-        N: Into<String>,
-    {
-        let scopes = sources
-            .into_iter()
-            .map(|(name, ds)| {
-                ds.into_conjure().map(|conjure_ds| {
-                    CreateAssetDataScope::builder()
-                        .data_scope_name(name.into().into())
-                        .data_source(conjure_ds)
-                        .build()
-                })
-            })
-            .collect::<Result<BTreeSet<_>>>()?;
-        let request = AddDataScopesToAssetRequest::builder()
-            .data_scopes(scopes)
-            .build();
-        let asset_rid = parse_rid(rid)?;
-        let response = self
-            .service
-            .add_data_scopes_to_asset(&self.token, &asset_rid, &request)
-            .await
-            .map_err(Error::from)?;
-        Ok(Asset::from_conjure(response, &self.app_base_url))
-    }
-
-    /// Attach a dataset to an asset under the given scope name. See [`add_data_sources`](Self::add_data_sources).
-    pub async fn add_dataset(&self, rid: &str, name: &str, dataset_rid: &str) -> Result<Asset> {
-        self.add_data_sources(rid, [(name, DataSource::dataset(dataset_rid))])
-            .await
-    }
-
-    /// Attach a video to an asset under the given scope name. See [`add_data_sources`](Self::add_data_sources).
-    pub async fn add_video(&self, rid: &str, name: &str, video_rid: &str) -> Result<Asset> {
-        self.add_data_sources(rid, [(name, DataSource::video(video_rid))])
-            .await
-    }
-
-    /// Attach a connection to an asset under the given scope name. See [`add_data_sources`](Self::add_data_sources).
-    pub async fn add_connection(
-        &self,
-        rid: &str,
-        name: &str,
-        connection_rid: &str,
-    ) -> Result<Asset> {
-        self.add_data_sources(rid, [(name, DataSource::connection(connection_rid))])
-            .await
-    }
-
-    /// Archive an asset. Archived assets are hidden from the UI but not deleted.
-    pub async fn archive(&self, rid: &str) -> Result<()> {
-        let asset_rid = parse_rid(rid)?;
-        self.service
-            .archive(&self.token, &asset_rid, None)
-            .await
-            .map_err(Error::from)?;
-        Ok(())
-    }
-
-    /// Unarchive an asset, restoring its visibility in the UI.
-    pub async fn unarchive(&self, rid: &str) -> Result<()> {
-        let asset_rid = parse_rid(rid)?;
-        self.service
-            .unarchive(&self.token, &asset_rid, None)
-            .await
-            .map_err(Error::from)?;
-        Ok(())
     }
 }

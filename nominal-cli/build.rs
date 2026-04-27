@@ -1,4 +1,9 @@
-use std::{env, fmt::Write as FmtWrite, fs, path::PathBuf};
+use std::{
+    env,
+    fmt::Write as FmtWrite,
+    fs,
+    path::{Path, PathBuf},
+};
 
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
@@ -34,7 +39,7 @@ fn main() {
     );
 }
 
-fn generate_conjure_endpoints(json_path: &std::path::Path, out_dir: &PathBuf) {
+fn generate_conjure_endpoints(json_path: &Path, out_dir: &Path) {
     let raw = fs::read_to_string(json_path)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", json_path.display()));
     let def: serde_json::Value = serde_json::from_str(&raw).expect("failed to parse conjure JSON");
@@ -142,7 +147,7 @@ fn conjure_type_to_rust(ty: &serde_json::Value) -> Result<String, String> {
     }
 }
 
-fn generate_grpc_http_endpoints(protos_dir: &std::path::Path, out_dir: &PathBuf) {
+fn generate_grpc_http_endpoints(protos_dir: &Path, out_dir: &Path) {
     let mut entries = String::new();
 
     // Walk every .proto file and parse google.api.http annotations
@@ -173,14 +178,14 @@ fn generate_grpc_http_endpoints(protos_dir: &std::path::Path, out_dir: &PathBuf)
         .expect("failed to write grpc_http_endpoints.rs");
 }
 
-fn collect_proto_files(dir: &std::path::Path) -> Vec<PathBuf> {
+fn collect_proto_files(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     if let Ok(rd) = fs::read_dir(dir) {
         for entry in rd.flatten() {
             let path = entry.path();
             if path.is_dir() {
                 out.extend(collect_proto_files(&path));
-            } else if path.extension().map_or(false, |e| e == "proto") {
+            } else if path.extension().is_some_and(|e| e == "proto") {
                 out.push(path);
             }
         }
@@ -196,12 +201,9 @@ fn parse_grpc_http_endpoints(content: &str, out: &mut String) {
     let package = content
         .lines()
         .find_map(|l| {
-            let l = l.trim();
-            if let Some(rest) = l.strip_prefix("package ") {
-                Some(rest.trim_end_matches(';').trim().to_owned())
-            } else {
-                None
-            }
+            l.trim()
+                .strip_prefix("package ")
+                .map(|rest| rest.trim_end_matches(';').trim().to_owned())
         })
         .unwrap_or_default();
 
@@ -209,12 +211,9 @@ fn parse_grpc_http_endpoints(content: &str, out: &mut String) {
     let service_name = content
         .lines()
         .find_map(|l| {
-            let l = l.trim();
-            if let Some(rest) = l.strip_prefix("service ") {
-                Some(rest.split('{').next().unwrap_or("").trim().to_owned())
-            } else {
-                None
-            }
+            l.trim()
+                .strip_prefix("service ")
+                .map(|rest| rest.split('{').next().unwrap_or("").trim().to_owned())
         })
         .unwrap_or_default();
 
@@ -327,7 +326,7 @@ fn extract_field_value(snippet: &str, field: &str) -> Option<String> {
             || search[..pos]
                 .chars()
                 .last()
-                .map_or(true, |c| c.is_whitespace() || c == '{');
+                .is_none_or(|c| c.is_whitespace() || c == '{');
         let after = &search[pos + pattern.len()..];
         if boundary_ok {
             let after = after.trim_start();
@@ -343,15 +342,11 @@ fn extract_field_value(snippet: &str, field: &str) -> Option<String> {
     }
 }
 
-fn generate_proto_descriptor(
-    protos_dir: &std::path::Path,
-    includes_dir: &std::path::Path,
-    out_dir: &PathBuf,
-) {
+fn generate_proto_descriptor(protos_dir: &Path, includes_dir: &Path, out_dir: &Path) {
     let descriptor_path = out_dir.join("nominal_descriptor.bin");
 
     let proto_files = collect_proto_files(protos_dir);
-    let proto_file_paths: Vec<&std::path::Path> = proto_files.iter().map(|p| p.as_path()).collect();
+    let proto_file_paths: Vec<&Path> = proto_files.iter().map(|p| p.as_path()).collect();
 
     tonic_build::configure()
         .build_server(false)

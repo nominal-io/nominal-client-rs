@@ -1,0 +1,19 @@
+[workspace]
+# One changelog at the repo root
+changelog_path = "./CHANGELOG.md"
+
+# Per-package tags & releases (so the CLI binary build workflow can key off the tag)
+git_tag_name = "{{ package }}-v{{ version }}"
+git_release_name = "{{ package }}-v{{ version }}"
+
+[[package]]
+name = "nominal"
+publish = true
+git_tag_enable = true
+git_release_enable = true
+
+[[package]]
+name = "nominal-cli"
+publish = true
+git_tag_enable = true
+git_release_enable = true

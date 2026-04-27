@@ -2,6 +2,7 @@ use anyhow::{Context, bail};
 use clap::Args;
 use prost_reflect::DynamicMessage;
 
+#[allow(clippy::type_complexity)]
 pub(crate) mod generated {
     include!(concat!(env!("OUT_DIR"), "/conjure_endpoints.rs"));
     include!(concat!(env!("OUT_DIR"), "/grpc_http_endpoints.rs"));

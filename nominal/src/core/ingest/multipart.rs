@@ -27,6 +27,7 @@ use crate::{Error, Result};
 /// aborted server-side.
 ///
 /// Returns the storage location (S3 path) of the completed upload.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn upload_file(
     conjure_client: Client,
     runtime: &Arc<ConjureRuntime>,
