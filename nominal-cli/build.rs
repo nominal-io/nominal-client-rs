@@ -8,35 +8,75 @@ use std::{
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-    let meta = cargo_metadata::MetadataCommand::new()
-        .exec()
-        .expect("failed to run `cargo metadata`");
-
-    let nominal_api = meta
-        .packages
-        .iter()
-        .find(|p| p.name == "nominal-api")
-        .expect("nominal-api not found in dependency tree");
-
-    let crate_root = nominal_api
-        .manifest_path
-        .parent()
-        .expect("manifest_path has no parent");
+    let crate_root = find_nominal_api_root();
 
     let conjure_json = crate_root.join("definitions/conjure/scout-service-api.conjure.json");
     let protos_dir = crate_root.join("definitions/protos");
     let includes_dir = crate_root.join("definitions/proto-includes");
 
-    println!("cargo:rerun-if-changed={}", conjure_json);
-    println!("cargo:rerun-if-changed={}", protos_dir);
+    println!("cargo:rerun-if-changed={}", conjure_json.display());
+    println!("cargo:rerun-if-changed={}", protos_dir.display());
 
-    generate_conjure_endpoints(conjure_json.as_std_path(), &out_dir);
-    generate_grpc_http_endpoints(protos_dir.as_std_path(), &out_dir);
-    generate_proto_descriptor(
-        protos_dir.as_std_path(),
-        includes_dir.as_std_path(),
-        &out_dir,
-    );
+    generate_conjure_endpoints(conjure_json.as_path(), &out_dir);
+    generate_grpc_http_endpoints(protos_dir.as_path(), &out_dir);
+    generate_proto_descriptor(protos_dir.as_path(), includes_dir.as_path(), &out_dir);
+}
+
+fn find_nominal_api_root() -> PathBuf {
+    if let Ok(meta) = cargo_metadata::MetadataCommand::new().exec() {
+        if let Some(nominal_api) = meta.packages.iter().find(|p| p.name == "nominal-api") {
+            if let Some(root) = nominal_api.manifest_path.parent() {
+                return root.as_std_path().to_path_buf();
+            }
+        }
+    }
+
+    let cargo_home = env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".cargo")))
+        .expect("neither CARGO_HOME nor HOME is set");
+
+    let registry_src = cargo_home.join("registry/src");
+    let mut candidates = Vec::new();
+
+    for registry in fs::read_dir(&registry_src).unwrap_or_else(|e| {
+        panic!(
+            "failed to read cargo registry source directory {}: {e}",
+            registry_src.display()
+        )
+    }) {
+        let registry = registry.expect("failed to read cargo registry entry");
+        let path = registry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        for package in fs::read_dir(&path).unwrap_or_else(|e| {
+            panic!(
+                "failed to read cargo registry package directory {}: {e}",
+                path.display()
+            )
+        }) {
+            let package = package.expect("failed to read cargo registry package entry");
+            let package_path = package.path();
+            let Some(name) = package_path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+
+            if name.starts_with("nominal-api-")
+                && package_path
+                    .join("definitions/conjure/scout-service-api.conjure.json")
+                    .is_file()
+            {
+                candidates.push(package_path);
+            }
+        }
+    }
+
+    candidates.sort();
+    candidates
+        .pop()
+        .expect("nominal-api crate source not found in cargo registry")
 }
 
 fn generate_conjure_endpoints(json_path: &Path, out_dir: &Path) {

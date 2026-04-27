@@ -213,7 +213,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "thiserror 2.0.16",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -1446,7 +1446,7 @@ dependencies = [
 
 [[package]]
 name = "nominal"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "bytes",
  "chrono",
@@ -1482,7 +1482,7 @@ dependencies = [
 
 [[package]]
 name = "nominal-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "bytes",
