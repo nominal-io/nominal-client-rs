@@ -4,6 +4,9 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
     groups:
       external-deps:
         exclude-patterns: ["nominal-api"]
@@ -16,3 +19,6 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
