@@ -21,7 +21,7 @@ jobs:
             archive: tar.gz
             cross: true
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-15-intel
             archive: tar.gz
           - target: aarch64-apple-darwin
             os: macos-latest
@@ -59,32 +59,30 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          name="nom-${{ github.event.release.tag_name }}-${{ matrix.target }}"
+          tag="${{ github.event.release.tag_name }}"
+          version="${tag#nominal-cli-}"
+          name="nom-$version-${{ matrix.target }}"
           mkdir -p "dist/$name"
           cp "target/${{ matrix.target }}/release/nom" "dist/$name/"
           cp README.md "dist/$name/" 2>/dev/null || true
           tar -czf "dist/$name.tar.gz" -C dist "$name"
-          (cd dist && shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256")
           echo "ASSET=dist/$name.tar.gz" >> $GITHUB_ENV
-          echo "SHA=dist/$name.tar.gz.sha256" >> $GITHUB_ENV
 
       - name: Package (windows)
         if: matrix.archive == 'zip'
         shell: pwsh
         run: |
-          $name = "nom-${{ github.event.release.tag_name }}-${{ matrix.target }}"
+          $version = "${{ github.event.release.tag_name }}" -replace '^nominal-cli-', ''
+          $name = "nom-$version-${{ matrix.target }}"
           New-Item -ItemType Directory -Force -Path "dist/$name" | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/nom.exe" "dist/$name/"
           if (Test-Path README.md) { Copy-Item README.md "dist/$name/" }
           Compress-Archive -Path "dist/$name/*" -DestinationPath "dist/$name.zip"
-          $hash = (Get-FileHash "dist/$name.zip" -Algorithm SHA256).Hash.ToLower()
-          "$hash  $name.zip" | Out-File -Encoding ascii "dist/$name.zip.sha256"
           "ASSET=dist/$name.zip" | Out-File -Encoding ascii -Append $env:GITHUB_ENV
-          "SHA=dist/$name.zip.sha256" | Out-File -Encoding ascii -Append $env:GITHUB_ENV
 
       - name: Upload to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          gh release upload "${{ github.event.release.tag_name }}" "$ASSET" "$SHA" --clobber
+          gh release upload "${{ github.event.release.tag_name }}" "$ASSET" --clobber

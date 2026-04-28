@@ -18,7 +18,7 @@ conjure-runtime = { package = "conjure-runtime-rustls-platform-verifier", versio
 dirs = "5"
 nominal-api = "0.1212"
 regex = "1.12"
-reqwest = { version = "0.12", features = ["http2"] }
+reqwest = { version = "0.12", default-features = false, features = ["http2", "rustls-tls"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_yaml = "0.9.34"
 thiserror = "2"
