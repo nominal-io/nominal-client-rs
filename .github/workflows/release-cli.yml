@@ -59,7 +59,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          name="nom-${{ github.event.release.tag_name }}-${{ matrix.target }}"
+          tag="${{ github.event.release.tag_name }}"
+          version="${tag#nominal-cli-}"
+          name="nom-$version-${{ matrix.target }}"
           mkdir -p "dist/$name"
           cp "target/${{ matrix.target }}/release/nom" "dist/$name/"
           cp README.md "dist/$name/" 2>/dev/null || true
@@ -70,7 +72,8 @@ jobs:
         if: matrix.archive == 'zip'
         shell: pwsh
         run: |
-          $name = "nom-${{ github.event.release.tag_name }}-${{ matrix.target }}"
+          $version = "${{ github.event.release.tag_name }}" -replace '^nominal-cli-', ''
+          $name = "nom-$version-${{ matrix.target }}"
           New-Item -ItemType Directory -Force -Path "dist/$name" | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/nom.exe" "dist/$name/"
           if (Test-Path README.md) { Copy-Item README.md "dist/$name/" }
