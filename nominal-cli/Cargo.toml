@@ -23,7 +23,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 nominal-api = "0.1212"
 conjure-object = "5.10"
 serde_json = "1"
-reqwest = { version = "0.12", features = ["json", "http2"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "http2", "rustls-tls"] }
 bytes = "1"
 url = "2"
 tonic = { version = "0.13", features = ["transport"] }
