@@ -12,7 +12,7 @@ pub mod user;
 pub mod video;
 
 use anyhow::Context;
-use nominal::core::NominalClient;
+use nominal::core::{NominalClient, NominalClientBuilder};
 use nominal::{Config, Profile};
 use once_cell::sync::OnceCell;
 use prost_reflect::DescriptorPool;
@@ -45,9 +45,7 @@ pub(crate) fn load_profile(flag: Option<&str>) -> anyhow::Result<Profile> {
 
 pub(crate) fn load_client(flag: Option<&str>) -> anyhow::Result<NominalClient> {
     let profile = load_profile(flag)?;
-    NominalClient::builder(profile.token())
-        .base_url(profile.base_url())
-        .workspace_rid(profile.workspace_rid().map(ToString::to_string))
+    NominalClientBuilder::from_profile_config(&profile)
         .user_agent("nominal-cli", env!("CARGO_PKG_VERSION"))
         .build()
         .context("Failed to create client")

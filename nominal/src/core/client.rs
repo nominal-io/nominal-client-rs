@@ -34,19 +34,6 @@ impl std::fmt::Debug for NominalClient {
 }
 
 impl NominalClient {
-    pub fn new(
-        base_url: impl Into<String>,
-        token: impl Into<String>,
-        workspace_rid: Option<String>,
-    ) -> Result<Self> {
-        let base_url = base_url.into();
-        let token = token.into();
-        NominalClientBuilder::new(token)
-            .base_url(base_url)
-            .workspace_rid(workspace_rid)
-            .build()
-    }
-
     pub fn builder(token: impl Into<String>) -> NominalClientBuilder {
         NominalClientBuilder::new(token)
     }
@@ -71,11 +58,7 @@ impl NominalClient {
     }
 
     pub fn from_profile_config(profile: &Profile) -> Result<Self> {
-        Self::new(
-            profile.base_url(),
-            profile.token(),
-            profile.workspace_rid().map(ToString::to_string),
-        )
+        NominalClientBuilder::from_profile_config(profile).build()
     }
 
     pub fn base_url(&self) -> &str {
@@ -146,13 +129,19 @@ pub struct NominalClientBuilder {
 }
 
 impl NominalClientBuilder {
-    pub fn new(token: impl Into<String>) -> Self {
+    fn new(token: impl Into<String>) -> Self {
         Self {
             base_url: DEFAULT_BASE_URL.to_string(),
             token: token.into(),
             workspace_rid: None,
             user_agent: default_user_agent(),
         }
+    }
+
+    pub fn from_profile_config(profile: &Profile) -> Self {
+        Self::new(profile.token())
+            .base_url(profile.base_url())
+            .workspace_rid(profile.workspace_rid().map(ToString::to_string))
     }
 
     /// Override the default base URL.
