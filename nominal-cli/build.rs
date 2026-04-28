@@ -37,6 +37,7 @@ fn find_nominal_api_root() -> PathBuf {
         .expect("neither CARGO_HOME nor HOME is set");
 
     let registry_src = cargo_home.join("registry/src");
+    let nominal_api_version = locked_nominal_api_version();
     let mut candidates = Vec::new();
 
     for registry in fs::read_dir(&registry_src).unwrap_or_else(|e| {
@@ -63,7 +64,7 @@ fn find_nominal_api_root() -> PathBuf {
                 continue;
             };
 
-            if name.starts_with("nominal-api-")
+            if name == format!("nominal-api-{nominal_api_version}")
                 && package_path
                     .join("definitions/conjure/scout-service-api.conjure.json")
                     .is_file()
@@ -77,6 +78,42 @@ fn find_nominal_api_root() -> PathBuf {
     candidates
         .pop()
         .expect("nominal-api crate source not found in cargo registry")
+}
+
+fn locked_nominal_api_version() -> String {
+    let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    let lockfile = [
+        manifest_dir.join("Cargo.lock"),
+        manifest_dir.join("../Cargo.lock"),
+    ]
+    .into_iter()
+    .find(|path| path.is_file())
+    .unwrap_or_else(|| panic!("Cargo.lock not found near {}", manifest_dir.display()));
+    let raw = fs::read_to_string(&lockfile)
+        .unwrap_or_else(|e| panic!("failed to read {}: {e}", lockfile.display()));
+
+    let mut in_nominal_api = false;
+    for line in raw.lines() {
+        let line = line.trim();
+        if line == "[[package]]" {
+            in_nominal_api = false;
+            continue;
+        }
+        if line == "name = \"nominal-api\"" {
+            in_nominal_api = true;
+            continue;
+        }
+        if in_nominal_api {
+            if let Some(version) = line
+                .strip_prefix("version = \"")
+                .and_then(|rest| rest.strip_suffix('"'))
+            {
+                return version.to_owned();
+            }
+        }
+    }
+
+    panic!("nominal-api package not found in {}", lockfile.display());
 }
 
 fn generate_conjure_endpoints(json_path: &Path, out_dir: &Path) {
@@ -388,7 +425,7 @@ fn generate_proto_descriptor(protos_dir: &Path, includes_dir: &Path, out_dir: &P
     let proto_files = collect_proto_files(protos_dir);
     let proto_file_paths: Vec<&Path> = proto_files.iter().map(|p| p.as_path()).collect();
 
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .build_server(false)
         .build_client(false)
         .file_descriptor_set_path(&descriptor_path)
