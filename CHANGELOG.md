@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.2](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.2.1...nominal-v0.2.2) - 2026-04-28
+
+### Other
+
+- update nominal-api ([#25](https://github.com/nominal-io/nominal-client-rs/pull/25))
+
 ## [0.2.1] - 2026-04-26
 
 ### Fixed
