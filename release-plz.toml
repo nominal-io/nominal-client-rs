@@ -5,9 +5,10 @@ changelog_path = "./CHANGELOG.md"
 # Only publish after merging the release-plz PR, not on every main-branch push.
 release_always = false
 
-# Per-package tags & releases (so the CLI binary build workflow can key off the tag)
-git_tag_name = "{{ package }}-v{{ version }}"
-git_release_name = "{{ package }}-v{{ version }}"
+# One GitHub tag/release for the lockstep workspace release. The CLI crate still
+# publishes to crates.io, but its binaries attach to the nominal-vX release.
+git_tag_name = "nominal-v{{ version }}"
+git_release_name = "nominal-v{{ version }}"
 
 [[package]]
 name = "nominal"
@@ -20,5 +21,5 @@ git_release_enable = true
 name = "nominal-cli"
 version_group = "nominal"
 publish = true
-git_tag_enable = true
-git_release_enable = true
+git_tag_enable = false
+git_release_enable = false

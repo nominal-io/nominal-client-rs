@@ -7,7 +7,7 @@ on:
 jobs:
   build:
     name: Build ${{ matrix.target }}
-    if: startsWith(github.event.release.tag_name, 'nominal-cli-v')
+    if: startsWith(github.event.release.tag_name, 'nominal-v')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -60,7 +60,7 @@ jobs:
         run: |
           set -euo pipefail
           tag="${{ github.event.release.tag_name }}"
-          version="${tag#nominal-cli-}"
+          version="${tag#nominal-}"
           name="nom-$version-${{ matrix.target }}"
           mkdir -p "dist/$name"
           cp "target/${{ matrix.target }}/release/nom" "dist/$name/"
@@ -72,7 +72,7 @@ jobs:
         if: matrix.archive == 'zip'
         shell: pwsh
         run: |
-          $version = "${{ github.event.release.tag_name }}" -replace '^nominal-cli-', ''
+          $version = "${{ github.event.release.tag_name }}" -replace '^nominal-', ''
           $name = "nom-$version-${{ matrix.target }}"
           New-Item -ItemType Directory -Force -Path "dist/$name" | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/nom.exe" "dist/$name/"
