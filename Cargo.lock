@@ -1446,7 +1446,7 @@ dependencies = [
 
 [[package]]
 name = "nominal"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "bytes",
  "chrono",
@@ -1482,7 +1482,7 @@ dependencies = [
 
 [[package]]
 name = "nominal-cli"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "bytes",
