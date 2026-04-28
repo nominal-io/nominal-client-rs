@@ -45,5 +45,10 @@ pub(crate) fn load_profile(flag: Option<&str>) -> anyhow::Result<Profile> {
 
 pub(crate) fn load_client(flag: Option<&str>) -> anyhow::Result<NominalClient> {
     let profile = load_profile(flag)?;
-    NominalClient::from_profile_config(&profile).context("Failed to create client")
+    NominalClient::builder(profile.token())
+        .base_url(profile.base_url())
+        .workspace_rid(profile.workspace_rid().map(ToString::to_string))
+        .user_agent("nominal-cli", env!("CARGO_PKG_VERSION"))
+        .build()
+        .context("Failed to create client")
 }
