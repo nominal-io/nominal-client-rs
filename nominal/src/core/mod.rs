@@ -15,7 +15,7 @@ pub use catalog::{
     ConnectionUpdate, Dataset, DatasetCreate, DatasetQuery, DatasetUpdate, Video, VideoCreate,
     VideoQuery, VideoUpdate,
 };
-pub use client::NominalClient;
+pub use client::{NominalClient, NominalClientBuilder};
 pub use datasource::DataSource;
 pub use ingest::{
     AvroStreamIngest, CsvIngest, DataflashIngest, DatasetTarget, FileType, IngestClient, IngestJob,
