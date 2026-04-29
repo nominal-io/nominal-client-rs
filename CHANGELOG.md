@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.2.3...nominal-v0.3.0) - 2026-04-29
+
+### Added
+
+- client builder, user-agent ([#32](https://github.com/nominal-io/nominal-client-rs/pull/32))
+
 ## [0.2.3](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.2.2...nominal-v0.2.3) - 2026-04-28
 
 ### Other
