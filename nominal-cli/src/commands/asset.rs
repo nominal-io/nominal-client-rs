@@ -1,16 +1,48 @@
 use anyhow::Context;
 use chrono::SecondsFormat;
 use clap::Subcommand;
-use nominal::core::{Asset, AssetUpdate, NominalClient};
+use nominal::core::{Asset, AssetCreate, AssetQuery, AssetUpdate, NominalClient};
 
 #[derive(Subcommand)]
 pub enum AssetCommands {
     /// List all assets
     List,
+    /// Search assets by substring, label, and/or property. Multiple filters are AND-ed together.
+    Search {
+        /// Case-insensitive substring match against the asset name. Repeatable
+        #[arg(short, long = "substring", value_name = "SUBSTR")]
+        substrings: Vec<String>,
+
+        /// Filter by label. Repeatable
+        #[arg(short, long = "label", value_name = "LABEL")]
+        labels: Vec<String>,
+
+        /// Filter by property KEY VALUE pair. Repeatable
+        #[arg(short, long = "property", value_names = ["KEY", "VALUE"], num_args = 2, action = clap::ArgAction::Append)]
+        properties: Vec<String>,
+    },
     /// Get a specific asset by RID
     Get {
         /// The RID of the asset to retrieve
         rid: String,
+    },
+    /// Create a new asset
+    Create {
+        /// The asset name
+        #[arg(short, long)]
+        name: String,
+
+        /// Set the asset description
+        #[arg(short, long)]
+        description: Option<String>,
+
+        /// Add labels. Repeatable
+        #[arg(short, long = "label", value_name = "LABEL")]
+        labels: Vec<String>,
+
+        /// Add properties as KEY VALUE pairs. Repeatable
+        #[arg(short, long = "property", value_names = ["KEY", "VALUE"], num_args = 2, action = clap::ArgAction::Append)]
+        properties: Vec<String>,
     },
     /// Attach a dataset to an asset under a scope name
     AddDataset {
@@ -87,6 +119,52 @@ pub async fn handle(cmd: AssetCommands, client: NominalClient) -> anyhow::Result
             for asset in assets {
                 println!("{}", asset.rid());
             }
+        }
+        AssetCommands::Search {
+            substrings,
+            labels,
+            properties,
+        } => {
+            let query = build_asset_query(substrings, labels, properties)?;
+            let assets = client
+                .assets()
+                .search(query)
+                .await
+                .context("Failed to search assets")?;
+
+            for asset in assets {
+                println!("{}", asset.rid());
+            }
+        }
+        AssetCommands::Create {
+            name,
+            description,
+            labels,
+            properties,
+        } => {
+            let mut create = AssetCreate::new(name);
+
+            if let Some(d) = description {
+                create = create.description(d);
+            }
+            if !labels.is_empty() {
+                create = create.labels(labels);
+            }
+            if !properties.is_empty() {
+                let props: std::collections::HashMap<_, _> = properties
+                    .chunks(2)
+                    .map(|pair| (pair[0].clone(), pair[1].clone()))
+                    .collect();
+                create = create.properties(props);
+            }
+
+            let asset = client
+                .assets()
+                .create(create)
+                .await
+                .context("Failed to create asset")?;
+
+            print_asset(&asset);
         }
         AssetCommands::Get { rid } => {
             let asset = client
@@ -209,6 +287,29 @@ fn print_asset(asset: &Asset) {
             .to_rfc3339_opts(SecondsFormat::Nanos, true)
     );
     println!("URL: {}", asset.nominal_url());
+}
+
+fn build_asset_query(
+    substrings: Vec<String>,
+    labels: Vec<String>,
+    properties: Vec<String>,
+) -> anyhow::Result<AssetQuery> {
+    let mut filters: Vec<AssetQuery> = Vec::new();
+    filters.extend(substrings.into_iter().map(AssetQuery::substring_match));
+    filters.extend(labels.into_iter().map(AssetQuery::label));
+    if properties.len() % 2 != 0 {
+        anyhow::bail!("--property requires KEY VALUE pairs");
+    }
+    filters.extend(
+        properties
+            .chunks(2)
+            .map(|p| AssetQuery::property(p[0].clone(), p[1].clone())),
+    );
+    Ok(match filters.len() {
+        0 => AssetQuery::search_text(""),
+        1 => filters.into_iter().next().unwrap(),
+        _ => AssetQuery::and(filters),
+    })
 }
 
 fn data_source_kind(ds: &nominal::core::DataSource) -> &'static str {
