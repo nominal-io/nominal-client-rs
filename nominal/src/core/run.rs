@@ -7,10 +7,12 @@ use conjure_runtime::Client;
 use futures::Stream;
 use nominal_api::clients::scout::{AsyncRunService, AsyncRunServiceClient};
 use nominal_api::objects::api::{Label, PropertyName, PropertyValue, SetOperator};
+use nominal_api::objects::scout::rids::api::AssetRid;
 use nominal_api::objects::scout::rids::api::{LabelsFilter, PropertiesFilter};
 use nominal_api::objects::scout::run::api::{
-    CreateRunDataSource, CustomTimeframeFilter, SearchQuery, SearchRunsRequest, SearchRunsResponse,
-    SortField, SortKey, SortOptions, TimeframeFilter, UpdateAttachmentsRequest, UpdateRunRequest,
+    CreateRunDataSource, CreateRunRequest, CustomTimeframeFilter, SearchQuery, SearchRunsRequest,
+    SearchRunsResponse, SortField, SortKey, SortOptions, TimeframeFilter, UpdateAttachmentsRequest,
+    UpdateRunRequest,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -233,6 +235,128 @@ impl RunUpdate {
     }
 }
 
+/// Parameters for creating a new run.
+#[derive(Debug, Clone)]
+pub struct RunCreate {
+    name: String,
+    description: Option<String>,
+    start: DateTime<Utc>,
+    end: Option<DateTime<Utc>>,
+    properties: Option<HashMap<String, String>>,
+    labels: Option<Vec<String>>,
+    assets: Option<Vec<String>>,
+}
+
+impl RunCreate {
+    /// A run requires at minimum a name and a start time.
+    pub fn new(name: impl Into<String>, start: DateTime<Utc>) -> Self {
+        Self {
+            name: name.into(),
+            description: None,
+            start,
+            end: None,
+            properties: None,
+            labels: None,
+            assets: None,
+        }
+    }
+
+    #[must_use]
+    pub fn description(mut self, value: impl Into<String>) -> Self {
+        self.description = Some(value.into());
+        self
+    }
+
+    #[must_use]
+    pub fn end(mut self, value: DateTime<Utc>) -> Self {
+        self.end = Some(value);
+        self
+    }
+
+    #[must_use]
+    pub fn properties<I, K, V>(mut self, value: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        self.properties = Some(
+            value
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
+        );
+        self
+    }
+
+    #[must_use]
+    pub fn labels<I>(mut self, value: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: Into<String>,
+    {
+        self.labels = Some(value.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Asset RIDs to associate this run with.
+    #[must_use]
+    pub fn assets<I, S>(mut self, value: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.assets = Some(value.into_iter().map(Into::into).collect());
+        self
+    }
+
+    pub(crate) fn into_request(self, workspace_rid: Option<&str>) -> Result<CreateRunRequest> {
+        use crate::core::datetime::NominalDateTime;
+        use nominal_api::objects::api::rids::WorkspaceRid;
+
+        let RunCreate {
+            name,
+            description,
+            start,
+            end,
+            properties,
+            labels,
+            assets,
+        } = self;
+
+        let mut b = CreateRunRequest::builder()
+            .title(name)
+            .description(description.unwrap_or_default())
+            .start_time(NominalDateTime::try_from(start)?.into());
+
+        if let Some(e) = end {
+            b = b.end_time(Some(NominalDateTime::try_from(e)?.into()));
+        }
+        if let Some(p) = properties {
+            b = b.properties(
+                p.into_iter()
+                    .map(|(k, v)| (PropertyName(k), PropertyValue(v)))
+                    .collect::<BTreeMap<_, _>>(),
+            );
+        }
+        if let Some(l) = labels {
+            b = b.labels(l.into_iter().map(Label).collect::<BTreeSet<_>>());
+        }
+        if let Some(a) = assets {
+            let asset_rids = a
+                .into_iter()
+                .map(|s| parse_rid::<AssetRid>(&s).map_err(Error::from))
+                .collect::<Result<Vec<_>>>()?;
+            b = b.assets(asset_rids);
+        }
+        if let Some(wid) = workspace_rid {
+            b = b.workspace(parse_rid::<WorkspaceRid>(wid)?);
+        }
+
+        Ok(b.build())
+    }
+}
+
 /// A query for searching runs, which can be composed into a tree with [`and`](RunQuery::and), [`or`](RunQuery::or), and [`not`](RunQuery::not).
 #[derive(Debug, Clone)]
 pub enum RunQuery {
@@ -370,6 +494,7 @@ impl RunQuery {
 pub struct RunsClient {
     service: AsyncRunServiceClient<Client>,
     token: BearerToken,
+    workspace_rid: Option<String>,
     app_base_url: String,
 }
 
@@ -378,13 +503,42 @@ impl RunsClient {
         client: Client,
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
+        workspace_rid: Option<String>,
         app_base_url: String,
     ) -> Self {
         Self {
             service: AsyncRunServiceClient::new(client, runtime),
             token,
+            workspace_rid,
             app_base_url,
         }
+    }
+
+    /// Create a new run.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # async fn example(client: nominal::core::NominalClient) -> nominal::Result<()> {
+    /// use chrono::Utc;
+    /// use nominal::core::RunCreate;
+    /// let run = client.runs()
+    ///     .create(
+    ///         RunCreate::new("orbit-raise-burn", Utc::now())
+    ///             .description("Three-impulse burn to GTO")
+    ///             .labels(["orbit", "production"])
+    ///             .assets(["ri.scout.cerulean-staging.asset.<uuid>"]),
+    ///     )
+    ///     .await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn create(&self, create: RunCreate) -> Result<Run> {
+        let request = create.into_request(self.workspace_rid.as_deref())?;
+        let response = self
+            .service
+            .create_run(&self.token, &request)
+            .await
+            .map_err(Error::from)?;
+        Ok(Run::from_conjure(response, &self.app_base_url))
     }
 
     /// Get a run by RID.
@@ -844,5 +998,56 @@ mod tests {
         let got_end = api_timestamp_to_utc(req.end_time().unwrap()).unwrap();
         assert_eq!(got_start, start);
         assert_eq!(got_end, end);
+    }
+
+    // --- RunCreate::into_request ---
+
+    #[test]
+    fn create_minimal_request() {
+        let start = Utc.timestamp_opt(1_700_000_000, 0).single().unwrap();
+        let req = RunCreate::new("my-run", start).into_request(None).unwrap();
+        assert_eq!(req.title(), "my-run");
+        assert_eq!(req.description(), "");
+        assert!(req.end_time().is_none());
+        assert!(req.properties().is_empty());
+        assert!(req.labels().is_empty());
+        assert!(req.assets().is_empty());
+        assert!(req.workspace().is_none());
+
+        use crate::core::datetime::api_timestamp_to_utc;
+        let got = api_timestamp_to_utc(req.start_time()).unwrap();
+        assert_eq!(got, start);
+    }
+
+    #[test]
+    fn create_full_request() {
+        let start = Utc.timestamp_opt(1_700_000_000, 0).single().unwrap();
+        let end = Utc.timestamp_opt(1_700_003_600, 0).single().unwrap();
+        let req = RunCreate::new("my-run", start)
+            .description("desc")
+            .end(end)
+            .labels(["prod", "qa", "prod"])
+            .properties([("k", "v")])
+            .into_request(None)
+            .unwrap();
+
+        assert_eq!(req.title(), "my-run");
+        assert_eq!(req.description(), "desc");
+        // labels deduplicated by BTreeSet
+        assert_eq!(req.labels().len(), 2);
+        assert_eq!(req.properties().len(), 1);
+
+        use crate::core::datetime::api_timestamp_to_utc;
+        assert_eq!(api_timestamp_to_utc(req.start_time()).unwrap(), start);
+        assert_eq!(api_timestamp_to_utc(req.end_time().unwrap()).unwrap(), end);
+    }
+
+    #[test]
+    fn create_invalid_asset_rid_fails() {
+        let start = Utc.timestamp_opt(1_700_000_000, 0).single().unwrap();
+        let result = RunCreate::new("my-run", start)
+            .assets(["not-a-rid"])
+            .into_request(None);
+        assert!(result.is_err());
     }
 }

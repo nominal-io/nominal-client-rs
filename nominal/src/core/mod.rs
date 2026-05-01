@@ -22,5 +22,5 @@ pub use ingest::{
     IngestJobStatus, IngestType, JournalJsonIngest, McapIngest, ParquetIngest, ProgressCallback,
     TimeUnit, Timestamp, UploadEvent, UploadOptions, VideoIngest, VideoTarget,
 };
-pub use run::{Run, RunQuery, RunUpdate, RunsClient};
+pub use run::{Run, RunCreate, RunQuery, RunUpdate, RunsClient};
 pub use user::{User, UsersClient};

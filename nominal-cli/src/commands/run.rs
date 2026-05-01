@@ -1,16 +1,60 @@
 use anyhow::Context;
-use chrono::SecondsFormat;
+use chrono::{DateTime, SecondsFormat, Utc};
 use clap::Subcommand;
-use nominal::core::{NominalClient, Run, RunUpdate};
+use nominal::core::{NominalClient, Run, RunCreate, RunQuery, RunUpdate};
 
 #[derive(Subcommand)]
 pub enum RunCommands {
     /// List all runs
     List,
+    /// Search runs by substring, label, and/or property. Multiple filters are AND-ed together.
+    Search {
+        /// Case-insensitive substring match against the run name. Repeatable
+        #[arg(short, long = "substring", value_name = "SUBSTR")]
+        substrings: Vec<String>,
+
+        /// Filter by label. Repeatable
+        #[arg(short, long = "label", value_name = "LABEL")]
+        labels: Vec<String>,
+
+        /// Filter by property KEY VALUE pair. Repeatable
+        #[arg(short, long = "property", value_names = ["KEY", "VALUE"], num_args = 2, action = clap::ArgAction::Append)]
+        properties: Vec<String>,
+    },
     /// Get a specific run by RID
     Get {
         /// The RID of the run to retrieve
         rid: String,
+    },
+    /// Create a new run
+    Create {
+        /// The run name
+        #[arg(short, long)]
+        name: String,
+
+        /// RFC3339 timestamp when the run started
+        #[arg(short, long, value_name = "RFC3339")]
+        start: DateTime<Utc>,
+
+        /// RFC3339 timestamp when the run ended
+        #[arg(short, long, value_name = "RFC3339")]
+        end: Option<DateTime<Utc>>,
+
+        /// Set the run description
+        #[arg(short, long)]
+        description: Option<String>,
+
+        /// Add labels. Repeatable
+        #[arg(short, long = "label", value_name = "LABEL")]
+        labels: Vec<String>,
+
+        /// Add properties as KEY VALUE pairs. Repeatable
+        #[arg(short, long = "property", value_names = ["KEY", "VALUE"], num_args = 2, action = clap::ArgAction::Append)]
+        properties: Vec<String>,
+
+        /// Associate the run with one or more assets by RID. Repeatable
+        #[arg(short, long = "asset", value_name = "RID")]
+        assets: Vec<String>,
     },
     /// Attach a dataset to a run under a ref name
     AddDataset {
@@ -92,6 +136,58 @@ pub async fn handle(cmd: RunCommands, client: NominalClient) -> anyhow::Result<(
             for run in runs {
                 println!("{}", run.rid());
             }
+        }
+        RunCommands::Search {
+            substrings,
+            labels,
+            properties,
+        } => {
+            let query = build_run_query(substrings, labels, properties)?;
+            let runs = client
+                .runs()
+                .search(query)
+                .await
+                .context("Failed to search runs")?;
+            for run in runs {
+                println!("{}", run.rid());
+            }
+        }
+        RunCommands::Create {
+            name,
+            start,
+            end,
+            description,
+            labels,
+            properties,
+            assets,
+        } => {
+            let mut create = RunCreate::new(name, start);
+            if let Some(d) = description {
+                create = create.description(d);
+            }
+            if let Some(e) = end {
+                create = create.end(e);
+            }
+            if !labels.is_empty() {
+                create = create.labels(labels);
+            }
+            if !properties.is_empty() {
+                let props: std::collections::HashMap<_, _> = properties
+                    .chunks(2)
+                    .map(|pair| (pair[0].clone(), pair[1].clone()))
+                    .collect();
+                create = create.properties(props);
+            }
+            if !assets.is_empty() {
+                create = create.assets(assets);
+            }
+
+            let run = client
+                .runs()
+                .create(create)
+                .await
+                .context("Failed to create run")?;
+            print_run(&run);
         }
         RunCommands::Get { rid } => {
             let run = client
@@ -237,6 +333,29 @@ fn print_run(run: &Run) {
         run.created_at().to_rfc3339_opts(SecondsFormat::Nanos, true)
     );
     println!("URL: {}", run.nominal_url());
+}
+
+fn build_run_query(
+    substrings: Vec<String>,
+    labels: Vec<String>,
+    properties: Vec<String>,
+) -> anyhow::Result<RunQuery> {
+    let mut filters: Vec<RunQuery> = Vec::new();
+    filters.extend(substrings.into_iter().map(RunQuery::substring_match));
+    filters.extend(labels.into_iter().map(RunQuery::label));
+    if properties.len() % 2 != 0 {
+        anyhow::bail!("--property requires KEY VALUE pairs");
+    }
+    filters.extend(
+        properties
+            .chunks(2)
+            .map(|p| RunQuery::property(p[0].clone(), p[1].clone())),
+    );
+    Ok(match filters.len() {
+        0 => RunQuery::search_text(""),
+        1 => filters.into_iter().next().unwrap(),
+        _ => RunQuery::and(filters),
+    })
 }
 
 fn data_source_kind(ds: &nominal::core::DataSource) -> &'static str {
