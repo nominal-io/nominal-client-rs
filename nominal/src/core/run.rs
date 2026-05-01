@@ -7,13 +7,13 @@ use conjure_runtime::Client;
 use futures::Stream;
 use nominal_api::clients::scout::{AsyncRunService, AsyncRunServiceClient};
 use nominal_api::objects::api::{Label, PropertyName, PropertyValue, SetOperator};
+use nominal_api::objects::scout::rids::api::AssetRid;
 use nominal_api::objects::scout::rids::api::{LabelsFilter, PropertiesFilter};
 use nominal_api::objects::scout::run::api::{
     CreateRunDataSource, CreateRunRequest, CustomTimeframeFilter, SearchQuery, SearchRunsRequest,
     SearchRunsResponse, SortField, SortKey, SortOptions, TimeframeFilter, UpdateAttachmentsRequest,
     UpdateRunRequest,
 };
-use nominal_api::objects::scout::rids::api::AssetRid;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::core::{
@@ -310,10 +310,7 @@ impl RunCreate {
         self
     }
 
-    pub(crate) fn into_request(
-        self,
-        workspace_rid: Option<&str>,
-    ) -> Result<CreateRunRequest> {
+    pub(crate) fn into_request(self, workspace_rid: Option<&str>) -> Result<CreateRunRequest> {
         use crate::core::datetime::NominalDateTime;
         use nominal_api::objects::api::rids::WorkspaceRid;
 
@@ -1042,10 +1039,7 @@ mod tests {
 
         use crate::core::datetime::api_timestamp_to_utc;
         assert_eq!(api_timestamp_to_utc(req.start_time()).unwrap(), start);
-        assert_eq!(
-            api_timestamp_to_utc(req.end_time().unwrap()).unwrap(),
-            end
-        );
+        assert_eq!(api_timestamp_to_utc(req.end_time().unwrap()).unwrap(), end);
     }
 
     #[test]
