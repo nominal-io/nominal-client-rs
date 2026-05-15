@@ -7,12 +7,8 @@ use rustls::client::ResolvesClientCert;
 
 use crate::config::{Config, Profile};
 use crate::core::{
-    asset::AssetsClient,
-    catalog::CatalogClient,
-    ingest::IngestClient,
-    run::RunsClient,
-    user::UsersClient,
-    utils::api_base_url_to_app_base_url,
+    asset::AssetsClient, catalog::CatalogClient, ingest::IngestClient, run::RunsClient,
+    user::UsersClient, utils::api_base_url_to_app_base_url,
 };
 use crate::{Error, Result};
 
@@ -274,11 +270,7 @@ mod tests {
         #[derive(Debug)]
         struct MockResolver;
         impl ResolvesClientCert for MockResolver {
-            fn resolve(
-                &self,
-                _: &[&[u8]],
-                _: &[SignatureScheme],
-            ) -> Option<Arc<CertifiedKey>> {
+            fn resolve(&self, _: &[&[u8]], _: &[SignatureScheme]) -> Option<Arc<CertifiedKey>> {
                 None
             }
             fn has_certs(&self) -> bool {
@@ -301,11 +293,7 @@ mod tests {
         #[derive(Debug)]
         struct MockResolver;
         impl ResolvesClientCert for MockResolver {
-            fn resolve(
-                &self,
-                _: &[&[u8]],
-                _: &[SignatureScheme],
-            ) -> Option<Arc<CertifiedKey>> {
+            fn resolve(&self, _: &[&[u8]], _: &[SignatureScheme]) -> Option<Arc<CertifiedKey>> {
                 None
             }
             fn has_certs(&self) -> bool {
