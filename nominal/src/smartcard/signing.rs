@@ -1,9 +1,4 @@
-// rustls signing bridge.
-//
-// Implements the SigningKey + Signer traits from rustls so that a PKCS#11
-// private key can participate in TLS handshakes. A fresh PKCS#11 session is
-// opened for each signing operation so concurrent TLS connections each operate
-// on independent sessions without locking.
+// rustls signing bridge: SigningKey + Signer backed by a PKCS#11 private key.
 
 use std::sync::Arc;
 
@@ -91,11 +86,8 @@ impl Signer for Pkcs11Signer {
 
 // --- Scheme selection ----------------------------------------------------
 
-/// Return the first element of `offered` that appears in `supported`, or
-/// `None` if the sets are disjoint.
-///
-/// Iterating `offered` first means the server's preference order is respected
-/// while `supported` acts as an allowlist.
+/// Return the first element of `offered` that appears in `supported`.
+/// Iterates `offered` first so the server's preference order is respected.
 pub(super) fn first_supported(
     offered: &[SignatureScheme],
     supported: &[SignatureScheme],
@@ -185,13 +177,6 @@ fn pkcs11_err(e: cryptoki::error::Error) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // --- first_supported -------------------------------------------------
-    //
-    // first_supported determines which scheme is used for a TLS handshake.
-    // The offered slice comes from the server; supported comes from our key.
-    // The function must iterate offered first so the server's preference wins
-    // within the intersection.
 
     #[test]
     fn picks_first_offered_scheme_that_is_supported() {

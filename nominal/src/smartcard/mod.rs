@@ -1,13 +1,4 @@
-//! PKCS#11-backed client-certificate resolver for CAC/PIV mTLS authentication.
-//!
-//! Enable the `smartcard` Cargo feature to use this module:
-//!
-//! ```toml
-//! [dependencies]
-//! nominal = { version = "...", features = ["smartcard"] }
-//! ```
-//!
-//! # Usage
+//! PKCS#11-backed client-certificate resolver for CAC/PIV mTLS.
 //!
 //! ```rust,no_run
 //! use std::sync::Arc;
@@ -44,12 +35,7 @@ use signing::Pkcs11SigningKey;
 
 use crate::{Error, Result};
 
-/// Configuration for a PKCS#11-backed smartcard resolver.
-///
-/// Construct a [`SmartcardCertResolver`] from this and pass it to
-/// [`NominalClientBuilder::client_cert_resolver`].
-///
-/// [`NominalClientBuilder::client_cert_resolver`]: crate::NominalClientBuilder::client_cert_resolver
+/// Configuration for [`SmartcardCertResolver`].
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct SmartcardConfig {
     /// Path to the PKCS#11 shared library (`.so` / `.dylib` / `.dll`).
@@ -60,32 +46,21 @@ pub struct SmartcardConfig {
     /// - Windows: `C:\Windows\System32\opensc-pkcs11.dll`
     pub module_path: PathBuf,
 
-    /// Selects the certificate by its SHA-256 fingerprint (lowercase hex,
-    /// no colons, e.g. `"3a4b5c..."`).
+    /// SHA-256 fingerprint of the certificate to use (lowercase hex, no colons).
     ///
-    /// When `None`, the first certificate object that has a corresponding
-    /// private key on the token is used. Providing the fingerprint is strongly
-    /// recommended for cards that carry more than one certificate (e.g.
-    /// PIV Authentication + Digital Signature + Key Management).
+    /// When `None`, the first certificate with a corresponding private key is used.
+    /// Recommended when the card carries multiple certificates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cert_fingerprint_sha256: Option<String>,
 
-    /// Zero-based index into the list of slots that currently have a token.
-    ///
-    /// `None` selects the first available slot, which is correct for a
-    /// single-reader workstation.
+    /// Zero-based slot index. `None` selects the first available slot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slot_index: Option<usize>,
 }
 
-/// A rustls client-certificate resolver backed by a PKCS#11 token (CAC/PIV).
+/// rustls client-certificate resolver backed by a PKCS#11 token (CAC/PIV).
 ///
-/// Presents the same certificate for every TLS handshake regardless of the
-/// server's acceptable-issuer hints. This is correct for CAC deployments where
-/// the server validates the chain after the handshake.
-///
-/// Construct with [`SmartcardCertResolver::new`] at application startup and
-/// pass to [`NominalClientBuilder::client_cert_resolver`].
+/// Pass to [`NominalClientBuilder::client_cert_resolver`].
 ///
 /// [`NominalClientBuilder::client_cert_resolver`]: crate::NominalClientBuilder::client_cert_resolver
 pub struct SmartcardCertResolver {
@@ -100,13 +75,10 @@ impl std::fmt::Debug for SmartcardCertResolver {
 }
 
 impl SmartcardCertResolver {
-    /// Load the PKCS#11 module, discover the certificate, and prepare the
-    /// signing context.
+    /// Load the PKCS#11 module and prepare the signing context.
     ///
-    /// Calls `C_Initialize` and `C_OpenSession` once during construction to
-    /// locate the certificate and confirm the private key is present. The
-    /// discovery session is closed after construction; a new session is opened
-    /// for each TLS handshake so concurrent connections operate independently.
+    /// Opens a session once to locate the certificate and confirm the private key
+    /// is present, then closes it. A new session is opened per TLS handshake.
     pub fn new(config: SmartcardConfig) -> Result<Self> {
         let pkcs11 = Pkcs11::new(&config.module_path).map_err(|e| Error::Tls {
             details: format!(

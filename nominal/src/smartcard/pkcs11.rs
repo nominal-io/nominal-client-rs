@@ -1,8 +1,4 @@
 // PKCS#11 session management and object discovery.
-//
-// All functions here interact directly with the PKCS#11 C API through the
-// cryptoki crate. No rustls types appear here; signing concerns live in
-// signing.rs instead.
 
 use cryptoki::context::Pkcs11;
 use cryptoki::object::{Attribute, AttributeType, KeyType, ObjectClass, ObjectHandle};
@@ -16,8 +12,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{Error, Result};
 
-/// Open a read-only PKCS#11 session on `slot`, prompting the user interactively
-/// for their PIN. The PIN is used immediately for `C_Login` and never stored.
+/// Open a read-only PKCS#11 session on `slot`. Prompts for PIN interactively; never stored.
 pub(super) fn open_session(pkcs11: &Pkcs11, slot: Slot) -> Result<Session> {
     let session = pkcs11.open_ro_session(slot).map_err(|e| Error::Tls {
         details: format!("C_OpenSession failed: {e}"),
@@ -35,14 +30,8 @@ pub(super) fn open_session(pkcs11: &Pkcs11, slot: Slot) -> Result<Session> {
 
 /// Find a certificate on the token, returning its DER bytes and `CKA_ID`.
 ///
-/// When `fingerprint` is `Some`, the certificate whose SHA-256 fingerprint
-/// (lowercase hex, no colons) matches is selected; an error is returned if no
-/// match is found.
-///
-/// When `fingerprint` is `None`, the first certificate object that has a
-/// corresponding private key is returned. CAC cards typically order slots as
-/// PIV Authentication (9A), Card Authentication, Digital Signature, Key
-/// Management — so the first match is almost always the correct one for mTLS.
+/// With a fingerprint, selects by SHA-256 match. Without one, returns the first
+/// cert that has a corresponding private key (CAC slot order makes this PIV Auth).
 pub(super) fn find_certificate(
     session: &Session,
     fingerprint: Option<&str>,
@@ -161,10 +150,8 @@ pub(super) fn probe_key_type(session: &Session, key_id: &[u8]) -> Result<KeyType
 
 /// Return the rustls signature schemes and algorithm family for `key_type`.
 ///
-/// For RSA, PSS variants are listed before PKCS#1 because TLS 1.3 requires PSS
-/// and prohibits PKCS#1. Listing PSS first means a TLS 1.3 server will always
-/// negotiate PSS, while a TLS 1.2 server that only supports PKCS#1 will still
-/// find a match.
+/// PSS is listed before PKCS#1 so TLS 1.3 servers negotiate PSS while TLS 1.2
+/// servers that only support PKCS#1 still find a match.
 pub(super) fn schemes_for_key_type(
     key_type: KeyType,
 ) -> Result<(Vec<SignatureScheme>, SignatureAlgorithm)> {
@@ -197,12 +184,6 @@ pub(super) fn schemes_for_key_type(
 mod tests {
     use super::*;
 
-    // --- schemes_for_key_type ----------------------------------------------
-    //
-    // These tests verify the advertised scheme list, which determines what
-    // TLS versions and hash algorithms are available. Mistakes here directly
-    // affect which TLS handshakes succeed.
-
     #[test]
     fn rsa_algorithm_family_is_rsa() {
         let (_, alg) = schemes_for_key_type(KeyType::RSA).unwrap();
@@ -211,7 +192,6 @@ mod tests {
 
     #[test]
     fn rsa_includes_all_required_tls13_pss_variants() {
-        // TLS 1.3 (RFC 8446 §4.2.3) requires these three PSS schemes.
         let (schemes, _) = schemes_for_key_type(KeyType::RSA).unwrap();
         assert!(
             schemes.contains(&SignatureScheme::RSA_PSS_SHA256),
@@ -229,8 +209,6 @@ mod tests {
 
     #[test]
     fn rsa_pss_listed_before_pkcs1_for_tls13_preference() {
-        // TLS 1.3 forbids PKCS#1 v1.5 for handshake signatures. Listing PSS
-        // first ensures it is negotiated when both sides support it.
         let (schemes, _) = schemes_for_key_type(KeyType::RSA).unwrap();
         let pss_pos = schemes
             .iter()
@@ -280,7 +258,6 @@ mod tests {
 
     #[test]
     fn unsupported_key_type_returns_tls_error() {
-        // AES keys are symmetric and cannot be used for TLS signatures.
         let result = schemes_for_key_type(KeyType::AES);
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
