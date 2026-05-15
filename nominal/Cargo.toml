@@ -35,7 +35,6 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 webpki-roots = "1.0"
 cryptoki = { version = "0.12", optional = true }
 rpassword = { version = "7", optional = true }
-sha2 = { version = "0.10", optional = true }
 
 [features]
-smartcard = ["dep:cryptoki", "dep:rpassword", "dep:sha2"]
+smartcard = ["dep:cryptoki", "dep:rpassword"]

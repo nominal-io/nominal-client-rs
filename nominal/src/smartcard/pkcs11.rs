@@ -1,5 +1,6 @@
 // PKCS#11 session management and object discovery.
 
+use crate::{Error, Result};
 use cryptoki::context::Pkcs11;
 use cryptoki::object::{Attribute, AttributeType, KeyType, ObjectClass, ObjectHandle};
 use cryptoki::session::{Session, UserType};
@@ -8,9 +9,6 @@ use cryptoki::types::AuthPin;
 use rustls::SignatureAlgorithm;
 use rustls::SignatureScheme;
 use rustls::pki_types::CertificateDer;
-use sha2::{Digest, Sha256};
-
-use crate::{Error, Result};
 
 /// Open a read-only PKCS#11 session on `slot`. Prompts for PIN interactively; never stored.
 pub(super) fn open_session(pkcs11: &Pkcs11, slot: Slot) -> Result<Session> {
@@ -28,14 +26,11 @@ pub(super) fn open_session(pkcs11: &Pkcs11, slot: Slot) -> Result<Session> {
     Ok(session)
 }
 
-/// Find a certificate on the token, returning its DER bytes and `CKA_ID`.
+/// Find the first certificate on the token that has a corresponding private key.
 ///
-/// With a fingerprint, selects by SHA-256 match. Without one, returns the first
-/// cert that has a corresponding private key (CAC slot order makes this PIV Auth).
-pub(super) fn find_certificate(
-    session: &Session,
-    fingerprint: Option<&str>,
-) -> Result<(CertificateDer<'static>, Vec<u8>)> {
+/// CAC middleware enumerates objects in PIV slot order, so this reliably selects
+/// the PIV Authentication certificate (slot 9A).
+pub(super) fn find_certificate(session: &Session) -> Result<(CertificateDer<'static>, Vec<u8>)> {
     let handles = session
         .find_objects(&[Attribute::Class(ObjectClass::CERTIFICATE)])
         .map_err(|e| Error::Tls {
@@ -74,27 +69,13 @@ pub(super) fn find_certificate(
             continue;
         };
 
-        if let Some(fp) = fingerprint {
-            let actual: String = Sha256::digest(&cert_bytes)
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect();
-            if actual != fp {
-                continue;
-            }
-            return Ok((CertificateDer::from(cert_bytes), key_id));
-        }
-
         if key_exists(session, &key_id) {
             return Ok((CertificateDer::from(cert_bytes), key_id));
         }
     }
 
     Err(Error::Tls {
-        details: match fingerprint {
-            Some(fp) => format!("no certificate with fingerprint {fp} found on token"),
-            None => "no certificate with a corresponding private key found on token".into(),
-        },
+        details: "no certificate with a corresponding private key found on token".into(),
     })
 }
 

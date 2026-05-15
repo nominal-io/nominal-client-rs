@@ -7,7 +7,6 @@
 //! # fn main() -> nominal::Result<()> {
 //! let resolver = SmartcardCertResolver::new(SmartcardConfig {
 //!     module_path: "/usr/lib/x86_64-linux-gnu/opensc-pkcs11.so".into(),
-//!     cert_fingerprint_sha256: None,
 //!     slot_index: None,
 //! })?;
 //!
@@ -45,13 +44,6 @@ pub struct SmartcardConfig {
     /// - macOS: `/Library/OpenSC/lib/opensc-pkcs11.so`
     /// - Windows: `C:\Windows\System32\opensc-pkcs11.dll`
     pub module_path: PathBuf,
-
-    /// SHA-256 fingerprint of the certificate to use (lowercase hex, no colons).
-    ///
-    /// When `None`, the first certificate with a corresponding private key is used.
-    /// Recommended when the card carries multiple certificates.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cert_fingerprint_sha256: Option<String>,
 
     /// Zero-based slot index. `None` selects the first available slot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -110,8 +102,7 @@ impl SmartcardCertResolver {
         };
 
         let session = open_session(&pkcs11, slot)?;
-        let (cert_der, key_id) =
-            find_certificate(&session, config.cert_fingerprint_sha256.as_deref())?;
+        let (cert_der, key_id) = find_certificate(&session)?;
         let key_type = probe_key_type(&session, &key_id)?;
         drop(session);
 
@@ -149,17 +140,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn config_optional_fields_absent_when_none() {
+    fn config_slot_index_absent_when_none() {
         let cfg = SmartcardConfig {
             module_path: "/usr/lib/opensc-pkcs11.so".into(),
-            cert_fingerprint_sha256: None,
             slot_index: None,
         };
         let yaml = serde_yaml::to_string(&cfg).unwrap();
-        assert!(
-            !yaml.contains("cert_fingerprint"),
-            "absent fingerprint must not appear"
-        );
         assert!(!yaml.contains("slot_index"), "absent slot must not appear");
     }
 
@@ -167,25 +153,22 @@ mod tests {
     fn config_roundtrips_all_fields_through_yaml() {
         let cfg = SmartcardConfig {
             module_path: "/usr/lib/opensc-pkcs11.so".into(),
-            cert_fingerprint_sha256: Some("deadbeef".into()),
             slot_index: Some(2),
         };
         let yaml = serde_yaml::to_string(&cfg).unwrap();
         let rt: SmartcardConfig = serde_yaml::from_str(&yaml).unwrap();
         assert_eq!(rt.module_path, cfg.module_path);
-        assert_eq!(rt.cert_fingerprint_sha256, cfg.cert_fingerprint_sha256);
         assert_eq!(rt.slot_index, cfg.slot_index);
     }
 
     #[test]
-    fn config_deserializes_when_optional_fields_missing() {
-        let yaml = "module_path: /usr/lib/opensc-pkcs11.so\n";
-        let cfg: SmartcardConfig = serde_yaml::from_str(yaml).unwrap();
+    fn config_deserializes_with_module_path_only() {
+        let cfg: SmartcardConfig =
+            serde_yaml::from_str("module_path: /usr/lib/opensc-pkcs11.so\n").unwrap();
         assert_eq!(
             cfg.module_path.to_str().unwrap(),
             "/usr/lib/opensc-pkcs11.so"
         );
-        assert!(cfg.cert_fingerprint_sha256.is_none());
         assert!(cfg.slot_index.is_none());
     }
 
@@ -193,7 +176,6 @@ mod tests {
     fn config_preserves_module_path_with_spaces() {
         let cfg = SmartcardConfig {
             module_path: "/path/with spaces/opensc.so".into(),
-            cert_fingerprint_sha256: None,
             slot_index: None,
         };
         let yaml = serde_yaml::to_string(&cfg).unwrap();
