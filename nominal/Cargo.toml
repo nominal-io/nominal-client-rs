@@ -14,7 +14,7 @@ futures = "0.3"
 conjure-error = "5.10"
 conjure-http = "5.10"
 conjure-object = "5.10"
-conjure-runtime = { package = "conjure-runtime-rustls-platform-verifier", version = "0.2" }
+conjure-runtime = { package = "conjure-runtime-rustls-platform-verifier", version = "0.2.1" }
 dirs = "5"
 nominal-api = "0.1212"
 regex = "1.12"
@@ -31,3 +31,5 @@ tokio = { version = "1", features = [
     "time",
 ] }
 tracing = "0.1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1.0"
