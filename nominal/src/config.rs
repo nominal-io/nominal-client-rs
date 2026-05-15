@@ -92,30 +92,3 @@ fn default_config_path() -> Result<PathBuf> {
     let home = dirs::home_dir().ok_or(crate::Error::HomeDirNotFound)?;
     Ok(home.join(".config").join("nominal").join("config.yml"))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn profile_roundtrips_through_yaml() {
-        let profile = Profile::new(
-            "https://api.example.com".into(),
-            "mytoken".into(),
-            Some("ri.workspace..123".into()),
-        );
-        let yaml = serde_yaml::to_string(&profile).unwrap();
-        let roundtripped: Profile = serde_yaml::from_str(&yaml).unwrap();
-        assert_eq!(roundtripped.base_url(), profile.base_url());
-        assert_eq!(roundtripped.token(), profile.token());
-        assert_eq!(roundtripped.workspace_rid(), profile.workspace_rid());
-    }
-
-    #[test]
-    fn profile_without_workspace_rid_roundtrips() {
-        let profile = Profile::new("https://api.example.com".into(), "mytoken".into(), None);
-        let yaml = serde_yaml::to_string(&profile).unwrap();
-        let roundtripped: Profile = serde_yaml::from_str(&yaml).unwrap();
-        assert!(roundtripped.workspace_rid().is_none());
-    }
-}

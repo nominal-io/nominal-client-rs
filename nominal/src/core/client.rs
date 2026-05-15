@@ -171,13 +171,9 @@ impl NominalClientBuilder {
 
     /// Provide a custom TLS client-certificate resolver for mTLS connections.
     ///
-    /// When set, every connection — both to the Nominal API via conjure-runtime
-    /// and to S3 during multipart uploads — will present the resolved client
+    /// When set, every connection (both to the Nominal API via conjure-runtime
+    /// and to S3 during multipart uploads) will present the resolved client
     /// certificate during TLS handshakes that request one.
-    ///
-    /// Implement [`rustls::client::ResolvesClientCert`] to supply your own
-    /// certificate and signing logic (e.g. from a PKCS#11 token or an
-    /// in-memory key pair).
     pub fn client_cert_resolver(mut self, resolver: Arc<dyn ResolvesClientCert>) -> Self {
         self.tls_resolver = Some(resolver);
         self

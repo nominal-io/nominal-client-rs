@@ -435,6 +435,8 @@ dependencies = [
 [[package]]
 name = "conjure-runtime-rustls-platform-verifier"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5501f18098b00f0da57491fe6da5697206b8345147c0a4ec71b36e1e87779330"
 dependencies = [
  "arc-swap",
  "base64",
@@ -1405,13 +1407,11 @@ dependencies = [
  "nominal-api",
  "regex",
  "reqwest",
- "rustls",
  "serde",
  "serde_yaml",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
- "webpki-roots",
 ]
 
 [[package]]
