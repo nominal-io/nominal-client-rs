@@ -6,6 +6,7 @@ use bytes::{Bytes, BytesMut};
 use conjure_http::client::{AsyncService, ConjureRuntime};
 use conjure_object::BearerToken;
 use conjure_runtime::Client;
+use conjure_runtime::crypto::ring_crypto_provider;
 use futures::{Stream, StreamExt, TryStreamExt, stream};
 use nominal_api::clients::upload::api::{AsyncUploadService, AsyncUploadServiceClient};
 use nominal_api::objects::api::rids::WorkspaceRid;
@@ -166,10 +167,15 @@ fn build_http_client(
 ) -> Result<reqwest::Client> {
     let mut builder = reqwest::Client::builder().pool_max_idle_per_host(options.max_concurrency);
     if let Some(resolver) = tls_resolver {
-        let tls =
-            crate::core::smartcard::build_s3_tls_config(resolver).map_err(|e| Error::Upload {
-                details: format!("failed to configure mTLS for S3: {e}"),
-            })?;
+        let mut root_store = rustls::RootCertStore::empty();
+        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let tls = rustls::ClientConfig::builder_with_provider(ring_crypto_provider().clone())
+            .with_safe_default_protocol_versions()
+            .map_err(|e| Error::Tls {
+                details: format!("TLS protocol-version config: {e}"),
+            })?
+            .with_root_certificates(root_store)
+            .with_client_cert_resolver(resolver);
         builder = builder.use_preconfigured_tls(tls);
     }
     builder.build().map_err(|e| Error::Upload {

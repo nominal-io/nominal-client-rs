@@ -52,8 +52,8 @@ pub enum Error {
     #[error("ingest error: {details}")]
     Ingest { details: String },
 
-    #[error("smartcard error: {details}")]
-    Smartcard { details: String },
+    #[error("TLS error: {details}")]
+    Tls { details: String },
 }
 
 impl From<RidConversionError> for Error {

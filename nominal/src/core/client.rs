@@ -11,7 +11,6 @@ use crate::core::{
     catalog::CatalogClient,
     ingest::IngestClient,
     run::RunsClient,
-    smartcard::{SmartcardCertResolver, TokenBackend},
     user::UsersClient,
     utils::api_base_url_to_app_base_url,
 };
@@ -174,15 +173,17 @@ impl NominalClientBuilder {
         self
     }
 
-    /// Enable CAC / PIV smartcard mTLS using the provided token backend.
+    /// Provide a custom TLS client-certificate resolver for mTLS connections.
     ///
-    /// `backend` is the initialized PKCS#11 session wrapper returned by
-    /// `nominal::core::smartcard::load_pkcs11_backend` (implemented in a
-    /// subsequent PR). Once set, every connection — both to the Nominal API
-    /// via conjure-runtime and to S3 during multipart uploads — will present
-    /// the smartcard client certificate.
-    pub fn smartcard_backend(mut self, backend: Arc<dyn TokenBackend>) -> Self {
-        self.tls_resolver = Some(Arc::new(SmartcardCertResolver::new(backend)));
+    /// When set, every connection — both to the Nominal API via conjure-runtime
+    /// and to S3 during multipart uploads — will present the resolved client
+    /// certificate during TLS handshakes that request one.
+    ///
+    /// Implement [`rustls::client::ResolvesClientCert`] to supply your own
+    /// certificate and signing logic (e.g. from a PKCS#11 token or an
+    /// in-memory key pair).
+    pub fn client_cert_resolver(mut self, resolver: Arc<dyn ResolvesClientCert>) -> Self {
+        self.tls_resolver = Some(resolver);
         self
     }
 
@@ -259,57 +260,56 @@ mod tests {
     }
 
     #[test]
-    fn builder_without_smartcard_has_no_resolver() {
+    fn builder_without_resolver_has_none() {
         let builder = NominalClientBuilder::new("token");
         assert!(builder.tls_resolver.is_none());
     }
 
     #[test]
-    fn builder_with_smartcard_backend_sets_resolver() {
-        use crate::core::smartcard::{SmartcardCertResolver, TokenBackend};
-        use rustls::pki_types::CertificateDer;
-        use rustls::{SignatureAlgorithm, SignatureScheme};
+    fn builder_with_resolver_sets_resolver() {
+        use rustls::SignatureScheme;
+        use rustls::client::ResolvesClientCert;
+        use rustls::sign::CertifiedKey;
 
-        struct StubBackend;
-        impl TokenBackend for StubBackend {
-            fn cert_chain(&self) -> Vec<CertificateDer<'static>> {
-                vec![CertificateDer::from(vec![0x30, 0x03, 0x00, 0x00, 0x00])]
+        #[derive(Debug)]
+        struct MockResolver;
+        impl ResolvesClientCert for MockResolver {
+            fn resolve(
+                &self,
+                _: &[&[u8]],
+                _: &[SignatureScheme],
+            ) -> Option<Arc<CertifiedKey>> {
+                None
             }
-            fn supported_schemes(&self) -> Vec<SignatureScheme> {
-                vec![SignatureScheme::RSA_PSS_SHA256]
-            }
-            fn algorithm(&self) -> SignatureAlgorithm {
-                SignatureAlgorithm::RSA
-            }
-            fn sign_raw(&self, _: SignatureScheme, msg: &[u8]) -> crate::Result<Vec<u8>> {
-                Ok(msg.to_vec())
+            fn has_certs(&self) -> bool {
+                true
             }
         }
 
-        let builder = NominalClientBuilder::new("token").smartcard_backend(Arc::new(StubBackend));
+        let builder =
+            NominalClientBuilder::new("token").client_cert_resolver(Arc::new(MockResolver));
         assert!(builder.tls_resolver.is_some());
         assert!(builder.tls_resolver.unwrap().has_certs());
     }
 
     #[test]
-    fn builder_with_smartcard_builds_successfully() {
-        use crate::core::smartcard::TokenBackend;
-        use rustls::pki_types::CertificateDer;
-        use rustls::{SignatureAlgorithm, SignatureScheme};
+    fn builder_with_resolver_builds_successfully() {
+        use rustls::SignatureScheme;
+        use rustls::client::ResolvesClientCert;
+        use rustls::sign::CertifiedKey;
 
-        struct StubBackend;
-        impl TokenBackend for StubBackend {
-            fn cert_chain(&self) -> Vec<CertificateDer<'static>> {
-                vec![CertificateDer::from(vec![0x30, 0x03, 0x00, 0x00, 0x00])]
+        #[derive(Debug)]
+        struct MockResolver;
+        impl ResolvesClientCert for MockResolver {
+            fn resolve(
+                &self,
+                _: &[&[u8]],
+                _: &[SignatureScheme],
+            ) -> Option<Arc<CertifiedKey>> {
+                None
             }
-            fn supported_schemes(&self) -> Vec<SignatureScheme> {
-                vec![SignatureScheme::RSA_PSS_SHA256]
-            }
-            fn algorithm(&self) -> SignatureAlgorithm {
-                SignatureAlgorithm::RSA
-            }
-            fn sign_raw(&self, _: SignatureScheme, msg: &[u8]) -> crate::Result<Vec<u8>> {
-                Ok(msg.to_vec())
+            fn has_certs(&self) -> bool {
+                false
             }
         }
 
@@ -317,7 +317,7 @@ mod tests {
         // error. No network connection is made; the Client is constructed lazily.
         let result = NominalClientBuilder::new("validtoken123")
             .base_url("https://api.example.com/api")
-            .smartcard_backend(Arc::new(StubBackend))
+            .client_cert_resolver(Arc::new(MockResolver))
             .build();
         assert!(result.is_ok(), "build failed: {result:?}");
     }
