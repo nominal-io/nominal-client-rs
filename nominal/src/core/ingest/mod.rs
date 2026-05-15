@@ -28,6 +28,7 @@ use nominal_api::clients::ingest::api::{
 use nominal_api::objects::ingest::api::{
     IngestDetails, IngestJobRid, IngestOptions, IngestRequest,
 };
+use rustls::client::ResolvesClientCert;
 
 use crate::core::rid::{parse_rid, rid_to_string};
 use crate::{Error, Result};
@@ -42,6 +43,7 @@ pub struct IngestClient {
     runtime: Arc<ConjureRuntime>,
     token: BearerToken,
     workspace_rid: Option<String>,
+    tls_resolver: Option<Arc<dyn ResolvesClientCert>>,
 }
 
 impl IngestClient {
@@ -50,6 +52,7 @@ impl IngestClient {
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
         workspace_rid: Option<String>,
+        tls_resolver: Option<Arc<dyn ResolvesClientCert>>,
     ) -> Self {
         Self {
             ingest_service: AsyncIngestServiceClient::new(client.clone(), runtime),
@@ -58,6 +61,7 @@ impl IngestClient {
             runtime: runtime.clone(),
             token,
             workspace_rid,
+            tls_resolver,
         }
     }
 
@@ -92,6 +96,7 @@ impl IngestClient {
             filename,
             file_type.mime_type().to_string(),
             upload_options,
+            self.tls_resolver.clone(),
         )
         .await?;
 
@@ -127,6 +132,7 @@ impl IngestClient {
             filename,
             file_type.mime_type().to_string(),
             upload_options,
+            self.tls_resolver.clone(),
         )
         .await?;
 
@@ -157,6 +163,7 @@ impl IngestClient {
             filename,
             file_type.mime_type().to_string(),
             upload_options,
+            self.tls_resolver.clone(),
         )
         .await?;
 
@@ -190,6 +197,7 @@ impl IngestClient {
             filename,
             file_type.mime_type().to_string(),
             upload_options,
+            self.tls_resolver.clone(),
         )
         .await?;
 
@@ -219,6 +227,7 @@ impl IngestClient {
             filename,
             file_type.mime_type().to_string(),
             upload_options,
+            self.tls_resolver.clone(),
         )
         .await?;
 
@@ -249,6 +258,7 @@ impl IngestClient {
             filename,
             file_type.mime_type().to_string(),
             upload_options,
+            self.tls_resolver.clone(),
         )
         .await?;
 
@@ -289,6 +299,7 @@ impl IngestClient {
             filename,
             file_type.mime_type().to_string(),
             upload_options,
+            self.tls_resolver.clone(),
         )
         .await?;
 

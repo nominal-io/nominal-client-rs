@@ -31,3 +31,5 @@ tokio = { version = "1", features = [
     "time",
 ] }
 tracing = "0.1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1.0"

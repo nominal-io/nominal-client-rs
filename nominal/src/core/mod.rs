@@ -6,6 +6,7 @@ pub(crate) mod datetime;
 pub(crate) mod ingest;
 pub(crate) mod rid;
 pub(crate) mod run;
+pub mod smartcard;
 pub(crate) mod user;
 pub(crate) mod utils;
 
@@ -23,4 +24,5 @@ pub use ingest::{
     TimeUnit, Timestamp, UploadEvent, UploadOptions, VideoIngest, VideoTarget,
 };
 pub use run::{Run, RunCreate, RunQuery, RunUpdate, RunsClient};
+pub use smartcard::{SmartcardCertResolver, TokenBackend, build_rustls_config};
 pub use user::{User, UsersClient};

@@ -10,6 +10,7 @@ use futures::{Stream, StreamExt, TryStreamExt, stream};
 use nominal_api::clients::upload::api::{AsyncUploadService, AsyncUploadServiceClient};
 use nominal_api::objects::api::rids::WorkspaceRid;
 use nominal_api::objects::ingest::api::{InitiateMultipartUploadRequest, Part};
+use rustls::client::ResolvesClientCert;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 use crate::core::ingest::options::UploadOptions;
@@ -37,6 +38,7 @@ pub(crate) async fn upload_file(
     filename: String,
     mimetype: String,
     options: UploadOptions,
+    tls_resolver: Option<Arc<dyn ResolvesClientCert>>,
 ) -> Result<String> {
     let file = tokio::fs::File::open(path.as_ref()).await?;
     let total_bytes = file.metadata().await?.len();
@@ -50,6 +52,7 @@ pub(crate) async fn upload_file(
         filename,
         mimetype,
         options,
+        tls_resolver,
     )
     .await
 }
@@ -69,6 +72,7 @@ pub(crate) async fn upload_reader<R>(
     filename: String,
     mimetype: String,
     options: UploadOptions,
+    tls_resolver: Option<Arc<dyn ResolvesClientCert>>,
 ) -> Result<String>
 where
     R: AsyncRead + Unpin + Send + 'static,
@@ -112,12 +116,7 @@ where
         total_parts,
     });
 
-    let http = reqwest::Client::builder()
-        .pool_max_idle_per_host(options.max_concurrency)
-        .build()
-        .map_err(|e| Error::Upload {
-            details: format!("failed to build HTTP client: {e}"),
-        })?;
+    let http = build_http_client(&options, tls_resolver)?;
 
     let ctx = PartCtx {
         upload_service: &upload_service,
@@ -159,6 +158,23 @@ where
             Err(e)
         }
     }
+}
+
+fn build_http_client(
+    options: &UploadOptions,
+    tls_resolver: Option<Arc<dyn ResolvesClientCert>>,
+) -> Result<reqwest::Client> {
+    let mut builder = reqwest::Client::builder().pool_max_idle_per_host(options.max_concurrency);
+    if let Some(resolver) = tls_resolver {
+        let tls =
+            crate::core::smartcard::build_s3_tls_config(resolver).map_err(|e| Error::Upload {
+                details: format!("failed to configure mTLS for S3: {e}"),
+            })?;
+        builder = builder.use_preconfigured_tls(tls);
+    }
+    builder.build().map_err(|e| Error::Upload {
+        details: format!("failed to build HTTP client: {e}"),
+    })
 }
 
 /// Everything needed to sign and PUT an individual part.
