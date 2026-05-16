@@ -1,12 +1,13 @@
 use nominal_api::objects::api::rids::DataSourceRid;
 use nominal_api::objects::api::{
-    Channel as ApiChannel, Empty, SeriesDataType as ApiSeriesDataType, Unit as ApiUnit,
+    Channel as ApiChannel, SeriesDataType as ApiSeriesDataType, Unit as ApiUnit,
 };
 use nominal_api::objects::datasource::api::ChannelMetadata as SearchChannelMetadata;
-use nominal_api::objects::timeseries::channelmetadata::api::{
-    ChannelIdentifier, ChannelMetadata as StoredChannelMetadata, UpdateChannelMetadataRequest,
+use nominal_api::objects::storage::series::api::NominalDataType;
+use nominal_api::objects::timeseries::channelmetadata::api::ChannelMetadata as StoredChannelMetadata;
+use nominal_api::objects::timeseries::metadata::api::{
+    CreateSeriesMetadataRequest, LocatorTemplate, NominalLocatorTemplate,
 };
-use nominal_api::objects::timeseries::logicalseries::api::UnitUpdate as ApiUnitUpdate;
 use std::collections::BTreeSet;
 
 use crate::Result;
@@ -68,6 +69,23 @@ impl Channel {
             data_type: meta.data_type().map(ChannelDataType::from),
         }
     }
+
+    pub(crate) fn from_update(
+        data_source_rid: impl Into<String>,
+        name: impl Into<String>,
+        update: &ChannelUpdate,
+    ) -> Self {
+        Self {
+            data_source_rid: data_source_rid.into(),
+            name: name.into(),
+            description: update.description.clone(),
+            unit: match &update.unit_update {
+                Some(UnitUpdate::Set(unit)) => Some(unit.clone()),
+                Some(UnitUpdate::Clear) | None => None,
+            },
+            data_type: update.data_type.clone(),
+        }
+    }
 }
 
 /// The data type of a channel's values.
@@ -117,6 +135,21 @@ impl ChannelDataType {
             Self::StringArray => ApiSeriesDataType::StringArray,
             Self::Struct => ApiSeriesDataType::Struct,
             Self::Video => ApiSeriesDataType::Video,
+            Self::Unknown(_) => return None,
+        })
+    }
+
+    pub(crate) fn into_nominal_data_type(self) -> Option<NominalDataType> {
+        Some(match self {
+            Self::Double => NominalDataType::Double,
+            Self::Int => NominalDataType::Int64,
+            Self::Uint => NominalDataType::Uint64,
+            Self::String => NominalDataType::String,
+            Self::Log => NominalDataType::Log,
+            Self::DoubleArray => NominalDataType::DoubleArray,
+            Self::StringArray => NominalDataType::StringArray,
+            Self::Struct => NominalDataType::Struct,
+            Self::Video => NominalDataType::Video,
             Self::Unknown(_) => return None,
         })
     }
@@ -206,6 +239,7 @@ pub(crate) struct ChannelSearchParts {
 pub struct ChannelUpdate {
     description: Option<String>,
     unit_update: Option<UnitUpdate>,
+    data_type: Option<ChannelDataType>,
 }
 
 #[derive(Debug, Clone)]
@@ -240,26 +274,42 @@ impl ChannelUpdate {
         self
     }
 
-    pub(crate) fn into_request(
+    /// Set the channel's data type for upsert operations.
+    ///
+    /// This is only needed when metadata may be created before the channel
+    /// exists. Existing channels already have a server-detected data type.
+    #[must_use]
+    pub fn data_type(mut self, data_type: ChannelDataType) -> Self {
+        self.data_type = Some(data_type);
+        self
+    }
+
+    pub(crate) fn into_series_metadata_request(
         self,
         data_source_rid: &str,
         name: &str,
-    ) -> Result<UpdateChannelMetadataRequest> {
-        let id = ChannelIdentifier::new(
-            ApiChannel(name.to_string()),
-            parse_rid::<DataSourceRid>(data_source_rid)?,
-        );
-        let mut b = UpdateChannelMetadataRequest::builder().channel_identifier(id);
+    ) -> Result<CreateSeriesMetadataRequest> {
+        let channel = ApiChannel(name.to_string());
+        let data_type = self
+            .data_type
+            .clone()
+            .unwrap_or(ChannelDataType::Double)
+            .into_nominal_data_type()
+            .unwrap_or(NominalDataType::Double);
+        let locator =
+            LocatorTemplate::Nominal(NominalLocatorTemplate::new(channel.clone(), data_type));
+        let mut b = CreateSeriesMetadataRequest::builder()
+            .channel(channel)
+            .data_source_rid(parse_rid::<DataSourceRid>(data_source_rid)?)
+            .locator(locator);
+
         if let Some(d) = self.description {
             b = b.description(d);
         }
-        if let Some(u) = self.unit_update {
-            let update = match u {
-                UnitUpdate::Set(symbol) => ApiUnitUpdate::Unit(ApiUnit(symbol)),
-                UnitUpdate::Clear => ApiUnitUpdate::ClearUnit(Empty::new()),
-            };
-            b = b.unit_update(update);
+        if let Some(UnitUpdate::Set(symbol)) = self.unit_update {
+            b = b.unit(ApiUnit(symbol));
         }
+
         Ok(b.build())
     }
 }

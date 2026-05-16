@@ -25,6 +25,9 @@ use nominal_api::clients::scout::video::{AsyncVideoService, AsyncVideoServiceCli
 use nominal_api::clients::timeseries::channelmetadata::{
     AsyncChannelMetadataService, AsyncChannelMetadataServiceClient,
 };
+use nominal_api::clients::timeseries::metadata::{
+    AsyncSeriesMetadataService, AsyncSeriesMetadataServiceClient,
+};
 use nominal_api::objects::api::rids::{DataSourceRid, VideoRid};
 use nominal_api::objects::datasource::api::{SearchChannelsRequest, SearchChannelsResponse};
 use nominal_api::objects::scout::catalog::{
@@ -55,6 +58,7 @@ pub struct CatalogClient {
     connection_service: AsyncConnectionServiceClient<Client>,
     data_source_service: AsyncDataSourceServiceClient<Client>,
     channel_metadata_service: AsyncChannelMetadataServiceClient<Client>,
+    series_metadata_service: AsyncSeriesMetadataServiceClient<Client>,
     token: BearerToken,
     workspace_rid: Option<String>,
     app_base_url: String,
@@ -73,7 +77,11 @@ impl CatalogClient {
             video_service: AsyncVideoServiceClient::new(client.clone(), runtime),
             connection_service: AsyncConnectionServiceClient::new(client.clone(), runtime),
             data_source_service: AsyncDataSourceServiceClient::new(client.clone(), runtime),
-            channel_metadata_service: AsyncChannelMetadataServiceClient::new(client, runtime),
+            channel_metadata_service: AsyncChannelMetadataServiceClient::new(
+                client.clone(),
+                runtime,
+            ),
+            series_metadata_service: AsyncSeriesMetadataServiceClient::new(client, runtime),
             token,
             workspace_rid,
             app_base_url,
@@ -586,20 +594,24 @@ impl CatalogClient {
     }
 
     /// Set a channel's metadata (description and/or unit). Only fields set
-    /// on the update are written; the rest remain untouched. Returns the
-    /// resulting channel.
+    /// on the update are written; the rest remain untouched.
+    ///
+    /// Uses the series metadata upsert endpoint, so metadata can be seeded
+    /// before streamed data has created the channel. If the update does not
+    /// specify a data type, double is used as the creation-time default.
     pub async fn set_channel_metadata(
         &self,
         data_source_rid: &str,
         name: &str,
         update: ChannelUpdate,
     ) -> Result<Channel> {
-        let request = update.into_request(data_source_rid, name)?;
-        let response = self
-            .channel_metadata_service
-            .update_channel_metadata(&self.token, &request)
+        let request = update
+            .clone()
+            .into_series_metadata_request(data_source_rid, name)?;
+        self.series_metadata_service
+            .create_or_update(&self.token, &request)
             .await
             .map_err(Error::from)?;
-        Ok(Channel::from_stored(response))
+        Ok(Channel::from_update(data_source_rid, name, &update))
     }
 }
