@@ -18,6 +18,23 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  dependency-graph:
+    name: Dependency graph
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
+        with:
+          toolchain: stable
+          cache: false
+      - name: Check nominal-api version alignment
+        run: |
+          if cargo tree --workspace --duplicates | grep -q '^nominal-api v'; then
+            echo "::error::multiple nominal-api versions resolved; bump nominal-api alongside nominal-streaming"
+            cargo tree --workspace --duplicates
+            exit 1
+          fi
+
   fmt:
     name: Format
     runs-on: ubuntu-latest
