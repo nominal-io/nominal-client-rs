@@ -1,29 +1,24 @@
 // rustls signing bridge: SigningKey + Signer backed by a PKCS#11 private key.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use cryptoki::context::Pkcs11;
 use cryptoki::mechanism::Mechanism;
 use cryptoki::mechanism::MechanismType;
 use cryptoki::mechanism::rsa::{PkcsMgfType, PkcsPssParams};
 use cryptoki::object::ObjectHandle;
 use cryptoki::session::Session;
-use cryptoki::slot::Slot;
 use rustls::SignatureAlgorithm;
 use rustls::SignatureScheme;
 use rustls::sign::{Signer, SigningKey};
 
 use super::der::ecdsa_raw_to_der;
-use super::pkcs11::{find_key_handle, open_session};
 use crate::{Error, Result};
 
 // --- SigningKey ----------------------------------------------------------
 
 pub(super) struct Pkcs11SigningKey {
-    pub(super) pkcs11: Arc<Pkcs11>,
-    pub(super) slot: Slot,
-    /// CKA_ID used to locate the private key in each newly opened session.
-    pub(super) key_id: Vec<u8>,
+    pub(super) session: Arc<Mutex<Session>>,
+    pub(super) key_handle: ObjectHandle,
     pub(super) schemes: Vec<SignatureScheme>,
     pub(super) algorithm: SignatureAlgorithm,
 }
@@ -40,9 +35,8 @@ impl SigningKey for Pkcs11SigningKey {
     fn choose_scheme(&self, offered: &[SignatureScheme]) -> Option<Box<dyn Signer>> {
         let scheme = first_supported(offered, &self.schemes)?;
         Some(Box::new(Pkcs11Signer {
-            pkcs11: self.pkcs11.clone(),
-            slot: self.slot,
-            key_id: self.key_id.clone(),
+            session: self.session.clone(),
+            key_handle: self.key_handle,
             scheme,
         }))
     }
@@ -55,9 +49,8 @@ impl SigningKey for Pkcs11SigningKey {
 // --- Signer --------------------------------------------------------------
 
 struct Pkcs11Signer {
-    pkcs11: Arc<Pkcs11>,
-    slot: Slot,
-    key_id: Vec<u8>,
+    session: Arc<Mutex<Session>>,
+    key_handle: ObjectHandle,
     scheme: SignatureScheme,
 }
 
@@ -71,11 +64,11 @@ impl std::fmt::Debug for Pkcs11Signer {
 
 impl Signer for Pkcs11Signer {
     fn sign(&self, message: &[u8]) -> std::result::Result<Vec<u8>, rustls::Error> {
-        let session = open_session(&self.pkcs11, self.slot)
+        let session = self
+            .session
+            .lock()
             .map_err(|e| rustls::Error::General(e.to_string()))?;
-        let key = find_key_handle(&session, &self.key_id)
-            .map_err(|e| rustls::Error::General(e.to_string()))?;
-        sign_with_scheme(&session, key, self.scheme, message)
+        sign_with_scheme(&session, self.key_handle, self.scheme, message)
             .map_err(|e| rustls::Error::General(e.to_string()))
     }
 

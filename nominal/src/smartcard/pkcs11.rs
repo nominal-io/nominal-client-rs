@@ -2,13 +2,25 @@
 
 use crate::{Error, Result};
 use cryptoki::context::Pkcs11;
-use cryptoki::object::{Attribute, AttributeType, KeyType, ObjectClass, ObjectHandle};
+use cryptoki::object::{
+    Attribute, AttributeType, CertificateType, KeyType, ObjectClass, ObjectHandle,
+};
 use cryptoki::session::{Session, UserType};
 use cryptoki::slot::Slot;
 use cryptoki::types::AuthPin;
 use rustls::SignatureAlgorithm;
 use rustls::SignatureScheme;
 use rustls::pki_types::CertificateDer;
+use x509_cert::Certificate;
+use x509_cert::der::Decode;
+use x509_cert::der::asn1::ObjectIdentifier;
+use x509_cert::ext::pkix::ExtendedKeyUsage;
+
+/// OID for id-ce-extKeyUsage (2.5.29.37).
+const EKU_EXTENSION_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.5.29.37");
+
+/// OID for id-kp-clientAuth (RFC 5280 §4.2.1.12).
+const CLIENT_AUTH_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.5.5.7.3.2");
 
 /// Open a read-only PKCS#11 session on `slot`. Prompts for PIN interactively; never stored.
 pub(super) fn open_session(pkcs11: &Pkcs11, slot: Slot) -> Result<Session> {
@@ -26,68 +38,131 @@ pub(super) fn open_session(pkcs11: &Pkcs11, slot: Slot) -> Result<Session> {
     Ok(session)
 }
 
-/// Find the first certificate on the token that has a corresponding private key.
+/// Scan all token slots for the PIV Authentication certificate (slot 9A,
+/// `CKA_ID = [0x01]`) and verify it carries an EKU for TLS client auth.
 ///
-/// CAC middleware enumerates objects in PIV slot order, so this reliably selects
-/// the PIV Authentication certificate (slot 9A).
-pub(super) fn find_certificate(session: &Session) -> Result<(CertificateDer<'static>, Vec<u8>)> {
-    let handles = session
-        .find_objects(&[Attribute::Class(ObjectClass::CERTIFICATE)])
-        .map_err(|e| Error::Tls {
-            details: format!("C_FindObjects (certificate) failed: {e}"),
-        })?;
+/// Sessions are opened without login — certificate objects on PIV cards are
+/// public and readable unauthenticated. The PIN is only required later when
+/// opening the signing session.
+///
+/// Returns an error if no certificate is found, if multiple slots each carry
+/// a PIV 9A certificate (two cards inserted simultaneously), or if the
+/// certificate fails EKU validation.
+///
+/// `CKA_ID = [0x01]` is the standard mapping for PIV slot 9A in OpenSC,
+/// ykcs11, and most major middleware. ActivClient and some DoD-specific
+/// drivers use different mappings and will receive a clear error.
+pub(super) fn discover_piv_cert(
+    pkcs11: &Pkcs11,
+    slots: &[Slot],
+) -> Result<(Slot, CertificateDer<'static>)> {
+    let mut found: Option<(Slot, CertificateDer<'static>)> = None;
 
-    if handles.is_empty() {
-        return Err(Error::Tls {
-            details: "no certificate objects found on PKCS#11 token".into(),
-        });
-    }
-
-    for handle in handles {
-        let attrs = session
-            .get_attributes(handle, &[AttributeType::Value, AttributeType::Id])
-            .map_err(|e| Error::Tls {
-                details: format!("C_GetAttributeValue (certificate) failed: {e}"),
-            })?;
-
-        let cert_bytes = attrs.iter().find_map(|a| {
-            if let Attribute::Value(v) = a {
-                Some(v.clone())
-            } else {
-                None
-            }
-        });
-        let key_id = attrs.iter().find_map(|a| {
-            if let Attribute::Id(v) = a {
-                Some(v.clone())
-            } else {
-                None
-            }
-        });
-
-        let (Some(cert_bytes), Some(key_id)) = (cert_bytes, key_id) else {
-            continue;
+    for &slot in slots {
+        let session = match pkcs11.open_ro_session(slot) {
+            Ok(s) => s,
+            Err(_) => continue,
         };
 
-        if key_exists(session, &key_id) {
-            return Ok((CertificateDer::from(cert_bytes), key_id));
+        let handles = match session.find_objects(&[
+            Attribute::Class(ObjectClass::CERTIFICATE),
+            Attribute::CertificateType(CertificateType::X_509),
+            Attribute::Id(vec![0x01]),
+        ]) {
+            Ok(h) => h,
+            Err(_) => continue,
+        };
+
+        if handles.is_empty() {
+            continue;
+        }
+
+        if handles.len() > 1 {
+            return Err(Error::Tls {
+                details: "multiple objects with CKA_ID=0x01 found on a single token slot; \
+                          expected exactly one PIV Authentication certificate"
+                    .into(),
+            });
+        }
+
+        let attrs = session
+            .get_attributes(handles[0], &[AttributeType::Value])
+            .map_err(|e| Error::Tls {
+                details: format!("C_GetAttributeValue (PIV 9A certificate) failed: {e}"),
+            })?;
+
+        let cert_bytes = attrs
+            .iter()
+            .find_map(|a| {
+                if let Attribute::Value(v) = a {
+                    Some(v.clone())
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| Error::Tls {
+                details: "CKA_VALUE missing from PIV 9A certificate object".into(),
+            })?;
+
+        check_client_auth_eku(&cert_bytes)?;
+
+        if found.is_some() {
+            return Err(Error::Tls {
+                details: "PIV Authentication certificates found on multiple token slots; \
+                          only one smartcard should be inserted at a time"
+                    .into(),
+            });
+        }
+
+        found = Some((slot, CertificateDer::from(cert_bytes)));
+    }
+
+    found.ok_or_else(|| Error::Tls {
+        details: format!(
+            "no PIV Authentication certificate (slot 9A, CKA_ID=0x01) found on any token slot; \
+             ensure the card is inserted and OpenSC middleware is installed, or set {} \
+             to override the module path",
+            super::PKCS11_MODULE_ENV_VAR
+        ),
+    })
+}
+
+/// Return an error if the certificate does not contain id-kp-clientAuth in its
+/// Extended Key Usage extension.
+fn check_client_auth_eku(cert_der: &[u8]) -> Result<()> {
+    let cert = Certificate::from_der(cert_der).map_err(|e| Error::Tls {
+        details: format!("failed to parse PIV 9A certificate: {e}"),
+    })?;
+
+    let extensions = cert
+        .tbs_certificate
+        .extensions
+        .as_deref()
+        .unwrap_or_default();
+
+    for ext in extensions {
+        if ext.extn_id == EKU_EXTENSION_OID {
+            let eku =
+                ExtendedKeyUsage::from_der(ext.extn_value.as_bytes()).map_err(|e| Error::Tls {
+                    details: format!("failed to decode Extended Key Usage extension: {e}"),
+                })?;
+            if eku.0.iter().any(|oid| *oid == CLIENT_AUTH_OID) {
+                return Ok(());
+            }
+            return Err(Error::Tls {
+                details: "PIV 9A certificate does not include id-kp-clientAuth in its \
+                          Extended Key Usage; this certificate cannot be used for TLS \
+                          client authentication"
+                    .into(),
+            });
         }
     }
 
     Err(Error::Tls {
-        details: "no certificate with a corresponding private key found on token".into(),
+        details: "PIV 9A certificate has no Extended Key Usage extension; \
+                  expected id-kp-clientAuth for TLS client authentication"
+            .into(),
     })
-}
-
-/// Return `true` if a private key with the given `CKA_ID` exists on the token.
-fn key_exists(session: &Session, key_id: &[u8]) -> bool {
-    session
-        .find_objects(&[
-            Attribute::Class(ObjectClass::PRIVATE_KEY),
-            Attribute::Id(key_id.to_vec()),
-        ])
-        .ok()
-        .is_some_and(|v| !v.is_empty())
 }
 
 /// Find the private key whose `CKA_ID` matches `key_id` and return its handle.

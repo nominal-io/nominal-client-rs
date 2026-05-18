@@ -2,13 +2,10 @@
 //!
 //! ```rust,no_run
 //! use std::sync::Arc;
-//! use nominal::smartcard::{SmartcardCertResolver, SmartcardConfig};
+//! use nominal::smartcard::SmartcardCertResolver;
 //!
 //! # fn main() -> nominal::Result<()> {
-//! let resolver = SmartcardCertResolver::new(SmartcardConfig {
-//!     module_path: "/usr/lib/x86_64-linux-gnu/opensc-pkcs11.so".into(),
-//!     slot_index: None,
-//! })?;
+//! let resolver = SmartcardCertResolver::new()?;
 //!
 //! let client = nominal::NominalClient::builder("api-token")
 //!     .client_cert_resolver(Arc::new(resolver))
@@ -22,33 +19,25 @@ mod pkcs11;
 mod signing;
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use cryptoki::context::{CInitializeArgs, CInitializeFlags, Pkcs11};
 use rustls::SignatureScheme;
 use rustls::client::ResolvesClientCert;
 use rustls::sign::CertifiedKey;
 
-use pkcs11::{find_certificate, open_session, probe_key_type, schemes_for_key_type};
+use pkcs11::{
+    discover_piv_cert, find_key_handle, open_session, probe_key_type, schemes_for_key_type,
+};
 use signing::Pkcs11SigningKey;
 
 use crate::{Error, Result};
 
-/// Configuration for [`SmartcardCertResolver`].
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct SmartcardConfig {
-    /// Path to the PKCS#11 shared library (`.so` / `.dylib` / `.dll`).
-    ///
-    /// Common paths:
-    /// - Linux: `/usr/lib/x86_64-linux-gnu/opensc-pkcs11.so`
-    /// - macOS: `/Library/OpenSC/lib/opensc-pkcs11.so`
-    /// - Windows: `C:\Windows\System32\opensc-pkcs11.dll`
-    pub module_path: PathBuf,
-
-    /// Zero-based slot index. `None` selects the first available slot.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub slot_index: Option<usize>,
-}
+/// Environment variable that overrides the PKCS#11 module path.
+///
+/// Set to the absolute path of the PKCS#11 shared library when the default
+/// OpenSC paths do not apply (e.g. non-standard installs or ActivClient).
+pub const PKCS11_MODULE_ENV_VAR: &str = "NOMINAL_PKCS11_MODULE";
 
 /// rustls client-certificate resolver backed by a PKCS#11 token (CAC/PIV).
 ///
@@ -69,14 +58,22 @@ impl std::fmt::Debug for SmartcardCertResolver {
 impl SmartcardCertResolver {
     /// Load the PKCS#11 module and prepare the signing context.
     ///
-    /// Opens a session once to locate the certificate and confirm the private key
-    /// is present, then closes it. A new session is opened per TLS handshake.
-    pub fn new(config: SmartcardConfig) -> Result<Self> {
-        let pkcs11 = Pkcs11::new(&config.module_path).map_err(|e| Error::Tls {
-            details: format!(
-                "failed to load PKCS#11 module {:?}: {e}",
-                config.module_path
-            ),
+    /// The module path is resolved in order:
+    /// 1. `NOMINAL_PKCS11_MODULE` environment variable, if set.
+    /// 2. Platform-specific OpenSC default paths.
+    ///
+    /// Scans all token slots for a PIV Authentication certificate (slot 9A),
+    /// then prompts for PIN once. The session is kept open so no further PIN
+    /// prompts occur during TLS handshakes.
+    ///
+    /// Note: some middleware times out idle sessions; if `sign()` starts
+    /// returning errors after a long idle period, the session may need to be
+    /// re-opened by constructing a new resolver.
+    pub fn new() -> Result<Self> {
+        let module_path = discover_module_path()?;
+
+        let pkcs11 = Pkcs11::new(&module_path).map_err(|e| Error::Tls {
+            details: format!("failed to load PKCS#11 module {module_path:?}: {e}"),
         })?;
 
         pkcs11
@@ -89,29 +86,18 @@ impl SmartcardCertResolver {
             details: format!("C_GetSlotList failed: {e}"),
         })?;
 
-        let slot = match config.slot_index {
-            Some(i) => slots.get(i).copied().ok_or_else(|| Error::Tls {
-                details: format!(
-                    "slot_index {i} is out of range ({} token slots found)",
-                    slots.len()
-                ),
-            })?,
-            None => slots.into_iter().next().ok_or_else(|| Error::Tls {
-                details: "no PKCS#11 slot with a token found".into(),
-            })?,
-        };
+        let (slot, cert_der) = discover_piv_cert(&pkcs11, &slots)?;
 
         let session = open_session(&pkcs11, slot)?;
-        let (cert_der, key_id) = find_certificate(&session)?;
-        let key_type = probe_key_type(&session, &key_id)?;
-        drop(session);
+        let key_handle = find_key_handle(&session, &[0x01])?;
+        let key_type = probe_key_type(&session, &[0x01])?;
+        let session = Arc::new(Mutex::new(session));
 
         let (schemes, algorithm) = schemes_for_key_type(key_type)?;
 
         let signing_key: Arc<dyn rustls::sign::SigningKey> = Arc::new(Pkcs11SigningKey {
-            pkcs11: Arc::new(pkcs11),
-            slot,
-            key_id,
+            session,
+            key_handle,
             schemes,
             algorithm,
         });
@@ -135,51 +121,81 @@ impl ResolvesClientCert for SmartcardCertResolver {
     }
 }
 
+/// Resolve the PKCS#11 module path.
+///
+/// Checks `NOMINAL_PKCS11_MODULE` first, then walks platform-specific OpenSC
+/// default paths. Returns an error if no module is found.
+fn discover_module_path() -> Result<PathBuf> {
+    if let Ok(env_val) = std::env::var(PKCS11_MODULE_ENV_VAR) {
+        let path = PathBuf::from(&env_val);
+        if path.exists() {
+            return Ok(path);
+        }
+        return Err(Error::Tls {
+            details: format!(
+                "PKCS#11 module path from {PKCS11_MODULE_ENV_VAR} does not exist: {path:?}"
+            ),
+        });
+    }
+
+    #[cfg(target_os = "macos")]
+    let candidates: &[&str] = &[
+        "/Library/OpenSC/lib/opensc-pkcs11.so",
+        "/opt/homebrew/lib/opensc-pkcs11.so",
+        "/usr/local/lib/opensc-pkcs11.so",
+    ];
+    #[cfg(target_os = "linux")]
+    let candidates: &[&str] = &[
+        "/usr/lib64/opensc-pkcs11.so",
+        "/usr/lib/x86_64-linux-gnu/opensc-pkcs11.so",
+        "/usr/lib/aarch64-linux-gnu/opensc-pkcs11.so",
+        "/usr/lib/opensc-pkcs11.so",
+    ];
+    #[cfg(target_os = "windows")]
+    let candidates: &[&str] = &[
+        r"C:\Program Files\OpenSC Project\OpenSC\pkcs11\opensc-pkcs11.dll",
+        r"C:\Program Files (x86)\OpenSC Project\OpenSC\pkcs11\opensc-pkcs11.dll",
+    ];
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    let candidates: &[&str] = &[];
+
+    for &candidate in candidates {
+        let path = PathBuf::from(candidate);
+        if path.exists() {
+            return Ok(path);
+        }
+    }
+
+    Err(Error::Tls {
+        details: format!(
+            "could not find an OpenSC PKCS#11 module; install OpenSC or set \
+             {PKCS11_MODULE_ENV_VAR} to the module path"
+        ),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn config_slot_index_absent_when_none() {
-        let cfg = SmartcardConfig {
-            module_path: "/usr/lib/opensc-pkcs11.so".into(),
-            slot_index: None,
-        };
-        let yaml = serde_yaml::to_string(&cfg).unwrap();
-        assert!(!yaml.contains("slot_index"), "absent slot must not appear");
+    fn env_var_set_to_nonexistent_path_returns_error() {
+        // SAFETY: single-threaded test binary; no other threads read this var concurrently.
+        unsafe { std::env::set_var(PKCS11_MODULE_ENV_VAR, "/nonexistent/path/opensc.so") };
+        let result = discover_module_path();
+        unsafe { std::env::remove_var(PKCS11_MODULE_ENV_VAR) };
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("does not exist"), "got: {msg}");
     }
 
     #[test]
-    fn config_roundtrips_all_fields_through_yaml() {
-        let cfg = SmartcardConfig {
-            module_path: "/usr/lib/opensc-pkcs11.so".into(),
-            slot_index: Some(2),
-        };
-        let yaml = serde_yaml::to_string(&cfg).unwrap();
-        let rt: SmartcardConfig = serde_yaml::from_str(&yaml).unwrap();
-        assert_eq!(rt.module_path, cfg.module_path);
-        assert_eq!(rt.slot_index, cfg.slot_index);
-    }
-
-    #[test]
-    fn config_deserializes_with_module_path_only() {
-        let cfg: SmartcardConfig =
-            serde_yaml::from_str("module_path: /usr/lib/opensc-pkcs11.so\n").unwrap();
-        assert_eq!(
-            cfg.module_path.to_str().unwrap(),
-            "/usr/lib/opensc-pkcs11.so"
-        );
-        assert!(cfg.slot_index.is_none());
-    }
-
-    #[test]
-    fn config_preserves_module_path_with_spaces() {
-        let cfg = SmartcardConfig {
-            module_path: "/path/with spaces/opensc.so".into(),
-            slot_index: None,
-        };
-        let yaml = serde_yaml::to_string(&cfg).unwrap();
-        let rt: SmartcardConfig = serde_yaml::from_str(&yaml).unwrap();
-        assert_eq!(rt.module_path, cfg.module_path);
+    fn env_var_set_to_existing_path_is_returned() {
+        let existing = std::env::current_exe().unwrap();
+        // SAFETY: single-threaded test binary; no other threads read this var concurrently.
+        unsafe { std::env::set_var(PKCS11_MODULE_ENV_VAR, &existing) };
+        let result = discover_module_path();
+        unsafe { std::env::remove_var(PKCS11_MODULE_ENV_VAR) };
+        assert_eq!(result.unwrap(), existing);
     }
 }
