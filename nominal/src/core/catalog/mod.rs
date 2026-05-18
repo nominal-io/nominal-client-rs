@@ -533,14 +533,9 @@ impl CatalogClient {
                 }
             },
             |resp: &SearchChannelsResponse| resp.next_page_token().cloned(),
-            |resp| {
-                resp.results()
-                    .iter()
-                    .cloned()
-                    .map(Channel::from_search)
-                    .collect()
-            },
-        ))
+            |resp| resp.results().iter().cloned().collect(),
+        )
+        .and_then(|channel| async { Channel::from_search(channel) }))
     }
 
     /// List every channel on a data source.
@@ -590,15 +585,15 @@ impl CatalogClient {
             .get_channel_metadata(&self.token, &request)
             .await
             .map_err(Error::from)?;
-        Ok(Channel::from_stored(response))
+        Channel::from_stored(response)
     }
 
     /// Set a channel's metadata (description and/or unit). Only fields set
     /// on the update are written; the rest remain untouched.
     ///
     /// Uses the series metadata upsert endpoint, so metadata can be seeded
-    /// before streamed data has created the channel. If the update does not
-    /// specify a data type, double is used as the creation-time default.
+    /// before streamed data has created the channel. The update must specify
+    /// a data type because the upsert endpoint needs it when creating metadata.
     pub async fn set_channel_metadata(
         &self,
         data_source_rid: &str,

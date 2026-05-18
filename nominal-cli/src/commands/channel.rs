@@ -38,6 +38,10 @@ pub enum ChannelCommands {
         /// Channel name
         name: String,
 
+        /// Channel data type. One of: double, int, uint, string, log, double-array, string-array, struct, video
+        #[arg(long = "data-type", value_name = "TYPE")]
+        data_type: String,
+
         /// Set the channel description
         #[arg(short, long)]
         description: Option<String>,
@@ -104,11 +108,12 @@ pub async fn handle(cmd: ChannelCommands, client: NominalClient) -> anyhow::Resu
         ChannelCommands::Set {
             data_source_rid,
             name,
+            data_type,
             description,
             unit,
             clear_unit,
         } => {
-            let mut update = ChannelUpdate::new();
+            let mut update = ChannelUpdate::new(parse_data_type(&data_type)?);
             if let Some(d) = description {
                 update = update.description(d);
             }
@@ -156,9 +161,7 @@ fn print_channel(channel: &Channel) {
     if let Some(unit) = channel.unit() {
         println!("Unit: {unit}");
     }
-    if let Some(data_type) = channel.data_type() {
-        println!("Data type: {}", data_type_str(data_type));
-    }
+    println!("Data type: {}", data_type_str(channel.data_type()));
 }
 
 fn data_type_str(t: &ChannelDataType) -> String {

@@ -10,20 +10,20 @@ use nominal_api::objects::timeseries::metadata::api::{
 };
 use std::collections::BTreeSet;
 
-use crate::Result;
 use crate::core::rid::{parse_rid, rid_to_string};
+use crate::{Error, Result};
 
 /// A time-series channel on a data source (dataset, video, connection, etc.).
 ///
 /// Carries the channel's identity and its editable metadata (description + unit)
-/// plus the server-detected data type.
+/// plus the channel data type.
 #[derive(Debug, Clone)]
 pub struct Channel {
     data_source_rid: String,
     name: String,
     description: Option<String>,
     unit: Option<String>,
-    data_type: Option<ChannelDataType>,
+    data_type: ChannelDataType,
 }
 
 impl Channel {
@@ -45,29 +45,39 @@ impl Channel {
         self.unit.as_deref()
     }
 
-    pub fn data_type(&self) -> Option<&ChannelDataType> {
-        self.data_type.as_ref()
+    pub fn data_type(&self) -> &ChannelDataType {
+        &self.data_type
     }
 
-    pub(crate) fn from_search(meta: SearchChannelMetadata) -> Self {
-        Self {
+    pub(crate) fn from_search(meta: SearchChannelMetadata) -> Result<Self> {
+        let data_type = meta.data_type().map(ChannelDataType::from).ok_or_else(|| {
+            Error::MissingChannelDataType {
+                channel: meta.name().to_string(),
+            }
+        })?;
+        Ok(Self {
             data_source_rid: rid_to_string(meta.data_source()),
             name: meta.name().to_string(),
             description: meta.description().map(str::to_string),
             unit: meta.unit().map(|u| u.symbol().to_string()),
-            data_type: meta.data_type().map(ChannelDataType::from),
-        }
+            data_type,
+        })
     }
 
-    pub(crate) fn from_stored(meta: StoredChannelMetadata) -> Self {
+    pub(crate) fn from_stored(meta: StoredChannelMetadata) -> Result<Self> {
         let id = meta.channel_identifier();
-        Self {
+        let data_type = meta.data_type().map(ChannelDataType::from).ok_or_else(|| {
+            Error::MissingChannelDataType {
+                channel: id.channel_name().to_string(),
+            }
+        })?;
+        Ok(Self {
             data_source_rid: rid_to_string(id.data_source_rid()),
             name: id.channel_name().to_string(),
             description: meta.description().map(str::to_string),
             unit: meta.unit().map(|u| u.to_string()),
-            data_type: meta.data_type().map(ChannelDataType::from),
-        }
+            data_type,
+        })
     }
 
     pub(crate) fn from_update(
@@ -139,8 +149,8 @@ impl ChannelDataType {
         })
     }
 
-    pub(crate) fn into_nominal_data_type(self) -> Option<NominalDataType> {
-        Some(match self {
+    pub(crate) fn into_nominal_data_type(self) -> Result<NominalDataType> {
+        Ok(match self {
             Self::Double => NominalDataType::Double,
             Self::Int => NominalDataType::Int64,
             Self::Uint => NominalDataType::Uint64,
@@ -150,7 +160,9 @@ impl ChannelDataType {
             Self::StringArray => NominalDataType::StringArray,
             Self::Struct => NominalDataType::Struct,
             Self::Video => NominalDataType::Video,
-            Self::Unknown(_) => return None,
+            Self::Unknown(data_type) => {
+                return Err(Error::UnsupportedChannelDataType { data_type });
+            }
         })
     }
 }
@@ -234,12 +246,12 @@ pub(crate) struct ChannelSearchParts {
     pub data_types: BTreeSet<ApiSeriesDataType>,
 }
 
-/// An update to a channel's metadata. Only fields that are set will change.
-#[derive(Debug, Default, Clone)]
+/// An update to a channel's metadata. Only optional fields that are set will change.
+#[derive(Debug, Clone)]
 pub struct ChannelUpdate {
     description: Option<String>,
     unit_update: Option<UnitUpdate>,
-    data_type: Option<ChannelDataType>,
+    data_type: ChannelDataType,
 }
 
 #[derive(Debug, Clone)]
@@ -249,8 +261,12 @@ enum UnitUpdate {
 }
 
 impl ChannelUpdate {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(data_type: ChannelDataType) -> Self {
+        Self {
+            description: None,
+            unit_update: None,
+            data_type,
+        }
     }
 
     /// Set the channel's description.
@@ -274,28 +290,13 @@ impl ChannelUpdate {
         self
     }
 
-    /// Set the channel's data type for upsert operations.
-    ///
-    /// This is only needed when metadata may be created before the channel
-    /// exists. Existing channels already have a server-detected data type.
-    #[must_use]
-    pub fn data_type(mut self, data_type: ChannelDataType) -> Self {
-        self.data_type = Some(data_type);
-        self
-    }
-
     pub(crate) fn into_series_metadata_request(
         self,
         data_source_rid: &str,
         name: &str,
     ) -> Result<CreateSeriesMetadataRequest> {
         let channel = ApiChannel(name.to_string());
-        let data_type = self
-            .data_type
-            .clone()
-            .unwrap_or(ChannelDataType::Double)
-            .into_nominal_data_type()
-            .unwrap_or(NominalDataType::Double);
+        let data_type = self.data_type.clone().into_nominal_data_type()?;
         let locator =
             LocatorTemplate::Nominal(NominalLocatorTemplate::new(channel.clone(), data_type));
         let mut b = CreateSeriesMetadataRequest::builder()
