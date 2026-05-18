@@ -46,6 +46,12 @@ pub enum Error {
     #[error("resource not found: {resource}")]
     NotFound { resource: &'static str },
 
+    #[error("channel data type missing from server response for channel '{channel}'")]
+    MissingChannelDataType { channel: String },
+
+    #[error("unsupported channel data type for metadata upsert: {data_type}")]
+    UnsupportedChannelDataType { data_type: String },
+
     #[error("multipart upload failed: {details}")]
     Upload { details: String },
 
