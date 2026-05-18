@@ -533,7 +533,7 @@ impl CatalogClient {
                 }
             },
             |resp: &SearchChannelsResponse| resp.next_page_token().cloned(),
-            |resp| resp.results().iter().cloned().collect(),
+            |resp| resp.results().to_vec(),
         )
         .and_then(|channel| async { Channel::from_search(channel) }))
     }
