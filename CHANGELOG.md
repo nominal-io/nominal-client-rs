@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.1](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.4.0...nominal-v0.4.1) - 2026-05-18
+
+### Added
+
+- add & re-export nominal-streaming ([#63](https://github.com/nominal-io/nominal-client-rs/pull/63))
+
 ## [0.4.0](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.3.0...nominal-v0.4.0) - 2026-05-18
 
 ### Added
