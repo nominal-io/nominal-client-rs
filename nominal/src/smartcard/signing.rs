@@ -11,7 +11,6 @@ use rustls::SignatureAlgorithm;
 use rustls::SignatureScheme;
 use rustls::sign::{Signer, SigningKey};
 
-use super::der::ecdsa_raw_to_der;
 use crate::{Error, Result};
 
 // --- SigningKey ----------------------------------------------------------
@@ -145,15 +144,16 @@ fn sign_with_scheme(
         }
 
         // ECDSA — compound mechanisms: the token hashes internally.
-        // PKCS#11 returns raw r || s bytes; TLS requires a DER SEQUENCE.
+        // PKCS#11 returns raw r || s bytes; TLS requires DER. The curve crates
+        // validate r and s are in range before encoding.
         SignatureScheme::ECDSA_NISTP256_SHA256 => session
             .sign(&Mechanism::EcdsaSha256, key, message)
-            .map(|raw| ecdsa_raw_to_der(&raw))
-            .map_err(pkcs11_err),
+            .map_err(pkcs11_err)
+            .and_then(|raw| ecdsa_p256_raw_to_der(&raw)),
         SignatureScheme::ECDSA_NISTP384_SHA384 => session
             .sign(&Mechanism::EcdsaSha384, key, message)
-            .map(|raw| ecdsa_raw_to_der(&raw))
-            .map_err(pkcs11_err),
+            .map_err(pkcs11_err)
+            .and_then(|raw| ecdsa_p384_raw_to_der(&raw)),
 
         _ => Err(Error::Tls {
             details: format!("unsupported SignatureScheme: {scheme:?}"),
@@ -165,6 +165,24 @@ fn pkcs11_err(e: cryptoki::error::Error) -> Error {
     Error::Tls {
         details: format!("PKCS#11 error: {e}"),
     }
+}
+
+// --- ECDSA DER conversion ------------------------------------------------
+
+/// Convert a raw PKCS#11 P-256 ECDSA signature (`r || s`, 64 bytes) to DER.
+fn ecdsa_p256_raw_to_der(raw: &[u8]) -> Result<Vec<u8>> {
+    let sig = p256::ecdsa::Signature::from_slice(raw).map_err(|e| Error::Tls {
+        details: format!("invalid P-256 ECDSA signature from PKCS#11: {e}"),
+    })?;
+    Ok(sig.to_der().as_bytes().to_vec())
+}
+
+/// Convert a raw PKCS#11 P-384 ECDSA signature (`r || s`, 96 bytes) to DER.
+fn ecdsa_p384_raw_to_der(raw: &[u8]) -> Result<Vec<u8>> {
+    let sig = p384::ecdsa::Signature::from_slice(raw).map_err(|e| Error::Tls {
+        details: format!("invalid P-384 ECDSA signature from PKCS#11: {e}"),
+    })?;
+    Ok(sig.to_der().as_bytes().to_vec())
 }
 
 #[cfg(test)]
@@ -260,5 +278,55 @@ mod tests {
             first_supported(&offered, &supported),
             Some(SignatureScheme::RSA_PSS_SHA256),
         );
+    }
+
+    #[test]
+    fn p256_valid_raw_produces_valid_der() {
+        let mut raw = [0x12u8; 64];
+        raw[32..].copy_from_slice(&[0x34u8; 32]);
+
+        let der = ecdsa_p256_raw_to_der(&raw).unwrap();
+
+        assert_eq!(der[0], 0x30, "output must start with DER SEQUENCE tag");
+        let rt = p256::ecdsa::Signature::from_der(&der).unwrap();
+        assert_eq!(rt.to_bytes().as_slice(), &raw[..]);
+    }
+
+    #[test]
+    fn p384_valid_raw_produces_valid_der() {
+        let mut raw = [0x12u8; 96];
+        raw[48..].copy_from_slice(&[0x34u8; 48]);
+
+        let der = ecdsa_p384_raw_to_der(&raw).unwrap();
+
+        assert_eq!(der[0], 0x30, "output must start with DER SEQUENCE tag");
+        let rt = p384::ecdsa::Signature::from_der(&der).unwrap();
+        assert_eq!(rt.to_bytes().as_slice(), &raw[..]);
+    }
+
+    #[test]
+    fn p256_wrong_length_is_rejected() {
+        assert!(ecdsa_p256_raw_to_der(&[0x01u8; 63]).is_err());
+        assert!(ecdsa_p256_raw_to_der(&[0x01u8; 65]).is_err());
+    }
+
+    #[test]
+    fn p384_wrong_length_is_rejected() {
+        assert!(ecdsa_p384_raw_to_der(&[0x01u8; 95]).is_err());
+        assert!(ecdsa_p384_raw_to_der(&[0x01u8; 97]).is_err());
+    }
+
+    #[test]
+    fn p256_zero_r_is_rejected() {
+        let mut raw = [0x01u8; 64];
+        raw[..32].fill(0x00);
+        assert!(ecdsa_p256_raw_to_der(&raw).is_err());
+    }
+
+    #[test]
+    fn p256_zero_s_is_rejected() {
+        let mut raw = [0x01u8; 64];
+        raw[32..].fill(0x00);
+        assert!(ecdsa_p256_raw_to_der(&raw).is_err());
     }
 }

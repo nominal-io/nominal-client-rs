@@ -36,6 +36,8 @@ rustls-platform-verifier = "0.6"
 cryptoki = { version = "0.12", optional = true }
 rpassword = { version = "7", optional = true }
 x509-cert = { version = "0.2", optional = true }
+p256 = { version = "0.13", features = ["ecdsa-core"], optional = true }
+p384 = { version = "0.13", features = ["ecdsa-core"], optional = true }
 
 [features]
-smartcard = ["dep:cryptoki", "dep:rpassword", "dep:x509-cert"]
+smartcard = ["dep:cryptoki", "dep:rpassword", "dep:x509-cert", "dep:p256", "dep:p384"]

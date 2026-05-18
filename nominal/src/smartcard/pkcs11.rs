@@ -41,7 +41,7 @@ pub(super) fn open_session(pkcs11: &Pkcs11, slot: Slot) -> Result<Session> {
 /// Scan all token slots for the PIV Authentication certificate (slot 9A,
 /// `CKA_ID = [0x01]`) and verify it carries an EKU for TLS client auth.
 ///
-/// Sessions are opened without login — certificate objects on PIV cards are
+/// Sessions are opened without login since certificate objects on PIV cards are
 /// public and readable unauthenticated. The PIN is only required later when
 /// opening the signing session.
 ///
@@ -50,8 +50,7 @@ pub(super) fn open_session(pkcs11: &Pkcs11, slot: Slot) -> Result<Session> {
 /// certificate fails EKU validation.
 ///
 /// `CKA_ID = [0x01]` is the standard mapping for PIV slot 9A in OpenSC,
-/// ykcs11, and most major middleware. ActivClient and some DoD-specific
-/// drivers use different mappings and will receive a clear error.
+/// ykcs11, and most major middleware.
 pub(super) fn discover_piv_cert(
     pkcs11: &Pkcs11,
     slots: &[Slot],

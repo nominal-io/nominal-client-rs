@@ -14,7 +14,6 @@
 //! # }
 //! ```
 
-mod der;
 mod pkcs11;
 mod signing;
 
