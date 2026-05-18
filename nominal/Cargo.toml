@@ -32,7 +32,7 @@ tokio = { version = "1", features = [
 ] }
 tracing = "0.1"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
-webpki-roots = "1.0"
+rustls-platform-verifier = "0.6"
 cryptoki = { version = "0.12", optional = true }
 rpassword = { version = "7", optional = true }
 

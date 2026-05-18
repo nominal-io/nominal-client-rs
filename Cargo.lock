@@ -1442,12 +1442,12 @@ dependencies = [
  "reqwest",
  "rpassword",
  "rustls",
+ "rustls-platform-verifier",
  "serde",
  "serde_yaml",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
- "webpki-roots",
 ]
 
 [[package]]

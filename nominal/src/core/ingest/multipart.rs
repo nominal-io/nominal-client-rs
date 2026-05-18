@@ -12,6 +12,7 @@ use nominal_api::clients::upload::api::{AsyncUploadService, AsyncUploadServiceCl
 use nominal_api::objects::api::rids::WorkspaceRid;
 use nominal_api::objects::ingest::api::{InitiateMultipartUploadRequest, Part};
 use rustls::client::ResolvesClientCert;
+use rustls_platform_verifier::BuilderVerifierExt;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 use crate::core::ingest::options::UploadOptions;
@@ -167,14 +168,15 @@ fn build_http_client(
 ) -> Result<reqwest::Client> {
     let mut builder = reqwest::Client::builder().pool_max_idle_per_host(options.max_concurrency);
     if let Some(resolver) = tls_resolver {
-        let mut root_store = rustls::RootCertStore::empty();
-        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         let tls = rustls::ClientConfig::builder_with_provider(ring_crypto_provider().clone())
             .with_safe_default_protocol_versions()
             .map_err(|e| Error::Tls {
                 details: format!("TLS protocol-version config: {e}"),
             })?
-            .with_root_certificates(root_store)
+            .with_platform_verifier()
+            .map_err(|e| Error::Tls {
+                details: format!("platform verifier: {e}"),
+            })?
             .with_client_cert_resolver(resolver);
         builder = builder.use_preconfigured_tls(tls);
     }
@@ -316,5 +318,37 @@ async fn put_once(ctx: &OwnedPartCtx, part_number: i32, bytes: Bytes) -> Result<
 fn emit(callback: &Option<ProgressCallback>, event: impl FnOnce() -> UploadEvent) {
     if let Some(cb) = callback {
         cb(event());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rustls::SignatureScheme;
+    use rustls::sign::CertifiedKey;
+
+    #[derive(Debug)]
+    struct MockResolver;
+    impl ResolvesClientCert for MockResolver {
+        fn resolve(&self, _: &[&[u8]], _: &[SignatureScheme]) -> Option<Arc<CertifiedKey>> {
+            None
+        }
+        fn has_certs(&self) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn build_http_client_without_resolver_succeeds() {
+        let options = UploadOptions::default();
+        let result = build_http_client(&options, None);
+        assert!(result.is_ok(), "plain client build failed: {result:?}");
+    }
+
+    #[test]
+    fn build_http_client_with_resolver_uses_platform_verifier() {
+        let options = UploadOptions::default();
+        let result = build_http_client(&options, Some(Arc::new(MockResolver)));
+        assert!(result.is_ok(), "mTLS client build failed: {result:?}");
     }
 }
