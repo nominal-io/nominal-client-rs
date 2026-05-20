@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use nominal_api::objects::api::rids::WorkspaceRid;
 use nominal_api::objects::api::{Label, Property, PropertyName, PropertyValue};
 use nominal_api::objects::scout::catalog::{
-    CreateDataset, DatasetOriginMetadata, SearchDatasetsQuery, UpdateDatasetMetadata,
+    ChannelConfig, CreateDataset, DatasetOriginMetadata, SearchDatasetsQuery, UpdateDatasetMetadata,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -84,6 +84,7 @@ pub struct DatasetCreate {
     description: Option<String>,
     properties: Option<HashMap<String, String>>,
     labels: Option<Vec<String>>,
+    channel_delimiter: Option<String>,
 }
 
 impl DatasetCreate {
@@ -93,6 +94,7 @@ impl DatasetCreate {
             description: None,
             properties: None,
             labels: None,
+            channel_delimiter: None,
         }
     }
 
@@ -128,17 +130,29 @@ impl DatasetCreate {
         self
     }
 
+    #[must_use]
+    pub fn channel_delimiter(mut self, value: impl Into<String>) -> Self {
+        self.channel_delimiter = Some(value.into());
+        self
+    }
+
     pub(crate) fn into_request(self, workspace_rid: Option<&str>) -> Result<CreateDataset> {
         let DatasetCreate {
             name,
             description,
             properties,
             labels,
+            channel_delimiter,
         } = self;
 
+        let mut origin = DatasetOriginMetadata::builder();
+        if let Some(d) = channel_delimiter {
+            origin =
+                origin.channel_config(ChannelConfig::builder().prefix_tree_delimiter(d).build());
+        }
         let mut b = CreateDataset::builder()
             .name(name)
-            .origin_metadata(DatasetOriginMetadata::builder().build());
+            .origin_metadata(origin.build());
 
         if let Some(d) = description {
             b = b.description(d);
@@ -169,10 +183,18 @@ impl DatasetCreate {
             description,
             properties,
             labels,
+            channel_delimiter,
         } = self;
 
         let mut b = nominal_api::objects::ingest::api::NewDatasetIngestDestination::builder()
             .dataset_name(name);
+        if let Some(d) = channel_delimiter {
+            b = b.channel_config(
+                nominal_api::objects::ingest::api::ChannelConfig::builder()
+                    .prefix_tree_delimiter(d)
+                    .build(),
+            );
+        }
         if let Some(d) = description {
             b = b.dataset_description(d);
         }
