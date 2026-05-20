@@ -1,6 +1,6 @@
 [package]
 name = "nominal-cli"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2024"
 rust-version = "1.85"
 license = "Apache-2.0"
@@ -12,7 +12,7 @@ name = "nom"
 path = "src/main.rs"
 
 [dependencies]
-nominal = { version = "0.4.1", path = "../nominal" }
+nominal = { version = "0.4.2", path = "../nominal" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
