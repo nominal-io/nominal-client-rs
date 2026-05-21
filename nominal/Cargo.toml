@@ -15,7 +15,7 @@ conjure-error = "5.10"
 conjure-http = "5.10"
 conjure-object = "5.10"
 conjure-runtime = { package = "conjure-runtime-rustls-platform-verifier", version = "0.2" }
-dirs = "5"
+dirs = "6"
 nominal-api = "0.1218"
 nominal-streaming = "0.9.1"
 regex = "1.12"
