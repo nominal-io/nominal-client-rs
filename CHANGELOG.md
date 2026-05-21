@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.3](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.4.2...nominal-v0.4.3) - 2026-05-21
+
+### Added
+
+- add channel delimiter in dataset create ([#70](https://github.com/nominal-io/nominal-client-rs/pull/70))
+
+### Fixed
+
+- nominal_url method returns a valid url ([#72](https://github.com/nominal-io/nominal-client-rs/pull/72))
+
 ## [0.4.2](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.4.1...nominal-v0.4.2) - 2026-05-20
 
 ### Added
