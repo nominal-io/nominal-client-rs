@@ -36,7 +36,7 @@ pub fn handle(cmd: ConfigCommands) -> anyhow::Result<()> {
                 token,
                 workspace_rid,
             } => {
-                let mut config = Config::load().context("Failed to load config")?;
+                let mut config = Config::load_or_default().context("Failed to load config")?;
                 config.add_profile(name.clone(), Profile::new(url, token, workspace_rid));
                 config.save().context("Failed to save config")?;
                 println!("Profile '{name}' added.");

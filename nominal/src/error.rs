@@ -13,6 +13,27 @@ pub enum Error {
     #[error("could not determine home directory")]
     HomeDirNotFound,
 
+    #[error("no config file found at {path}: create with `nom config profile add`")]
+    ConfigNotFound { path: String },
+
+    #[error(
+        "no config file found at {path}: deprecated config file {deprecated_path} found. migrate with `nom config migrate`"
+    )]
+    DeprecatedConfigFound {
+        path: String,
+        deprecated_path: String,
+    },
+
+    #[error("missing '{key}' key in config file: {path}")]
+    MissingConfigKey { path: String, key: &'static str },
+
+    #[error("unsupported config version in {path}: expected {expected}, found {found}")]
+    UnsupportedConfigVersion {
+        path: String,
+        expected: u32,
+        found: u32,
+    },
+
     #[error("YAML parse error: {0}")]
     Yaml(#[from] serde_yaml::Error),
 
