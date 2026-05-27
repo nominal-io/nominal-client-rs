@@ -2,6 +2,7 @@
 
 use crate::{Error, Result};
 use cryptoki::context::Pkcs11;
+use cryptoki::error::{Error as CryptokiError, RvError};
 use cryptoki::object::{
     Attribute, AttributeType, CertificateType, KeyType, ObjectClass, ObjectHandle,
 };
@@ -22,20 +23,96 @@ const EKU_EXTENSION_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.5.29
 /// OID for id-kp-clientAuth (RFC 5280 §4.2.1.12).
 const CLIENT_AUTH_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.5.5.7.3.2");
 
-/// Open a read-only PKCS#11 session on `slot`. Prompts for PIN interactively; never stored.
 pub(super) fn open_session(pkcs11: &Pkcs11, slot: Slot) -> Result<Session> {
-    let session = pkcs11.open_ro_session(slot).map_err(|e| Error::Tls {
-        details: format!("C_OpenSession failed: {e}"),
-    })?;
-    let pin = rpassword::prompt_password("Enter smartcard PIN: ").map_err(|e| Error::Tls {
-        details: format!("failed to read PIN: {e}"),
-    })?;
-    session
-        .login(UserType::User, Some(&AuthPin::new(pin.into_boxed_str())))
-        .map_err(|e| Error::Tls {
-            details: format!("C_Login failed: {e}"),
-        })?;
-    Ok(session)
+    let session = pkcs11
+        .open_ro_session(slot)
+        .map_err(tls_err("C_OpenSession failed"))?;
+
+    let card_label = pkcs11
+        .get_token_info(slot)
+        .ok()
+        .map(|info| info.label().trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    const MAX_ATTEMPTS: u32 = 3;
+
+    for attempt in 1..=MAX_ATTEMPTS {
+        let prompt = pin_prompt(&card_label, attempt, MAX_ATTEMPTS);
+
+        let pin = rpassword::prompt_password(&prompt)
+            .map_err(tls_err("Failed to read PIN"))?;
+
+        match session.login(UserType::User, Some(&AuthPin::new(pin.into_boxed_str()))) {
+            Ok(()) => return Ok(session),
+
+            Err(CryptokiError::Pkcs11(RvError::PinLocked, _)) => {
+                return Err(tls_static(
+                    "Smartcard is locked after too many failed attempts; \
+                     contact your administrator to reset the card",
+                ));
+            }
+
+            Err(CryptokiError::Pkcs11(RvError::PinExpired, _)) => {
+                return Err(tls_static(
+                    "Smartcard PIN has expired; contact your administrator \
+                     to set a new PIN before connecting",
+                ));
+            }
+
+            Err(CryptokiError::Pkcs11(
+                RvError::PinIncorrect | RvError::PinLenRange,
+                _,
+            )) if attempt < MAX_ATTEMPTS => {
+                continue;
+            }
+
+            Err(CryptokiError::Pkcs11(
+                RvError::PinIncorrect | RvError::PinLenRange,
+                _,
+            )) => {
+                eprintln!(
+                    "Incorrect PIN after {MAX_ATTEMPTS} attempts; \
+                     please verify your PIN and try again."
+                );
+                return Err(tls_static("incorrect PIN after too many attempts"));
+            }
+
+            Err(e) => {
+                return Err(Error::Tls {
+                    details: format!("C_Login failed: {e}"),
+                });
+            }
+        }
+    }
+
+    Err(tls_static("PIN authentication failed"))
+}
+
+fn pin_prompt(label: &Option<String>, attempt: u32, max_attempts: u32) -> String {
+    if attempt == 1 {
+        match label {
+            Some(label) => format!("Enter PIN for {label}: "),
+            None => "Enter smartcard PIN: ".to_string(),
+        }
+    } else {
+        let remaining = max_attempts - attempt + 1;
+        format!(
+            "Incorrect PIN, {remaining} attempt{} remaining: ",
+            if remaining == 1 { "" } else { "s" }
+        )
+    }
+}
+
+fn tls_err<E: std::fmt::Display>(context: &'static str) -> impl FnOnce(E) -> Error {
+    move |e| Error::Tls {
+        details: format!("{context}: {e}"),
+    }
+}
+
+fn tls_static(msg: &'static str) -> Error {
+    Error::Tls {
+        details: msg.into(),
+    }
 }
 
 /// Scan all token slots for the PIV Authentication certificate (slot 9A,
