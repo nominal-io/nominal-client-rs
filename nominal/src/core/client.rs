@@ -3,6 +3,7 @@ use std::sync::Arc;
 use conjure_http::client::ConjureRuntime;
 use conjure_object::BearerToken;
 use conjure_runtime::{Agent, Client, UserAgent};
+use rustls::client::ResolvesClientCert;
 
 use crate::config::{Config, Profile};
 use crate::core::{
@@ -22,6 +23,7 @@ pub struct NominalClient {
     token: BearerToken,
     workspace_rid: Option<String>,
     base_url: String,
+    tls_resolver: Option<Arc<dyn ResolvesClientCert>>,
 }
 
 impl std::fmt::Debug for NominalClient {
@@ -114,6 +116,7 @@ impl NominalClient {
             &self.runtime,
             self.token.clone(),
             self.workspace_rid.clone(),
+            self.tls_resolver.clone(),
         )
     }
 }
@@ -127,6 +130,7 @@ pub struct NominalClientBuilder {
     token: String,
     workspace_rid: Option<String>,
     user_agent: UserAgent,
+    tls_resolver: Option<Arc<dyn ResolvesClientCert>>,
 }
 
 impl NominalClientBuilder {
@@ -136,6 +140,7 @@ impl NominalClientBuilder {
             token: token.into(),
             workspace_rid: None,
             user_agent: default_user_agent(),
+            tls_resolver: None,
         }
     }
 
@@ -164,15 +169,26 @@ impl NominalClientBuilder {
         self
     }
 
+    /// Provide a custom TLS client-certificate resolver for mTLS connections.
+    ///
+    /// When set, every connection (both to the Nominal API via conjure-runtime
+    /// and to S3 during multipart uploads) will present the resolved client
+    /// certificate during TLS handshakes that request one.
+    pub fn client_cert_resolver(mut self, resolver: Arc<dyn ResolvesClientCert>) -> Self {
+        self.tls_resolver = Some(resolver);
+        self
+    }
+
     pub fn build(self) -> Result<NominalClient> {
         let bearer_token = create_bearer_token(&self.token)?;
-        let client = create_client(&self.base_url, self.user_agent)?;
+        let client = create_client(&self.base_url, self.user_agent, self.tls_resolver.clone())?;
         Ok(NominalClient {
             client,
             runtime: Arc::new(ConjureRuntime::default()),
             token: bearer_token,
             workspace_rid: self.workspace_rid,
             base_url: self.base_url,
+            tls_resolver: self.tls_resolver,
         })
     }
 }
@@ -187,18 +203,26 @@ fn default_user_agent() -> UserAgent {
     UserAgent::new(Agent::new(SDK_USER_AGENT_NAME, SDK_USER_AGENT_VERSION))
 }
 
-fn create_client(url: &str, user_agent: UserAgent) -> Result<Client> {
+fn create_client(
+    url: &str,
+    user_agent: UserAgent,
+    tls_resolver: Option<Arc<dyn ResolvesClientCert>>,
+) -> Result<Client> {
     let uri = url.try_into().map_err(|e| Error::InvalidServiceUrl {
         url: url.to_string(),
         reason: format!("{e:?}"),
     })?;
 
-    Client::builder()
+    let mut builder = Client::builder()
         .service(SDK_USER_AGENT_NAME)
         .user_agent(user_agent)
-        .uri(uri)
-        .build()
-        .map_err(Error::from)
+        .uri(uri);
+
+    if let Some(resolver) = tls_resolver {
+        builder = builder.client_cert_resolver(resolver);
+    }
+
+    builder.build().map_err(Error::from)
 }
 
 #[cfg(test)]
@@ -225,5 +249,60 @@ mod tests {
         let builder = NominalClientBuilder::new("token");
 
         assert_eq!(builder.base_url, DEFAULT_BASE_URL);
+    }
+
+    #[test]
+    fn builder_without_resolver_has_none() {
+        let builder = NominalClientBuilder::new("token");
+        assert!(builder.tls_resolver.is_none());
+    }
+
+    #[test]
+    fn builder_with_resolver_sets_resolver() {
+        use rustls::SignatureScheme;
+        use rustls::client::ResolvesClientCert;
+        use rustls::sign::CertifiedKey;
+
+        #[derive(Debug)]
+        struct MockResolver;
+        impl ResolvesClientCert for MockResolver {
+            fn resolve(&self, _: &[&[u8]], _: &[SignatureScheme]) -> Option<Arc<CertifiedKey>> {
+                None
+            }
+            fn has_certs(&self) -> bool {
+                true
+            }
+        }
+
+        let builder =
+            NominalClientBuilder::new("token").client_cert_resolver(Arc::new(MockResolver));
+        assert!(builder.tls_resolver.is_some());
+        assert!(builder.tls_resolver.unwrap().has_certs());
+    }
+
+    #[test]
+    fn builder_with_resolver_builds_successfully() {
+        use rustls::SignatureScheme;
+        use rustls::client::ResolvesClientCert;
+        use rustls::sign::CertifiedKey;
+
+        #[derive(Debug)]
+        struct MockResolver;
+        impl ResolvesClientCert for MockResolver {
+            fn resolve(&self, _: &[&[u8]], _: &[SignatureScheme]) -> Option<Arc<CertifiedKey>> {
+                None
+            }
+            fn has_certs(&self) -> bool {
+                false
+            }
+        }
+
+        // Verify that the builder wires through to conjure-runtime without
+        // error. No network connection is made; the Client is constructed lazily.
+        let result = NominalClientBuilder::new("validtoken123")
+            .base_url("https://api.example.com/api")
+            .client_cert_resolver(Arc::new(MockResolver))
+            .build();
+        assert!(result.is_ok(), "build failed: {result:?}");
     }
 }
