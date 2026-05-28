@@ -88,8 +88,8 @@ impl SmartcardCertResolver {
         let (slot, cert_der) = discover_piv_cert(&pkcs11, &slots)?;
 
         let session = open_session(&pkcs11, slot)?;
-        let key_handle = find_key_handle(&session, &[0x01])?;
-        let key_type = probe_key_type(&session, &[0x01])?;
+        let key_handle = find_key_handle(&session, pkcs11::PIV_9A_KEY_ID)?;
+        let key_type = probe_key_type(&session, pkcs11::PIV_9A_KEY_ID)?;
         let session = Arc::new(Mutex::new(session));
 
         let (schemes, algorithm) = schemes_for_key_type(key_type)?;

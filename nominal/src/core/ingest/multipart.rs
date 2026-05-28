@@ -166,23 +166,26 @@ fn build_http_client(
     options: &UploadOptions,
     tls_resolver: Option<Arc<dyn ResolvesClientCert>>,
 ) -> Result<reqwest::Client> {
-    let mut builder = reqwest::Client::builder().pool_max_idle_per_host(options.max_concurrency);
-    if let Some(resolver) = tls_resolver {
-        let tls = rustls::ClientConfig::builder_with_provider(ring_crypto_provider().clone())
-            .with_safe_default_protocol_versions()
-            .map_err(|e| Error::Tls {
-                details: format!("TLS protocol-version config: {e}"),
-            })?
-            .with_platform_verifier()
-            .map_err(|e| Error::Tls {
-                details: format!("platform verifier: {e}"),
-            })?
-            .with_client_cert_resolver(resolver);
-        builder = builder.use_preconfigured_tls(tls);
-    }
-    builder.build().map_err(|e| Error::Upload {
-        details: format!("failed to build HTTP client: {e}"),
-    })
+    let tls_base = rustls::ClientConfig::builder_with_provider(ring_crypto_provider().clone())
+        .with_safe_default_protocol_versions()
+        .map_err(|e| Error::Tls {
+            details: format!("TLS protocol-version config: {e}"),
+        })?
+        .with_platform_verifier()
+        .map_err(|e| Error::Tls {
+            details: format!("platform verifier: {e}"),
+        })?;
+    let tls = match tls_resolver {
+        Some(resolver) => tls_base.with_client_cert_resolver(resolver),
+        None => tls_base.with_no_client_auth(),
+    };
+    reqwest::Client::builder()
+        .pool_max_idle_per_host(options.max_concurrency)
+        .use_preconfigured_tls(tls)
+        .build()
+        .map_err(|e| Error::Upload {
+            details: format!("failed to build HTTP client: {e}"),
+        })
 }
 
 /// Everything needed to sign and PUT an individual part.

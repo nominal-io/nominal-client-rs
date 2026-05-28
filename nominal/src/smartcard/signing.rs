@@ -63,12 +63,17 @@ impl std::fmt::Debug for Pkcs11Signer {
 
 impl Signer for Pkcs11Signer {
     fn sign(&self, message: &[u8]) -> std::result::Result<Vec<u8>, rustls::Error> {
-        let session = self
-            .session
-            .lock()
-            .map_err(|e| rustls::Error::General(e.to_string()))?;
-        sign_with_scheme(&session, self.key_handle, self.scheme, message)
-            .map_err(|e| rustls::Error::General(e.to_string()))
+        // C_Sign on a hardware token is synchronous and can take 100–500 ms.
+        // block_in_place tells tokio this thread is about to block, allowing
+        // the scheduler to spawn a replacement worker for other tasks.
+        tokio::task::block_in_place(|| {
+            let session = self
+                .session
+                .lock()
+                .map_err(|e| rustls::Error::General(e.to_string()))?;
+            sign_with_scheme(&session, self.key_handle, self.scheme, message)
+                .map_err(|e| rustls::Error::General(e.to_string()))
+        })
     }
 
     fn scheme(&self) -> SignatureScheme {

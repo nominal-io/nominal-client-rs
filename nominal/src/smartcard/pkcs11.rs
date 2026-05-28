@@ -23,6 +23,8 @@ const EKU_EXTENSION_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.5.29
 /// OID for id-kp-clientAuth (RFC 5280 §4.2.1.12).
 const CLIENT_AUTH_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.5.5.7.3.2");
 
+pub(super) const PIV_9A_KEY_ID: &[u8] = &[0x01];
+
 pub(super) fn open_session(pkcs11: &Pkcs11, slot: Slot) -> Result<Session> {
     let session = pkcs11
         .open_ro_session(slot)
@@ -65,10 +67,6 @@ pub(super) fn open_session(pkcs11: &Pkcs11, slot: Slot) -> Result<Session> {
             }
 
             Err(CryptokiError::Pkcs11(RvError::PinIncorrect | RvError::PinLenRange, _)) => {
-                eprintln!(
-                    "Incorrect PIN after {MAX_ATTEMPTS} attempts; \
-                     please verify your PIN and try again."
-                );
                 return Err(tls_static("incorrect PIN after too many attempts"));
             }
 
@@ -132,16 +130,22 @@ pub(super) fn discover_piv_cert(
     for &slot in slots {
         let session = match pkcs11.open_ro_session(slot) {
             Ok(s) => s,
-            Err(_) => continue,
+            Err(e) => {
+                tracing::debug!(slot = ?slot, error = ?e, "skipping slot: failed to open session");
+                continue;
+            }
         };
 
         let handles = match session.find_objects(&[
             Attribute::Class(ObjectClass::CERTIFICATE),
             Attribute::CertificateType(CertificateType::X_509),
-            Attribute::Id(vec![0x01]),
+            Attribute::Id(PIV_9A_KEY_ID.to_vec()),
         ]) {
             Ok(h) => h,
-            Err(_) => continue,
+            Err(e) => {
+                tracing::debug!(slot = ?slot, error = ?e, "skipping slot: C_FindObjects failed");
+                continue;
+            }
         };
 
         if handles.is_empty() {
