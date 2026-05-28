@@ -48,7 +48,7 @@ impl Video {
 
     /// Get the URL to view this video in the Nominal web app.
     pub fn nominal_url(&self) -> String {
-        format!("{}/videos/{}", self.app_base_url, self.rid)
+        format!("{}/data-sources/{}", self.app_base_url, self.rid)
     }
 
     pub(crate) fn from_conjure(video: ApiVideo, app_base_url: &str) -> Self {
