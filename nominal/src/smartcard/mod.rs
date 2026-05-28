@@ -85,11 +85,11 @@ impl SmartcardCertResolver {
             details: format!("C_GetSlotList failed: {e}"),
         })?;
 
-        let (slot, cert_der) = discover_piv_cert(&pkcs11, &slots)?;
+        let (slot, cert_der, key_id) = discover_piv_cert(&pkcs11, &slots)?;
 
         let session = open_session(&pkcs11, slot)?;
-        let key_handle = find_key_handle(&session, pkcs11::PIV_9A_KEY_ID)?;
-        let key_type = probe_key_type(&session, pkcs11::PIV_9A_KEY_ID)?;
+        let key_handle = find_key_handle(&session, &key_id)?;
+        let key_type = probe_key_type(&session, &key_id)?;
         let session = Arc::new(Mutex::new(session));
 
         let (schemes, algorithm) = schemes_for_key_type(key_type)?;
