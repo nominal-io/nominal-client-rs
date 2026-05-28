@@ -39,8 +39,7 @@ pub(super) fn open_session(pkcs11: &Pkcs11, slot: Slot) -> Result<Session> {
     for attempt in 1..=MAX_ATTEMPTS {
         let prompt = pin_prompt(&card_label, attempt, MAX_ATTEMPTS);
 
-        let pin = rpassword::prompt_password(&prompt)
-            .map_err(tls_err("Failed to read PIN"))?;
+        let pin = rpassword::prompt_password(&prompt).map_err(tls_err("Failed to read PIN"))?;
 
         match session.login(UserType::User, Some(&AuthPin::new(pin.into_boxed_str()))) {
             Ok(()) => return Ok(session),
@@ -59,17 +58,13 @@ pub(super) fn open_session(pkcs11: &Pkcs11, slot: Slot) -> Result<Session> {
                 ));
             }
 
-            Err(CryptokiError::Pkcs11(
-                RvError::PinIncorrect | RvError::PinLenRange,
-                _,
-            )) if attempt < MAX_ATTEMPTS => {
+            Err(CryptokiError::Pkcs11(RvError::PinIncorrect | RvError::PinLenRange, _))
+                if attempt < MAX_ATTEMPTS =>
+            {
                 continue;
             }
 
-            Err(CryptokiError::Pkcs11(
-                RvError::PinIncorrect | RvError::PinLenRange,
-                _,
-            )) => {
+            Err(CryptokiError::Pkcs11(RvError::PinIncorrect | RvError::PinLenRange, _)) => {
                 eprintln!(
                     "Incorrect PIN after {MAX_ATTEMPTS} attempts; \
                      please verify your PIN and try again."

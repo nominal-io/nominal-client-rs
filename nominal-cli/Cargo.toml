@@ -1,6 +1,6 @@
 [package]
 name = "nominal-cli"
-version = "0.3.0"
+version = "0.4.3"
 edition = "2024"
 rust-version = "1.85"
 license = "Apache-2.0"
@@ -12,7 +12,7 @@ name = "nom"
 path = "src/main.rs"
 
 [dependencies]
-nominal = { version = "0.3.0", path = "../nominal" }
+nominal = { version = "0.4.3", path = "../nominal" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
@@ -20,7 +20,7 @@ chrono = { version = "0.4" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 # Used by generated endpoint_table.rs and api/grpc commands
-nominal-api = "0.1212"
+nominal-api = "0.1218"
 conjure-object = "5.10"
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "http2", "rustls-tls"] }

@@ -6,7 +6,9 @@ use conjure_object::BearerToken;
 use conjure_runtime::Client;
 use futures::Stream;
 use nominal_api::clients::scout::assets::{AsyncAssetService, AsyncAssetServiceClient};
-use nominal_api::objects::api::{Label, PropertyName, PropertyValue, SetOperator};
+use nominal_api::objects::api::{
+    Label, PropertyName, PropertyValue, SetOperator, TagName, TagValue,
+};
 use nominal_api::objects::scout::asset::api::{
     AddDataScopesToAssetRequest, AssetSortField, AssetSortOptions, CreateAssetDataScope,
     CreateAssetRequest, SearchAssetsQuery, SearchAssetsRequest, SearchAssetsResponse, SortKey,
@@ -577,6 +579,55 @@ impl AssetsClient {
     pub async fn add_dataset(&self, rid: &str, name: &str, dataset_rid: &str) -> Result<Asset> {
         self.add_data_sources(rid, [(name, DataSource::dataset(dataset_rid))])
             .await
+    }
+
+    /// Attach a dataset to an asset with a series tag filter under the given scope name.
+    ///
+    /// Series tags filter which series from the dataset are included in the asset's data scope.
+    /// Returns the updated asset.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # async fn example(client: nominal::core::NominalClient) -> nominal::Result<()> {
+    /// client.assets().add_dataset_with_tags(
+    ///     "ri.scout.cerulean-staging.asset.<uuid>",
+    ///     "flight-data",
+    ///     "ri.catalog.cerulean-staging.dataset.<uuid>",
+    ///     [("vehicle", "rocket-1"), ("phase", "ascent")],
+    /// ).await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn add_dataset_with_tags<I, K, V>(
+        &self,
+        rid: &str,
+        name: &str,
+        dataset_rid: &str,
+        tags: I,
+    ) -> Result<Asset>
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        let conjure_ds = DataSource::dataset(dataset_rid).into_conjure()?;
+        let scope = CreateAssetDataScope::builder()
+            .data_scope_name(name.to_string().into())
+            .data_source(conjure_ds)
+            .series_tags(
+                tags.into_iter()
+                    .map(|(k, v)| (TagName(k.into()), TagValue(v.into()))),
+            )
+            .build();
+        let request = AddDataScopesToAssetRequest::builder()
+            .data_scopes(BTreeSet::from([scope]))
+            .build();
+        let asset_rid = parse_rid(rid)?;
+        let response = self
+            .service
+            .add_data_scopes_to_asset(&self.token, &asset_rid, &request)
+            .await
+            .map_err(Error::from)?;
+        Ok(Asset::from_conjure(response, &self.app_base_url))
     }
 
     /// Attach a video to an asset under the given scope name. See [`add_data_sources`](Self::add_data_sources).
