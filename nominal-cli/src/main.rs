@@ -1,6 +1,8 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 mod commands;
+mod context;
+mod output;
 use commands::api::ApiArgs;
 use commands::asset::AssetCommands;
 use commands::channel::ChannelCommands;
@@ -131,7 +133,7 @@ async fn run() -> anyhow::Result<()> {
             let client = commands::load_client(cli.profile.as_deref())?;
             commands::channel::handle(channel_command, client).await
         }
-        Commands::Config { config_command } => commands::config::handle(config_command),
+        Commands::Config { config_command } => commands::config::handle(config_command).await,
         Commands::Connection { connection_command } => {
             let client = commands::load_client(cli.profile.as_deref())?;
             commands::connection::handle(connection_command, client).await
