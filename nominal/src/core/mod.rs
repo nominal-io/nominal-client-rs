@@ -8,6 +8,7 @@ pub(crate) mod rid;
 pub(crate) mod run;
 pub(crate) mod user;
 pub(crate) mod utils;
+pub(crate) mod workspace;
 
 pub use asset::{Asset, AssetCreate, AssetQuery, AssetUpdate, AssetsClient};
 pub use catalog::{
@@ -24,3 +25,4 @@ pub use ingest::{
 };
 pub use run::{Run, RunCreate, RunQuery, RunUpdate, RunsClient};
 pub use user::{User, UsersClient};
+pub use workspace::WorkspacesClient;

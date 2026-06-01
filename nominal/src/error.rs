@@ -17,7 +17,16 @@ pub enum Error {
     Yaml(#[from] serde_yaml::Error),
 
     #[error("Conjure error: {details}")]
-    Conjure { details: String },
+    Conjure {
+        details: String,
+        status: Option<u16>,
+    },
+
+    #[error("{0}")]
+    Validation(crate::validate::ValidationError),
+
+    #[error("Workspace not provided, but there is no default workspace for the user.")]
+    NoDefaultWorkspace,
 
     #[error("RID conversion error: invalid RID '{rid}': {reason}")]
     Rid { rid: String, reason: String },
@@ -101,8 +110,22 @@ impl From<NominalDateTimeError> for Error {
 
 impl From<conjure_error::Error> for Error {
     fn from(value: conjure_error::Error) -> Self {
+        let status = value
+            .cause()
+            .downcast_ref::<conjure_runtime::errors::RemoteError>()
+            .map(|remote| remote.status().as_u16());
         Self::Conjure {
             details: format!("{value:?}"),
+            status,
+        }
+    }
+}
+
+impl Error {
+    pub fn http_status(&self) -> Option<u16> {
+        match self {
+            Self::Conjure { status, .. } => *status,
+            _ => None,
         }
     }
 }
