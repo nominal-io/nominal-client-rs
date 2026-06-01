@@ -75,11 +75,13 @@ impl Config {
         }
     }
 
-    /// Load the config from the default path, or return an empty v2 config if the file is missing.
+    /// Load the config from the default path, or return an empty v2 config when no v2
+    /// file exists yet (including when only the deprecated `~/.nominal.yml` is present).
     pub fn load_or_default() -> Result<Self> {
         match Self::load() {
             Ok(config) => Ok(config),
-            Err(crate::Error::ConfigNotFound { .. }) => Ok(Self::empty()),
+            Err(crate::Error::ConfigNotFound { .. })
+            | Err(crate::Error::DeprecatedConfigFound { .. }) => Ok(Self::empty()),
             Err(err) => Err(err),
         }
     }
