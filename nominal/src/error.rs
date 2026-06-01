@@ -40,6 +40,25 @@ pub enum Error {
     #[error("profile '{name}' not found in config")]
     ProfileNotFound { name: String },
 
+    #[error(
+        "no config file found at {path}: create with `nom config profile add` or `nom config init`"
+    )]
+    ConfigNotFound { path: String },
+
+    #[error(
+        "no config file found at {path}: deprecated config file {deprecated_path} found. migrate with `nom config migrate`"
+    )]
+    DeprecatedConfigFound {
+        path: String,
+        deprecated_path: String,
+    },
+
+    #[error("missing 'version' key in config file: {path}")]
+    ConfigMissingVersion { path: String },
+
+    #[error("unsupported config version: {version} (expected 2)")]
+    ConfigUnsupportedVersion { version: u32, path: String },
+
     #[error("environment variable '{name}' is not set")]
     EnvVarNotSet { name: &'static str },
 
