@@ -21,7 +21,7 @@ pub enum ProfileCommands {
         url: String,
         #[arg(short, long)]
         token: String,
-        #[arg(short, long)]
+        #[arg(short, long, required = true)]
         workspace_rid: String,
     },
     /// List profiles
