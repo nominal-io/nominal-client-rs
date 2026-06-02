@@ -7,6 +7,7 @@ use crate::context::display_config_path;
 use crate::output::{print_profile_added_success, print_validation_error};
 
 const DEFAULT_BASE_URL: &str = "https://api.gov.nominal.io/api";
+const DEFAULT_PROFILE_NAME: &str = "default";
 
 #[derive(Subcommand)]
 pub enum ConfigCommands {
@@ -175,9 +176,19 @@ fn show_profile(name: &str) -> anyhow::Result<()> {
 
 async fn handle_init() -> anyhow::Result<()> {
     let name = Text::new("Profile name")
+        .with_default(DEFAULT_PROFILE_NAME)
         .with_help_message("Used with --profile or NOMINAL_PROFILE")
         .prompt()
         .context("Failed to read profile name")?;
+
+    let name = {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            DEFAULT_PROFILE_NAME.to_string()
+        } else {
+            trimmed.to_string()
+        }
+    };
 
     let url = Text::new("API base URL")
         .with_default(DEFAULT_BASE_URL)
@@ -309,6 +320,11 @@ fn map_validation_error(err: Error) -> anyhow::Error {
 mod tests {
     use super::*;
     use nominal::ValidationError;
+
+    #[test]
+    fn default_profile_name_is_default() {
+        assert_eq!(DEFAULT_PROFILE_NAME, "default");
+    }
 
     #[test]
     fn default_base_url_is_gov_api() {
