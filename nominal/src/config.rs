@@ -2,7 +2,10 @@ use crate::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+
+const CONFIG_VERSION: u32 = 2;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
@@ -40,16 +43,42 @@ impl Profile {
 }
 
 impl Config {
+    pub fn new() -> Self {
+        Self {
+            profiles: HashMap::new(),
+            version: CONFIG_VERSION,
+        }
+    }
+
     /// Load the config from the default path (`~/.config/nominal/config.yml`).
     pub fn load() -> Result<Self> {
         Self::load_from(&default_config_path()?)
     }
 
+    /// Load the config from the default path, or return an empty v2 config if it does not exist.
+    pub fn load_or_default() -> Result<Self> {
+        match Self::load() {
+            Ok(config) => Ok(config),
+            Err(crate::Error::Io(err)) if err.kind() == ErrorKind::NotFound => Ok(Self::new()),
+            Err(err) => Err(err),
+        }
+    }
+
     /// Load the config from an explicit path.
     pub fn load_from(path: &Path) -> Result<Self> {
         let contents = fs::read_to_string(path)?;
-        let config = serde_yaml::from_str(&contents)?;
+        let config: Self = serde_yaml::from_str(&contents)?;
+        if config.version != CONFIG_VERSION {
+            return Err(crate::Error::UnsupportedConfigVersion {
+                version: config.version,
+            });
+        }
         Ok(config)
+    }
+
+    /// Return the default config path (`~/.config/nominal/config.yml`).
+    pub fn default_path() -> Result<PathBuf> {
+        default_config_path()
     }
 
     pub fn get_profile(&self, name: &str) -> Option<&Profile> {
@@ -85,6 +114,12 @@ impl Config {
         let contents = serde_yaml::to_string(self)?;
         fs::write(path, contents)?;
         Ok(())
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
