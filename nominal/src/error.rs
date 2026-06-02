@@ -57,6 +57,9 @@ pub enum Error {
 
     #[error("ingest error: {details}")]
     Ingest { details: String },
+
+    #[error("streaming error: {details}")]
+    Streaming { details: String },
 }
 
 impl From<RidConversionError> for Error {
