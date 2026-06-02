@@ -1,18 +1,95 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 
 use conjure_object::ResourceIdentifier;
-use nominal_streaming::stream::NominalDatasetStreamBuilder;
+use nominal_streaming::stream::{
+    NominalDatasetStream, NominalDatasetStreamBuilder, NominalStreamOpts,
+};
 
 use crate::{Error, Result};
 
 pub use nominal_streaming::stream::{
-    NominalDatasetStream as DatasetStream, NominalDoubleArrayWriter as DoubleArrayWriter,
-    NominalDoubleWriter as DoubleWriter, NominalIntegerWriter as IntegerWriter,
-    NominalStreamOpts as StreamOptions, NominalStringArrayWriter as StringArrayWriter,
+    NominalDoubleArrayWriter as DoubleArrayWriter, NominalDoubleWriter as DoubleWriter,
+    NominalIntegerWriter as IntegerWriter, NominalStringArrayWriter as StringArrayWriter,
     NominalStringWriter as StringWriter, NominalStructWriter as StructWriter,
     NominalUint64Writer as Uint64Writer,
 };
 pub use nominal_streaming::types::{ChannelDescriptor, IntoTimestamp};
+
+/// Buffering and dispatch options for dataset streaming.
+#[derive(Clone, Debug)]
+pub struct StreamOptions {
+    pub max_points_per_record: usize,
+    pub max_request_delay: Duration,
+    pub max_buffered_requests: usize,
+    pub request_dispatcher_tasks: usize,
+}
+
+impl StreamOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn into_nominal_options(self, base_url: &str) -> NominalStreamOpts {
+        NominalStreamOpts {
+            max_points_per_record: self.max_points_per_record,
+            max_request_delay: self.max_request_delay,
+            max_buffered_requests: self.max_buffered_requests,
+            request_dispatcher_tasks: self.request_dispatcher_tasks,
+            base_api_url: base_url.to_string(),
+        }
+    }
+}
+
+impl Default for StreamOptions {
+    fn default() -> Self {
+        let defaults = NominalStreamOpts::default();
+        Self {
+            max_points_per_record: defaults.max_points_per_record,
+            max_request_delay: defaults.max_request_delay,
+            max_buffered_requests: defaults.max_buffered_requests,
+            request_dispatcher_tasks: defaults.request_dispatcher_tasks,
+        }
+    }
+}
+
+/// A streaming session opened against a Nominal dataset.
+pub struct DatasetStream {
+    inner: NominalDatasetStream,
+}
+
+impl DatasetStream {
+    fn new(inner: NominalDatasetStream) -> Self {
+        Self { inner }
+    }
+
+    pub fn double_writer(&self, channel: ChannelDescriptor) -> DoubleWriter<'_> {
+        self.inner.double_writer(channel)
+    }
+
+    pub fn integer_writer(&self, channel: ChannelDescriptor) -> IntegerWriter<'_> {
+        self.inner.integer_writer(channel)
+    }
+
+    pub fn uint64_writer(&self, channel: ChannelDescriptor) -> Uint64Writer<'_> {
+        self.inner.uint64_writer(channel)
+    }
+
+    pub fn string_writer(&self, channel: ChannelDescriptor) -> StringWriter<'_> {
+        self.inner.string_writer(channel)
+    }
+
+    pub fn struct_writer(&self, channel: ChannelDescriptor) -> StructWriter<'_> {
+        self.inner.struct_writer(channel)
+    }
+
+    pub fn double_array_writer(&self, channel: ChannelDescriptor) -> DoubleArrayWriter<'_> {
+        self.inner.double_array_writer(channel)
+    }
+
+    pub fn string_array_writer(&self, channel: ChannelDescriptor) -> StringArrayWriter<'_> {
+        self.inner.string_array_writer(channel)
+    }
+}
 
 /// Client for opening streaming sessions into Nominal datasets.
 #[derive(Clone, Debug)]
@@ -105,13 +182,9 @@ impl DatasetStreamOptions {
             })?,
         };
 
-        let mut stream_options = self.stream_options;
-        // overrides the default API URL
-        stream_options.base_api_url = base_url.to_string();
-
         let mut builder = NominalDatasetStreamBuilder::new()
             .stream_to_core(token, dataset, handle)
-            .with_options(stream_options);
+            .with_options(self.stream_options.into_nominal_options(base_url));
 
         if let Some(path) = self.stream_to_file {
             builder = builder.stream_to_file(path);
@@ -120,6 +193,6 @@ impl DatasetStreamOptions {
             builder = builder.with_file_fallback(path);
         }
 
-        Ok(builder.build())
+        Ok(DatasetStream::new(builder.build()))
     }
 }
