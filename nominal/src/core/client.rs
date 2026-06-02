@@ -7,7 +7,7 @@ use conjure_runtime::{Agent, Client, UserAgent};
 use crate::config::{Config, Profile};
 use crate::core::{
     asset::AssetsClient, catalog::CatalogClient, ingest::IngestClient, run::RunsClient,
-    user::UsersClient, utils::api_base_url_to_app_base_url,
+    streaming::StreamingClient, user::UsersClient, utils::api_base_url_to_app_base_url,
 };
 use crate::{Error, Result};
 
@@ -115,6 +115,11 @@ impl NominalClient {
             self.token.clone(),
             self.workspace_rid.clone(),
         )
+    }
+
+    /// Access streaming operations.
+    pub fn streaming(&self) -> StreamingClient {
+        StreamingClient::new(self.token.clone(), self.base_url.clone())
     }
 }
 

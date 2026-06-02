@@ -6,6 +6,7 @@ pub(crate) mod datetime;
 pub(crate) mod ingest;
 pub(crate) mod rid;
 pub(crate) mod run;
+pub(crate) mod streaming;
 pub(crate) mod user;
 pub(crate) mod utils;
 
@@ -23,4 +24,9 @@ pub use ingest::{
     TimeUnit, Timestamp, UploadEvent, UploadOptions, VideoIngest, VideoTarget,
 };
 pub use run::{Run, RunCreate, RunQuery, RunUpdate, RunsClient};
+pub use streaming::{
+    ChannelDescriptor, DatasetStream, DatasetStreamOptions, DoubleArrayWriter, DoubleWriter,
+    IntegerWriter, IntoTimestamp, StreamOptions, StreamingClient, StringArrayWriter, StringWriter,
+    StructWriter, Uint64Writer,
+};
 pub use user::{User, UsersClient};
