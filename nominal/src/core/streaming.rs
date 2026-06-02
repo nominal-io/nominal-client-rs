@@ -6,9 +6,11 @@ use nominal_streaming::stream::NominalDatasetStreamBuilder;
 use crate::{Error, Result};
 
 pub use nominal_streaming::stream::{
-    NominalDatasetStream as DatasetStream, NominalDoubleArrayWriter, NominalDoubleWriter,
-    NominalIntegerWriter, NominalStreamOpts, NominalStringArrayWriter, NominalStringWriter,
-    NominalStructWriter, NominalUint64Writer,
+    NominalDatasetStream as DatasetStream, NominalDoubleArrayWriter as DoubleArrayWriter,
+    NominalDoubleWriter as DoubleWriter, NominalIntegerWriter as IntegerWriter,
+    NominalStreamOpts as StreamOptions, NominalStringArrayWriter as StringArrayWriter,
+    NominalStringWriter as StringWriter, NominalStructWriter as StructWriter,
+    NominalUint64Writer as Uint64Writer,
 };
 pub use nominal_streaming::types::{ChannelDescriptor, IntoTimestamp};
 
@@ -49,7 +51,7 @@ pub struct DatasetStreamOptions {
     stream_to_file: Option<PathBuf>,
     file_fallback: Option<PathBuf>,
     runtime_handle: Option<tokio::runtime::Handle>,
-    stream_options: NominalStreamOpts,
+    stream_options: StreamOptions,
 }
 
 impl DatasetStreamOptions {
@@ -80,7 +82,7 @@ impl DatasetStreamOptions {
 
     /// Override the underlying streaming buffer and dispatch options.
     #[must_use]
-    pub fn stream_options(mut self, options: NominalStreamOpts) -> Self {
+    pub fn stream_options(mut self, options: StreamOptions) -> Self {
         self.stream_options = options;
         self
     }

@@ -25,9 +25,8 @@ pub use ingest::{
 };
 pub use run::{Run, RunCreate, RunQuery, RunUpdate, RunsClient};
 pub use streaming::{
-    ChannelDescriptor, DatasetStream, DatasetStreamOptions, IntoTimestamp,
-    NominalDoubleArrayWriter, NominalDoubleWriter, NominalIntegerWriter, NominalStreamOpts,
-    NominalStringArrayWriter, NominalStringWriter, NominalStructWriter, NominalUint64Writer,
-    StreamingClient,
+    ChannelDescriptor, DatasetStream, DatasetStreamOptions, DoubleArrayWriter, DoubleWriter,
+    IntegerWriter, IntoTimestamp, StreamOptions, StreamingClient, StringArrayWriter, StringWriter,
+    StructWriter, Uint64Writer,
 };
 pub use user::{User, UsersClient};
