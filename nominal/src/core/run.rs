@@ -310,7 +310,7 @@ impl RunCreate {
         self
     }
 
-    pub(crate) fn into_request(self, workspace_rid: Option<&str>) -> Result<CreateRunRequest> {
+    pub(crate) fn into_request(self, workspace_rid: &str) -> Result<CreateRunRequest> {
         use crate::core::datetime::NominalDateTime;
         use nominal_api::objects::api::rids::WorkspaceRid;
 
@@ -349,9 +349,7 @@ impl RunCreate {
                 .collect::<Result<Vec<_>>>()?;
             b = b.assets(asset_rids);
         }
-        if let Some(wid) = workspace_rid {
-            b = b.workspace(parse_rid::<WorkspaceRid>(wid)?);
-        }
+        b = b.workspace(parse_rid::<WorkspaceRid>(workspace_rid)?);
 
         Ok(b.build())
     }
@@ -494,7 +492,7 @@ impl RunQuery {
 pub struct RunsClient {
     service: AsyncRunServiceClient<Client>,
     token: BearerToken,
-    workspace_rid: Option<String>,
+    workspace_rid: String,
     app_base_url: String,
 }
 
@@ -503,7 +501,7 @@ impl RunsClient {
         client: Client,
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
-        workspace_rid: Option<String>,
+        workspace_rid: String,
         app_base_url: String,
     ) -> Self {
         Self {
@@ -532,7 +530,7 @@ impl RunsClient {
     /// # Ok(()) }
     /// ```
     pub async fn create(&self, create: RunCreate) -> Result<Run> {
-        let request = create.into_request(self.workspace_rid.as_deref())?;
+        let request = create.into_request(&self.workspace_rid)?;
         let response = self
             .service
             .create_run(&self.token, &request)
@@ -1002,17 +1000,27 @@ mod tests {
 
     // --- RunCreate::into_request ---
 
+    const TEST_WORKSPACE_RID: &str =
+        "ri.security.gov-staging.workspace.82db1f3a-568e-418e-a2d0-0575396f29a2";
+
     #[test]
     fn create_minimal_request() {
         let start = Utc.timestamp_opt(1_700_000_000, 0).single().unwrap();
-        let req = RunCreate::new("my-run", start).into_request(None).unwrap();
+        let req = RunCreate::new("my-run", start)
+            .into_request(TEST_WORKSPACE_RID)
+            .unwrap();
         assert_eq!(req.title(), "my-run");
         assert_eq!(req.description(), "");
         assert!(req.end_time().is_none());
         assert!(req.properties().is_empty());
         assert!(req.labels().is_empty());
         assert!(req.assets().is_empty());
-        assert!(req.workspace().is_none());
+        assert_eq!(
+            req.workspace()
+                .expect("workspace should be set")
+                .to_string(),
+            TEST_WORKSPACE_RID
+        );
 
         use crate::core::datetime::api_timestamp_to_utc;
         let got = api_timestamp_to_utc(req.start_time()).unwrap();
@@ -1028,7 +1036,7 @@ mod tests {
             .end(end)
             .labels(["prod", "qa", "prod"])
             .properties([("k", "v")])
-            .into_request(None)
+            .into_request(TEST_WORKSPACE_RID)
             .unwrap();
 
         assert_eq!(req.title(), "my-run");
@@ -1047,7 +1055,7 @@ mod tests {
         let start = Utc.timestamp_opt(1_700_000_000, 0).single().unwrap();
         let result = RunCreate::new("my-run", start)
             .assets(["not-a-rid"])
-            .into_request(None);
+            .into_request(TEST_WORKSPACE_RID);
         assert!(result.is_err());
     }
 }

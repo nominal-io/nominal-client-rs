@@ -40,6 +40,12 @@ pub enum Error {
     #[error("profile '{name}' not found in config")]
     ProfileNotFound { name: String },
 
+    #[error("unsupported config version: {version}")]
+    UnsupportedConfigVersion { version: u32 },
+
+    #[error("profile '{name}' is missing workspace_rid in config")]
+    MissingProfileWorkspace { name: String },
+
     #[error("environment variable '{name}' is not set")]
     EnvVarNotSet { name: &'static str },
 

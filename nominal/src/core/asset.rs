@@ -238,7 +238,7 @@ impl AssetCreate {
         self
     }
 
-    pub(crate) fn into_request(self, workspace_rid: Option<&str>) -> Result<CreateAssetRequest> {
+    pub(crate) fn into_request(self, workspace_rid: &str) -> Result<CreateAssetRequest> {
         use nominal_api::objects::api::rids::WorkspaceRid;
 
         let AssetCreate {
@@ -263,9 +263,7 @@ impl AssetCreate {
         if let Some(l) = labels {
             b = b.labels(l.into_iter().map(Label).collect::<BTreeSet<_>>());
         }
-        if let Some(wid) = workspace_rid {
-            b = b.workspace(parse_rid::<WorkspaceRid>(wid)?);
-        }
+        b = b.workspace(parse_rid::<WorkspaceRid>(workspace_rid)?);
 
         Ok(b.build())
     }
@@ -357,7 +355,7 @@ impl AssetQuery {
 pub struct AssetsClient {
     service: AsyncAssetServiceClient<Client>,
     token: BearerToken,
-    workspace_rid: Option<String>,
+    workspace_rid: String,
     app_base_url: String,
 }
 
@@ -366,7 +364,7 @@ impl AssetsClient {
         client: Client,
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
-        workspace_rid: Option<String>,
+        workspace_rid: String,
         app_base_url: String,
     ) -> Self {
         Self {
@@ -379,7 +377,7 @@ impl AssetsClient {
 
     /// Create a new asset.
     pub async fn create(&self, create: AssetCreate) -> Result<Asset> {
-        let request = create.into_request(self.workspace_rid.as_deref())?;
+        let request = create.into_request(&self.workspace_rid)?;
         let response = self
             .service
             .create_asset(&self.token, &request)

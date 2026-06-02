@@ -32,7 +32,7 @@ pub(crate) async fn upload_file(
     conjure_client: Client,
     runtime: &Arc<ConjureRuntime>,
     token: BearerToken,
-    workspace_rid: Option<String>,
+    workspace_rid: String,
     path: impl AsRef<Path>,
     filename: String,
     mimetype: String,
@@ -63,7 +63,7 @@ pub(crate) async fn upload_reader<R>(
     conjure_client: Client,
     runtime: &Arc<ConjureRuntime>,
     token: BearerToken,
-    workspace_rid: Option<String>,
+    workspace_rid: String,
     reader: R,
     total_bytes: u64,
     filename: String,
@@ -90,15 +90,12 @@ where
     }
 
     let upload_service = AsyncUploadServiceClient::new(conjure_client, runtime);
-    let workspace = workspace_rid
-        .as_deref()
-        .map(parse_rid::<WorkspaceRid>)
-        .transpose()?;
+    let workspace = parse_rid::<WorkspaceRid>(&workspace_rid)?;
 
     let init_req = InitiateMultipartUploadRequest::builder()
         .filename(filename)
         .filetype(mimetype)
-        .workspace(workspace)
+        .workspace(Some(workspace))
         .build();
     let init_resp = upload_service
         .initiate_multipart_upload(&token, &init_req)

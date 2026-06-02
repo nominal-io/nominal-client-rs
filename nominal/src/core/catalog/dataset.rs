@@ -136,7 +136,7 @@ impl DatasetCreate {
         self
     }
 
-    pub(crate) fn into_request(self, workspace_rid: Option<&str>) -> Result<CreateDataset> {
+    pub(crate) fn into_request(self, workspace_rid: &str) -> Result<CreateDataset> {
         let DatasetCreate {
             name,
             description,
@@ -167,16 +167,14 @@ impl DatasetCreate {
         if let Some(l) = labels {
             b = b.labels(l.into_iter().map(Label).collect::<BTreeSet<_>>());
         }
-        if let Some(wid) = workspace_rid {
-            b = b.workspace(parse_rid::<WorkspaceRid>(wid)?);
-        }
+        b = b.workspace(parse_rid::<WorkspaceRid>(workspace_rid)?);
 
         Ok(b.build())
     }
 
     pub(crate) fn into_new_ingest_destination(
         self,
-        workspace_rid: Option<&str>,
+        workspace_rid: &str,
     ) -> Result<nominal_api::objects::ingest::api::NewDatasetIngestDestination> {
         let DatasetCreate {
             name,
@@ -208,9 +206,7 @@ impl DatasetCreate {
         if let Some(l) = labels {
             b = b.labels(l.into_iter().map(Label).collect::<BTreeSet<_>>());
         }
-        if let Some(wid) = workspace_rid {
-            b = b.workspace(parse_rid::<WorkspaceRid>(wid)?);
-        }
+        b = b.workspace(parse_rid::<WorkspaceRid>(workspace_rid)?);
 
         Ok(b.build())
     }

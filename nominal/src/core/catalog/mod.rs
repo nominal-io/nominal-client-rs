@@ -60,7 +60,7 @@ pub struct CatalogClient {
     channel_metadata_service: AsyncChannelMetadataServiceClient<Client>,
     series_metadata_service: AsyncSeriesMetadataServiceClient<Client>,
     token: BearerToken,
-    workspace_rid: Option<String>,
+    workspace_rid: String,
     app_base_url: String,
 }
 
@@ -69,7 +69,7 @@ impl CatalogClient {
         client: Client,
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
-        workspace_rid: Option<String>,
+        workspace_rid: String,
         app_base_url: String,
     ) -> Self {
         Self {
@@ -90,7 +90,7 @@ impl CatalogClient {
 
     /// Create a new dataset.
     pub async fn create_dataset(&self, create: DatasetCreate) -> Result<Dataset> {
-        let request = create.into_request(self.workspace_rid.as_deref())?;
+        let request = create.into_request(&self.workspace_rid)?;
         let response = self
             .catalog_service
             .create_dataset(&self.token, &request)
@@ -251,7 +251,7 @@ impl CatalogClient {
 
     /// Create a new video.
     pub async fn create_video(&self, create: VideoCreate) -> Result<Video> {
-        let request = create.into_request(self.workspace_rid.as_deref())?;
+        let request = create.into_request(&self.workspace_rid)?;
         let response = self
             .video_service
             .create(&self.token, &request)
