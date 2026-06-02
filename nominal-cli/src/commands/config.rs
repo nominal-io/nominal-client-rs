@@ -55,20 +55,10 @@ pub fn handle(cmd: ConfigCommands) -> anyhow::Result<()> {
                     return Ok(());
                 }
 
-                println!("Profiles from `{config_path}`:\n");
                 for (profile_name, profile) in profiles {
-                    print!(
-                        "- {profile_name} ({base_url}",
-                        base_url = profile.base_url()
-                    );
-                    if profile.token().is_empty() {
-                        print!(", missing token");
-                    }
-                    print!(
-                        ", workspace {workspace_rid}",
-                        workspace_rid = profile.workspace_rid()
-                    );
-                    println!(")");
+                    let base_url = profile.base_url();
+                    let workspace_rid = profile.workspace_rid();
+                    print!("- {profile_name} @ {base_url} ({workspace_rid})\n");
                 }
             }
             ProfileCommands::Remove { name } => {
