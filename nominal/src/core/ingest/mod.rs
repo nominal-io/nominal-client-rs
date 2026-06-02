@@ -7,6 +7,7 @@ mod timestamp;
 
 pub use filetype::FileType;
 pub use job::{IngestJob, IngestJobStatus, IngestType};
+pub(crate) use multipart::upload_file;
 pub use options::{
     AvroStreamIngest, CsvIngest, DataflashIngest, DatasetTarget, JournalJsonIngest, McapIngest,
     ParquetIngest, UploadOptions, VideoIngest, VideoTarget,

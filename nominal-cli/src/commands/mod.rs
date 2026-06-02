@@ -1,5 +1,6 @@
 pub mod api;
 pub mod asset;
+pub mod attachment;
 pub mod channel;
 pub mod config;
 pub mod connection;
