@@ -22,7 +22,7 @@ pub enum ProfileCommands {
         #[arg(short, long)]
         token: String,
         #[arg(short, long)]
-        workspace_rid: Option<String>,
+        workspace_rid: String,
     },
     /// List profiles
     List,
@@ -64,9 +64,10 @@ pub fn handle(cmd: ConfigCommands) -> anyhow::Result<()> {
                     if profile.token().is_empty() {
                         print!(", missing token");
                     }
-                    if profile.workspace_rid().is_some() {
-                        print!(", in workspace");
-                    }
+                    print!(
+                        ", workspace {workspace_rid}",
+                        workspace_rid = profile.workspace_rid()
+                    );
                     println!(")");
                 }
             }

@@ -20,7 +20,7 @@ pub struct NominalClient {
     client: Client,
     runtime: Arc<ConjureRuntime>,
     token: BearerToken,
-    workspace_rid: Option<String>,
+    workspace_rid: String,
     base_url: String,
 }
 
@@ -34,8 +34,11 @@ impl std::fmt::Debug for NominalClient {
 }
 
 impl NominalClient {
-    pub fn builder(token: impl Into<String>) -> NominalClientBuilder {
-        NominalClientBuilder::new(token)
+    pub fn builder(
+        token: impl Into<String>,
+        workspace_rid: impl Into<String>,
+    ) -> NominalClientBuilder {
+        NominalClientBuilder::new(token, workspace_rid)
     }
 
     pub fn from_profile(name: &str) -> Result<Self> {
@@ -65,8 +68,8 @@ impl NominalClient {
         &self.base_url
     }
 
-    pub fn workspace_rid(&self) -> Option<&str> {
-        self.workspace_rid.as_deref()
+    pub fn workspace_rid(&self) -> &str {
+        &self.workspace_rid
     }
 
     /// Access run operations.
@@ -125,24 +128,22 @@ impl NominalClient {
 pub struct NominalClientBuilder {
     base_url: String,
     token: String,
-    workspace_rid: Option<String>,
+    workspace_rid: String,
     user_agent: UserAgent,
 }
 
 impl NominalClientBuilder {
-    fn new(token: impl Into<String>) -> Self {
+    fn new(token: impl Into<String>, workspace_rid: impl Into<String>) -> Self {
         Self {
             base_url: DEFAULT_BASE_URL.to_string(),
             token: token.into(),
-            workspace_rid: None,
+            workspace_rid: workspace_rid.into(),
             user_agent: default_user_agent(),
         }
     }
 
     pub fn from_profile_config(profile: &Profile) -> Self {
-        Self::new(profile.token())
-            .base_url(profile.base_url())
-            .workspace_rid(profile.workspace_rid().map(ToString::to_string))
+        Self::new(profile.token(), profile.workspace_rid()).base_url(profile.base_url())
     }
 
     /// Override the default base URL.
@@ -151,8 +152,8 @@ impl NominalClientBuilder {
         self
     }
 
-    pub fn workspace_rid(mut self, workspace_rid: Option<String>) -> Self {
-        self.workspace_rid = workspace_rid;
+    pub fn workspace_rid(mut self, workspace_rid: impl Into<String>) -> Self {
+        self.workspace_rid = workspace_rid.into();
         self
     }
 
@@ -215,14 +216,15 @@ mod tests {
 
     #[test]
     fn builder_accepts_custom_user_agent() {
-        let builder = NominalClientBuilder::new("token").user_agent("nominal-cli", "1.2.3");
+        let builder = NominalClientBuilder::new("token", "ri.security.gov.workspace.example")
+            .user_agent("nominal-cli", "1.2.3");
 
         assert_eq!(builder.user_agent.to_string(), "nominal-cli/1.2.3");
     }
 
     #[test]
     fn builder_defaults_base_url() {
-        let builder = NominalClientBuilder::new("token");
+        let builder = NominalClientBuilder::new("token", "ri.security.gov.workspace.example");
 
         assert_eq!(builder.base_url, DEFAULT_BASE_URL);
     }

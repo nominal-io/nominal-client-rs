@@ -17,11 +17,11 @@ pub struct Config {
 pub struct Profile {
     base_url: String,
     token: String,
-    workspace_rid: Option<String>,
+    workspace_rid: String,
 }
 
 impl Profile {
-    pub fn new(base_url: String, token: String, workspace_rid: Option<String>) -> Self {
+    pub fn new(base_url: String, token: String, workspace_rid: String) -> Self {
         Self {
             base_url,
             token,
@@ -37,8 +37,8 @@ impl Profile {
         &self.token
     }
 
-    pub fn workspace_rid(&self) -> Option<&str> {
-        self.workspace_rid.as_deref()
+    pub fn workspace_rid(&self) -> &str {
+        &self.workspace_rid
     }
 }
 
@@ -73,6 +73,7 @@ impl Config {
                 version: config.version,
             });
         }
+        config.validate_profiles()?;
         Ok(config)
     }
 
@@ -108,11 +109,21 @@ impl Config {
 
     /// Save the config to an explicit path.
     pub fn save_to(&self, path: &Path) -> Result<()> {
+        self.validate_profiles()?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
         let contents = serde_yaml::to_string(self)?;
         fs::write(path, contents)?;
+        Ok(())
+    }
+
+    fn validate_profiles(&self) -> Result<()> {
+        for (name, profile) in &self.profiles {
+            if profile.workspace_rid.trim().is_empty() {
+                return Err(crate::Error::MissingProfileWorkspace { name: name.clone() });
+            }
+        }
         Ok(())
     }
 }

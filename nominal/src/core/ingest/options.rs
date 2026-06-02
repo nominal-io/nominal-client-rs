@@ -61,7 +61,7 @@ impl From<DatasetCreate> for DatasetTarget {
 }
 
 impl DatasetTarget {
-    pub(crate) fn into_api(self, workspace_rid: Option<&str>) -> Result<ApiDatasetIngestTarget> {
+    pub(crate) fn into_api(self, workspace_rid: &str) -> Result<ApiDatasetIngestTarget> {
         Ok(match self {
             DatasetTarget::Existing(rid) => ApiDatasetIngestTarget::Existing(
                 ExistingDatasetIngestDestination::new(parse_rid(&rid)?),
@@ -210,7 +210,7 @@ impl CsvIngest {
     pub(crate) fn into_opts(
         self,
         target: DatasetTarget,
-        workspace_rid: Option<&str>,
+        workspace_rid: &str,
         s3_path: String,
     ) -> Result<CsvOpts> {
         let target = target.into_api(workspace_rid)?;
@@ -312,7 +312,7 @@ impl ParquetIngest {
     pub(crate) fn into_opts(
         self,
         target: DatasetTarget,
-        workspace_rid: Option<&str>,
+        workspace_rid: &str,
         s3_path: String,
     ) -> Result<ParquetOpts> {
         let target = target.into_api(workspace_rid)?;
@@ -407,7 +407,7 @@ impl McapIngest {
     pub(crate) fn into_opts(
         self,
         target: DatasetTarget,
-        workspace_rid: Option<&str>,
+        workspace_rid: &str,
         s3_path: String,
     ) -> Result<McapProtobufTimeseriesOpts> {
         let target = target.into_api(workspace_rid)?;
@@ -485,7 +485,7 @@ impl JournalJsonIngest {
     pub(crate) fn into_opts(
         self,
         target: DatasetTarget,
-        workspace_rid: Option<&str>,
+        workspace_rid: &str,
         s3_path: String,
     ) -> Result<JournalJsonOpts> {
         let target = target.into_api(workspace_rid)?;
@@ -520,7 +520,7 @@ impl AvroStreamIngest {
     pub(crate) fn into_opts(
         self,
         target: DatasetTarget,
-        workspace_rid: Option<&str>,
+        workspace_rid: &str,
         s3_path: String,
     ) -> Result<AvroStreamOpts> {
         let target = target.into_api(workspace_rid)?;
@@ -560,7 +560,7 @@ impl DataflashIngest {
     pub(crate) fn into_opts(
         self,
         target: DatasetTarget,
-        workspace_rid: Option<&str>,
+        workspace_rid: &str,
         s3_path: String,
     ) -> Result<DataflashOpts> {
         let target = target.into_api(workspace_rid)?;
@@ -615,7 +615,7 @@ impl From<VideoCreate> for VideoTarget {
 }
 
 impl VideoTarget {
-    pub(crate) fn into_api(self, workspace_rid: Option<&str>) -> Result<ApiVideoIngestTarget> {
+    pub(crate) fn into_api(self, workspace_rid: &str) -> Result<ApiVideoIngestTarget> {
         Ok(match self {
             VideoTarget::Existing(rid) => ApiVideoIngestTarget::Existing(
                 ExistingVideoIngestDestination::new(parse_rid(&rid)?),
@@ -679,7 +679,7 @@ impl VideoIngest {
     pub(crate) fn into_opts(
         self,
         target: VideoTarget,
-        workspace_rid: Option<&str>,
+        workspace_rid: &str,
         s3_path: String,
     ) -> Result<VideoOpts> {
         let target = target.into_api(workspace_rid)?;
