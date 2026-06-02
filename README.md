@@ -20,7 +20,7 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
-## `nom` cli
+## `nomctl` cli
 
 A CLI to take actions on Nominal's APIs.
 
@@ -31,14 +31,14 @@ $ cargo install nominal-cli
 
 ### Example
 ```
-$ nom config profile add test-profile \
+$ nomctl config profile add test-profile \
     -u https://api.gov.nominal.io/api \
     -t $NOMINAL_TOKEN \
     -w ri.security.cerulean-staging.workspace.8649e5e7-bf9b-45e8-897f-adfabbdd66b9
-$ nom --profile test-profile user who-am-i
+$ nomctl --profile test-profile user who-am-i
 RID: ri.authn.cerulean-staging.user.3de9b720-b35d-4ebe-b724-752b66732d20
 Org RID: ri.authn.cerulean-staging.organization.c531d9b0-490d-4d5f-abe1-3b83817c20bb
 Email: name@nominal.io
 Display Name: Firstname Lastname
-$ nom config profile remove test-profile
+$ nomctl config profile remove test-profile
 ```
