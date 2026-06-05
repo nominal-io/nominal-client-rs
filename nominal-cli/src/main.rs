@@ -3,6 +3,7 @@ use clap_complete::Shell;
 mod commands;
 use commands::api::ApiArgs;
 use commands::asset::AssetCommands;
+use commands::attachment::AttachmentCommands;
 use commands::channel::ChannelCommands;
 use commands::config::ConfigCommands;
 use commands::connection::ConnectionCommands;
@@ -31,6 +32,11 @@ enum Commands {
     Asset {
         #[command(subcommand)]
         asset_command: AssetCommands,
+    },
+    /// Attachment management commands
+    Attachment {
+        #[command(subcommand)]
+        attachment_command: AttachmentCommands,
     },
     /// Channel management commands
     Channel {
@@ -126,6 +132,10 @@ async fn run() -> anyhow::Result<()> {
         Commands::Asset { asset_command } => {
             let client = commands::load_client(cli.profile.as_deref())?;
             commands::asset::handle(asset_command, client).await
+        }
+        Commands::Attachment { attachment_command } => {
+            let client = commands::load_client(cli.profile.as_deref())?;
+            commands::attachment::handle(attachment_command, client).await
         }
         Commands::Channel { channel_command } => {
             let client = commands::load_client(cli.profile.as_deref())?;

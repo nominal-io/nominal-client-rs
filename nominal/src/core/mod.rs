@@ -1,4 +1,5 @@
 pub(crate) mod asset;
+pub(crate) mod attachment;
 pub(crate) mod catalog;
 pub(crate) mod client;
 pub(crate) mod datasource;
@@ -10,6 +11,7 @@ pub(crate) mod user;
 pub(crate) mod utils;
 
 pub use asset::{Asset, AssetCreate, AssetQuery, AssetUpdate, AssetsClient};
+pub use attachment::{Attachment, AttachmentCreate, AttachmentsClient};
 pub use catalog::{
     CatalogClient, Channel, ChannelDataType, ChannelQuery, ChannelUpdate, Connection,
     ConnectionUpdate, Dataset, DatasetCreate, DatasetQuery, DatasetUpdate, Video, VideoCreate,
