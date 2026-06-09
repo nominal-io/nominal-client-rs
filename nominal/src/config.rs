@@ -24,13 +24,6 @@ pub struct Profile {
     workspace_rid: Option<String>,
 }
 
-/// Deprecated v1 config at `~/.nominal.yml`.
-#[derive(Debug, Deserialize)]
-pub struct DeprecatedConfig {
-    #[serde(default)]
-    environments: HashMap<String, String>,
-}
-
 impl Profile {
     pub fn new(base_url: String, token: String, workspace_rid: Option<String>) -> Self {
         Self {
@@ -50,22 +43,6 @@ impl Profile {
 
     pub fn workspace_rid(&self) -> Option<&str> {
         self.workspace_rid.as_deref()
-    }
-}
-
-impl DeprecatedConfig {
-    pub fn load() -> Result<Self> {
-        Self::load_from(&deprecated_config_path()?)
-    }
-
-    pub fn load_from(path: &Path) -> Result<Self> {
-        let contents = fs::read_to_string(path)?;
-        let config = serde_yaml::from_str(&contents)?;
-        Ok(config)
-    }
-
-    pub fn environments(&self) -> &HashMap<String, String> {
-        &self.environments
     }
 }
 
@@ -190,7 +167,7 @@ pub fn default_config_path() -> Result<PathBuf> {
         .join("config.yml"))
 }
 
-pub fn deprecated_config_path() -> Result<PathBuf> {
+fn deprecated_config_path() -> Result<PathBuf> {
     Ok(home_dir()?.join(".nominal.yml"))
 }
 
@@ -308,17 +285,6 @@ mod tests {
             assert_eq!(reloaded.token(), profile.token());
             assert_eq!(reloaded.workspace_rid(), profile.workspace_rid());
         }
-    }
-
-    #[test]
-    fn load_deprecated_example_fixture() {
-        let path = fixture_path("config-v1-deprecated-example.yml");
-        let config = DeprecatedConfig::load_from(&path).expect("load deprecated fixture");
-        assert_eq!(config.environments().len(), 1);
-        assert_eq!(
-            config.environments().get("api.example.com/api"),
-            Some(&"legacy-example-token".to_string())
-        );
     }
 
     #[test]
