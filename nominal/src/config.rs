@@ -256,10 +256,7 @@ mod tests {
             assert!(config.profiles().is_empty());
 
             let err = Config::load().unwrap_err();
-            assert!(matches!(
-                err,
-                crate::Error::DeprecatedConfigFound { .. }
-            ));
+            assert!(matches!(err, crate::Error::DeprecatedConfigFound { .. }));
         });
     }
 
