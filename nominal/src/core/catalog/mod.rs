@@ -535,7 +535,18 @@ impl CatalogClient {
             |resp: &SearchChannelsResponse| resp.next_page_token().cloned(),
             |resp| resp.results().to_vec(),
         )
-        .and_then(|channel| async { Channel::from_search(channel) }))
+        .try_filter_map(|channel| async move {
+            // A single channel without a server-reported data type must not
+            // fail the whole listing; skip it (with a warning) and keep the
+            // rest. get_channel surfaces the error for a specific channel.
+            match Channel::from_search(channel) {
+                Ok(c) => Ok(Some(c)),
+                Err(e) => {
+                    tracing::warn!(error = %e, "skipping channel with unrepresentable metadata");
+                    Ok(None)
+                }
+            }
+        }))
     }
 
     /// List every channel on a data source.
@@ -588,25 +599,33 @@ impl CatalogClient {
         Channel::from_stored(response)
     }
 
-    /// Set a channel's metadata (description and/or unit). Only fields set
-    /// on the update are written; the rest remain untouched.
+    /// Set a channel's metadata (description and/or unit).
     ///
     /// Uses the series metadata upsert endpoint, so metadata can be seeded
     /// before streamed data has created the channel. The update must specify
     /// a data type because the upsert endpoint needs it when creating metadata.
+    ///
+    /// The upsert merges server-side: fields omitted from the update are left
+    /// untouched on the server. The endpoint returns no body, so the returned
+    /// [`Channel`] reflects exactly the values just written (the supplied data
+    /// type plus any description/unit set on the update); fields omitted from
+    /// the update are reported here as unset even though the server preserves
+    /// their prior values. Call [`get_channel`](Self::get_channel) to read back
+    /// full server state once the channel exists.
     pub async fn set_channel_metadata(
         &self,
         data_source_rid: &str,
         name: &str,
         update: ChannelUpdate,
     ) -> Result<Channel> {
-        let request = update
-            .clone()
-            .into_series_metadata_request(data_source_rid, name)?;
+        // Build the returned Channel from the update first (it only borrows),
+        // then consume the update into the request — avoids cloning it.
+        let channel = Channel::from_update(data_source_rid, name, &update);
+        let request = update.into_series_metadata_request(data_source_rid, name)?;
         self.series_metadata_service
             .create_or_update(&self.token, &request)
             .await
             .map_err(Error::from)?;
-        Ok(Channel::from_update(data_source_rid, name, &update))
+        Ok(channel)
     }
 }

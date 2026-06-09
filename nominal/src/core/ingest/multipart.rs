@@ -175,10 +175,15 @@ fn build_http_client(
         .map_err(|e| Error::Tls {
             details: format!("platform verifier: {e}"),
         })?;
-    let tls = match tls_resolver {
+    let mut tls = match tls_resolver {
         Some(resolver) => tls_base.with_client_cert_resolver(resolver),
         None => tls_base.with_no_client_auth(),
     };
+    // reqwest only injects ALPN protocols when it builds the rustls config
+    // itself; the `use_preconfigured_tls` path passes our config through
+    // untouched. Set ALPN explicitly so multipart PUTs still negotiate
+    // HTTP/2 (with HTTP/1.1 fallback) like the default reqwest client did.
+    tls.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     reqwest::Client::builder()
         .pool_max_idle_per_host(options.max_concurrency)
         .use_preconfigured_tls(tls)

@@ -23,6 +23,14 @@ const EKU_EXTENSION_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.5.29
 /// OID for id-kp-clientAuth (RFC 5280 §4.2.1.12).
 const CLIENT_AUTH_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.5.5.7.3.2");
 
+/// DER-encoded `CKA_EC_PARAMS` (ECParameters namedCurve OID) for NIST P-256
+/// (secp256r1 / prime256v1, OID 1.2.840.10045.3.1.7).
+const EC_PARAMS_P256: &[u8] = &[0x06, 0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07];
+
+/// DER-encoded `CKA_EC_PARAMS` (ECParameters namedCurve OID) for NIST P-384
+/// (secp384r1, OID 1.3.132.0.34).
+const EC_PARAMS_P384: &[u8] = &[0x06, 0x05, 0x2B, 0x81, 0x04, 0x00, 0x22];
+
 pub(super) fn open_session(pkcs11: &Pkcs11, slot: Slot) -> Result<Session> {
     let session = pkcs11
         .open_ro_session(slot)
@@ -122,7 +130,7 @@ fn pin_prompt(label: &Option<String>, attempt: u32, max_attempts: u32) -> String
     }
 }
 
-fn tls_err<E: std::fmt::Display>(context: &'static str) -> impl FnOnce(E) -> Error {
+pub(super) fn tls_err<E: std::fmt::Display>(context: &'static str) -> impl FnOnce(E) -> Error {
     move |e| Error::Tls {
         details: format!("{context}: {e}"),
     }
@@ -216,15 +224,22 @@ pub(super) fn discover_piv_cert(
         match slot_matches.len() {
             0 => continue,
             1 => {
-                if found.is_some() {
-                    return Err(Error::Tls {
-                        details: "client-auth certificates found on multiple token slots; \
-                                  only one smartcard should be inserted at a time"
-                            .into(),
-                    });
-                }
                 let (cert, key_id) = slot_matches.into_iter().next().unwrap();
-                found = Some((slot, cert, key_id));
+                match &found {
+                    // The same physical card exposed through more than one
+                    // reader/slot (e.g. contact + contactless) presents the
+                    // identical certificate — treat that as one card, not a
+                    // conflict.
+                    Some((_, existing_cert, _)) if existing_cert.as_ref() == cert.as_ref() => {}
+                    Some(_) => {
+                        return Err(Error::Tls {
+                            details: "client-auth certificates found on multiple token slots; \
+                                      only one smartcard should be inserted at a time"
+                                .into(),
+                        });
+                    }
+                    None => found = Some((slot, cert, key_id)),
+                }
             }
             n => {
                 return Err(Error::Tls {
@@ -267,7 +282,7 @@ fn check_client_auth_eku(cert_der: &[u8]) -> Result<()> {
                 ExtendedKeyUsage::from_der(ext.extn_value.as_bytes()).map_err(|e| Error::Tls {
                     details: format!("failed to decode Extended Key Usage extension: {e}"),
                 })?;
-            if eku.0.iter().any(|oid| *oid == CLIENT_AUTH_OID) {
+            if eku.0.contains(&CLIENT_AUTH_OID) {
                 return Ok(());
             }
             return Err(Error::Tls {
@@ -303,15 +318,21 @@ pub(super) fn find_key_handle(session: &Session, key_id: &[u8]) -> Result<Object
         })
 }
 
-/// Read the `CKA_KEY_TYPE` attribute of the private key identified by `key_id`.
-pub(super) fn probe_key_type(session: &Session, key_id: &[u8]) -> Result<KeyType> {
-    let handle = find_key_handle(session, key_id)?;
+/// Read the `CKA_KEY_TYPE` of the private key `handle`, plus its
+/// `CKA_EC_PARAMS` (the curve OID) when the key is EC.
+///
+/// Takes an already-resolved handle so the caller's [`find_key_handle`] result
+/// is reused rather than searching the token a second time.
+pub(super) fn probe_key(
+    session: &Session,
+    handle: ObjectHandle,
+) -> Result<(KeyType, Option<Vec<u8>>)> {
     let attrs = session
         .get_attributes(handle, &[AttributeType::KeyType])
         .map_err(|e| Error::Tls {
             details: format!("C_GetAttributeValue (key type) failed: {e}"),
         })?;
-    attrs
+    let key_type = attrs
         .iter()
         .find_map(|a| {
             if let Attribute::KeyType(kt) = a {
@@ -322,15 +343,43 @@ pub(super) fn probe_key_type(session: &Session, key_id: &[u8]) -> Result<KeyType
         })
         .ok_or_else(|| Error::Tls {
             details: "CKA_KEY_TYPE attribute missing from private key".into(),
+        })?;
+
+    // The curve only matters for EC keys; querying CKA_EC_PARAMS on an RSA key
+    // can return CKR_ATTRIBUTE_TYPE_INVALID on some tokens, so gate on the type.
+    let ec_params = if key_type == KeyType::EC {
+        let attrs = session
+            .get_attributes(handle, &[AttributeType::EcParams])
+            .map_err(|e| Error::Tls {
+                details: format!("C_GetAttributeValue (EC params) failed: {e}"),
+            })?;
+        attrs.into_iter().find_map(|a| {
+            if let Attribute::EcParams(p) = a {
+                Some(p)
+            } else {
+                None
+            }
         })
+    } else {
+        None
+    };
+
+    Ok((key_type, ec_params))
 }
 
-/// Return the rustls signature schemes and algorithm family for `key_type`.
+/// Return the rustls signature schemes and algorithm family for a key.
 ///
-/// PSS is listed before PKCS#1 so TLS 1.3 servers negotiate PSS while TLS 1.2
-/// servers that only support PKCS#1 still find a match.
+/// For RSA, PSS is listed before PKCS#1 so TLS 1.3 servers negotiate PSS while
+/// TLS 1.2 servers that only support PKCS#1 still find a match.
+///
+/// For EC, only the single scheme matching the key's actual curve (from
+/// `ec_params`, the `CKA_EC_PARAMS` value) is advertised. Advertising a scheme
+/// for the wrong curve (e.g. ECDSA_NISTP384 for a P-256 key) makes rustls sign
+/// with a mismatched mechanism, producing a signature the server rejects under
+/// RFC 8446 §4.2.3 and that fails our raw→DER conversion.
 pub(super) fn schemes_for_key_type(
     key_type: KeyType,
+    ec_params: Option<&[u8]>,
 ) -> Result<(Vec<SignatureScheme>, SignatureAlgorithm)> {
     match key_type {
         KeyType::RSA => Ok((
@@ -344,13 +393,26 @@ pub(super) fn schemes_for_key_type(
             ],
             SignatureAlgorithm::RSA,
         )),
-        KeyType::EC => Ok((
-            vec![
-                SignatureScheme::ECDSA_NISTP256_SHA256,
-                SignatureScheme::ECDSA_NISTP384_SHA384,
-            ],
-            SignatureAlgorithm::ECDSA,
-        )),
+        KeyType::EC => {
+            let params = ec_params.ok_or_else(|| Error::Tls {
+                details: "EC key is missing CKA_EC_PARAMS; cannot determine its \
+                          curve for TLS signature scheme selection"
+                    .into(),
+            })?;
+            let scheme = if params == EC_PARAMS_P256 {
+                SignatureScheme::ECDSA_NISTP256_SHA256
+            } else if params == EC_PARAMS_P384 {
+                SignatureScheme::ECDSA_NISTP384_SHA384
+            } else {
+                return Err(Error::Tls {
+                    details: format!(
+                        "unsupported EC curve (CKA_EC_PARAMS = {params:02x?}); \
+                         only NIST P-256 and P-384 are supported"
+                    ),
+                });
+            };
+            Ok((vec![scheme], SignatureAlgorithm::ECDSA))
+        }
         _ => Err(Error::Tls {
             details: format!("unsupported PKCS#11 key type: {key_type:?}"),
         }),
@@ -363,13 +425,13 @@ mod tests {
 
     #[test]
     fn rsa_algorithm_family_is_rsa() {
-        let (_, alg) = schemes_for_key_type(KeyType::RSA).unwrap();
+        let (_, alg) = schemes_for_key_type(KeyType::RSA, None).unwrap();
         assert_eq!(alg, SignatureAlgorithm::RSA);
     }
 
     #[test]
     fn rsa_includes_all_required_tls13_pss_variants() {
-        let (schemes, _) = schemes_for_key_type(KeyType::RSA).unwrap();
+        let (schemes, _) = schemes_for_key_type(KeyType::RSA, None).unwrap();
         assert!(
             schemes.contains(&SignatureScheme::RSA_PSS_SHA256),
             "RSA_PSS_SHA256 required"
@@ -386,7 +448,7 @@ mod tests {
 
     #[test]
     fn rsa_pss_listed_before_pkcs1_for_tls13_preference() {
-        let (schemes, _) = schemes_for_key_type(KeyType::RSA).unwrap();
+        let (schemes, _) = schemes_for_key_type(KeyType::RSA, None).unwrap();
         let pss_pos = schemes
             .iter()
             .position(|s| *s == SignatureScheme::RSA_PSS_SHA256)
@@ -403,7 +465,7 @@ mod tests {
 
     #[test]
     fn rsa_does_not_include_ecdsa_schemes() {
-        let (schemes, _) = schemes_for_key_type(KeyType::RSA).unwrap();
+        let (schemes, _) = schemes_for_key_type(KeyType::RSA, None).unwrap();
         assert!(
             !schemes.contains(&SignatureScheme::ECDSA_NISTP256_SHA256),
             "RSA key must not advertise ECDSA"
@@ -412,20 +474,33 @@ mod tests {
 
     #[test]
     fn ec_algorithm_family_is_ecdsa() {
-        let (_, alg) = schemes_for_key_type(KeyType::EC).unwrap();
+        let (_, alg) = schemes_for_key_type(KeyType::EC, Some(EC_PARAMS_P256)).unwrap();
         assert_eq!(alg, SignatureAlgorithm::ECDSA);
     }
 
     #[test]
-    fn ec_includes_p256_and_p384() {
-        let (schemes, _) = schemes_for_key_type(KeyType::EC).unwrap();
-        assert!(schemes.contains(&SignatureScheme::ECDSA_NISTP256_SHA256));
-        assert!(schemes.contains(&SignatureScheme::ECDSA_NISTP384_SHA384));
+    fn ec_p256_advertises_only_p256() {
+        let (schemes, _) = schemes_for_key_type(KeyType::EC, Some(EC_PARAMS_P256)).unwrap();
+        assert_eq!(schemes, vec![SignatureScheme::ECDSA_NISTP256_SHA256]);
+        assert!(
+            !schemes.contains(&SignatureScheme::ECDSA_NISTP384_SHA384),
+            "a P-256 key must not advertise the P-384 scheme"
+        );
+    }
+
+    #[test]
+    fn ec_p384_advertises_only_p384() {
+        let (schemes, _) = schemes_for_key_type(KeyType::EC, Some(EC_PARAMS_P384)).unwrap();
+        assert_eq!(schemes, vec![SignatureScheme::ECDSA_NISTP384_SHA384]);
+        assert!(
+            !schemes.contains(&SignatureScheme::ECDSA_NISTP256_SHA256),
+            "a P-384 key must not advertise the P-256 scheme"
+        );
     }
 
     #[test]
     fn ec_does_not_include_rsa_schemes() {
-        let (schemes, _) = schemes_for_key_type(KeyType::EC).unwrap();
+        let (schemes, _) = schemes_for_key_type(KeyType::EC, Some(EC_PARAMS_P256)).unwrap();
         assert!(
             !schemes.contains(&SignatureScheme::RSA_PSS_SHA256),
             "ECDSA key must not advertise RSA"
@@ -434,8 +509,27 @@ mod tests {
     }
 
     #[test]
+    fn ec_missing_params_returns_error() {
+        let result = schemes_for_key_type(KeyType::EC, None);
+        assert!(result.is_err(), "EC key without curve params must error");
+    }
+
+    #[test]
+    fn ec_unsupported_curve_returns_error() {
+        // OID 1.3.101.112 (Ed25519) — not a supported NIST P-curve.
+        let unknown = [0x06u8, 0x03, 0x2B, 0x65, 0x70];
+        let result = schemes_for_key_type(KeyType::EC, Some(&unknown));
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("unsupported EC curve"),
+            "error should mention the unsupported curve, got: {msg}"
+        );
+    }
+
+    #[test]
     fn unsupported_key_type_returns_tls_error() {
-        let result = schemes_for_key_type(KeyType::AES);
+        let result = schemes_for_key_type(KeyType::AES, None);
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
         assert!(

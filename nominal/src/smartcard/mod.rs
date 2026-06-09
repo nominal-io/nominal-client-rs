@@ -26,7 +26,7 @@ use rustls::client::ResolvesClientCert;
 use rustls::sign::CertifiedKey;
 
 use pkcs11::{
-    discover_piv_cert, find_key_handle, open_session, probe_key_type, schemes_for_key_type,
+    discover_piv_cert, find_key_handle, open_session, probe_key, schemes_for_key_type, tls_err,
 };
 use signing::Pkcs11SigningKey;
 
@@ -77,22 +77,20 @@ impl SmartcardCertResolver {
 
         pkcs11
             .initialize(CInitializeArgs::new(CInitializeFlags::OS_LOCKING_OK))
-            .map_err(|e| Error::Tls {
-                details: format!("C_Initialize failed: {e}"),
-            })?;
+            .map_err(tls_err("C_Initialize failed"))?;
 
-        let slots = pkcs11.get_slots_with_token().map_err(|e| Error::Tls {
-            details: format!("C_GetSlotList failed: {e}"),
-        })?;
+        let slots = pkcs11
+            .get_slots_with_token()
+            .map_err(tls_err("C_GetSlotList failed"))?;
 
         let (slot, cert_der, key_id) = discover_piv_cert(&pkcs11, &slots)?;
 
         let session = open_session(&pkcs11, slot)?;
         let key_handle = find_key_handle(&session, &key_id)?;
-        let key_type = probe_key_type(&session, &key_id)?;
+        let (key_type, ec_params) = probe_key(&session, key_handle)?;
         let session = Arc::new(Mutex::new(session));
 
-        let (schemes, algorithm) = schemes_for_key_type(key_type)?;
+        let (schemes, algorithm) = schemes_for_key_type(key_type, ec_params.as_deref())?;
 
         let signing_key: Arc<dyn rustls::sign::SigningKey> = Arc::new(Pkcs11SigningKey {
             session,
@@ -176,10 +174,20 @@ fn discover_module_path() -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // These tests mutate the shared, process-global PKCS11_MODULE_ENV_VAR. cargo
+    // runs tests on multiple threads by default, so without serialization they
+    // race (one test's remove_var clears the var the other just set, and the
+    // fall-through then resolves a real OpenSC install if one is present). Lock
+    // this mutex for the whole get/set/remove window in every env-touching test.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn env_var_set_to_nonexistent_path_returns_error() {
-        // SAFETY: single-threaded test binary; no other threads read this var concurrently.
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // SAFETY: the ENV_LOCK guard serializes all access to this env var
+        // across the test binary, so no other thread reads/writes it here.
         unsafe { std::env::set_var(PKCS11_MODULE_ENV_VAR, "/nonexistent/path/opensc.so") };
         let result = discover_module_path();
         unsafe { std::env::remove_var(PKCS11_MODULE_ENV_VAR) };
@@ -190,8 +198,10 @@ mod tests {
 
     #[test]
     fn env_var_set_to_existing_path_is_returned() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let existing = std::env::current_exe().unwrap();
-        // SAFETY: single-threaded test binary; no other threads read this var concurrently.
+        // SAFETY: the ENV_LOCK guard serializes all access to this env var
+        // across the test binary, so no other thread reads/writes it here.
         unsafe { std::env::set_var(PKCS11_MODULE_ENV_VAR, &existing) };
         let result = discover_module_path();
         unsafe { std::env::remove_var(PKCS11_MODULE_ENV_VAR) };
