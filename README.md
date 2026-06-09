@@ -48,11 +48,7 @@ $ nomctl config profile add test-profile \
 
 Profiles are validated by default (`--validate` / `--no-validate`). See the [authentication docs](https://docs.nominal.io/core/sdk/python-client/authentication) for how to create an API token.
 
-If you still have the legacy config at `~/.nominal.yml`, migrate with:
-
-```sh
-$ nomctl config migrate
-```
+> Note: If you have a legacy config at `~/.nominal.yml`, run `nomctl config init` or `nomctl config profile add` to create `~/.config/nominal/config.yml`.
 
 ### Config file
 

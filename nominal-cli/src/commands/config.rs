@@ -1,7 +1,7 @@
-use anyhow::{Context, bail};
+use anyhow::Context;
 use clap::Subcommand;
 use inquire::{Confirm, Text};
-use nominal::{Config, DeprecatedConfig, Error, Profile, default_config_path, validate_profile};
+use nominal::{Config, Error, Profile, default_config_path, validate_profile};
 
 use crate::context::display_config_path;
 use crate::output::{print_profile_added_success, print_validation_error};
@@ -13,8 +13,6 @@ const DEFAULT_PROFILE_NAME: &str = "default";
 pub enum ConfigCommands {
     /// Interactive first-run setup
     Init,
-    /// Migrate deprecated config at ~/.nominal.yml
-    Migrate,
     /// Profile management
     Profile {
         #[command(subcommand)]
@@ -51,7 +49,6 @@ pub enum ProfileCommands {
 pub async fn handle(cmd: ConfigCommands) -> anyhow::Result<()> {
     match cmd {
         ConfigCommands::Init => handle_init().await,
-        ConfigCommands::Migrate => handle_migrate().await,
         ConfigCommands::Profile { profile_command } => match profile_command {
             ProfileCommands::Add {
                 name,
@@ -215,92 +212,6 @@ async fn handle_init() -> anyhow::Result<()> {
     };
 
     add_profile(&name, &url, &token, workspace_rid.as_deref(), true).await
-}
-
-async fn handle_migrate() -> anyhow::Result<()> {
-    let deprecated = DeprecatedConfig::load()
-        .map_err(|err| anyhow::anyhow!("Failed to load deprecated config: {err:#}"))?;
-
-    if deprecated.environments().is_empty() {
-        bail!("Deprecated config contains no environments to migrate");
-    }
-
-    let mut profiles = Config::load_or_default().context("Failed to load config")?;
-    let mut migrated = 0usize;
-
-    for (host, token) in deprecated.environments() {
-        let add = Confirm::new(&format!("Add profile for {host}?"))
-            .with_default(true)
-            .prompt()
-            .context("Failed to read migration prompt")?;
-        if !add {
-            continue;
-        }
-
-        let default_url = if host.starts_with("http") {
-            host.clone()
-        } else {
-            format!("https://{host}")
-        };
-
-        let name = Text::new("Profile name")
-            .with_help_message("Used with --profile or NOMINAL_PROFILE")
-            .prompt()
-            .context("Failed to read profile name")?;
-
-        let url = Text::new("API base URL")
-            .with_default(&default_url)
-            .prompt()
-            .context("Failed to read base URL")?;
-
-        let new_token = Text::new("Token")
-            .with_default(token)
-            .prompt()
-            .context("Failed to read token")?;
-
-        let workspace_rid = if Confirm::new("Add workspace RID?")
-            .with_default(false)
-            .prompt()
-            .context("Failed to read workspace prompt")?
-        {
-            Some(
-                Text::new("Workspace RID")
-                    .prompt()
-                    .context("Failed to read workspace RID")?,
-            )
-        } else {
-            None
-        };
-
-        let validate = Confirm::new("Validate authentication?")
-            .with_default(true)
-            .prompt()
-            .context("Failed to read validation prompt")?;
-
-        if validate {
-            validate_profile(&url, &new_token, workspace_rid.as_deref())
-                .await
-                .map_err(map_validation_error)?;
-        }
-
-        profiles.add_profile(
-            name.clone(),
-            Profile::new(url, new_token, workspace_rid.map(|value| value.to_string())),
-        );
-        if profiles.default_profile().is_none() {
-            profiles.set_default_profile(Some(name));
-        }
-        migrated += 1;
-    }
-
-    if migrated == 0 {
-        bail!("No profiles migrated");
-    }
-
-    profiles.save().context("Failed to save config")?;
-    let config_path = display_config_path(&default_config_path()?);
-    println!("Migrated {migrated} profile(s) to {config_path}.");
-    Ok(())
 }
 
 fn map_config_error(err: Error) -> anyhow::Error {

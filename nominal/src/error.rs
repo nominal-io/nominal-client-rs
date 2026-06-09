@@ -55,7 +55,7 @@ pub enum Error {
     ConfigNotFound { path: String },
 
     #[error(
-        "no config file found at {path}: deprecated config file {deprecated_path} found. migrate with `nomctl config migrate`"
+        "no config file found at {path}: deprecated config file {deprecated_path} found. create a v2 config with `nomctl config init` or `nomctl config profile add`"
     )]
     DeprecatedConfigFound {
         path: String,
