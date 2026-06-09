@@ -6,13 +6,10 @@ use bytes::{Bytes, BytesMut};
 use conjure_http::client::{AsyncService, ConjureRuntime};
 use conjure_object::BearerToken;
 use conjure_runtime::Client;
-use conjure_runtime::crypto::ring_crypto_provider;
 use futures::{Stream, StreamExt, TryStreamExt, stream};
 use nominal_api::clients::upload::api::{AsyncUploadService, AsyncUploadServiceClient};
 use nominal_api::objects::api::rids::WorkspaceRid;
 use nominal_api::objects::ingest::api::{InitiateMultipartUploadRequest, Part};
-use rustls::client::ResolvesClientCert;
-use rustls_platform_verifier::BuilderVerifierExt;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 use crate::core::ingest::options::UploadOptions;
@@ -40,7 +37,6 @@ pub(crate) async fn upload_file(
     filename: String,
     mimetype: String,
     options: UploadOptions,
-    tls_resolver: Option<Arc<dyn ResolvesClientCert>>,
 ) -> Result<String> {
     let file = tokio::fs::File::open(path.as_ref()).await?;
     let total_bytes = file.metadata().await?.len();
@@ -54,7 +50,6 @@ pub(crate) async fn upload_file(
         filename,
         mimetype,
         options,
-        tls_resolver,
     )
     .await
 }
@@ -74,7 +69,6 @@ pub(crate) async fn upload_reader<R>(
     filename: String,
     mimetype: String,
     options: UploadOptions,
-    tls_resolver: Option<Arc<dyn ResolvesClientCert>>,
 ) -> Result<String>
 where
     R: AsyncRead + Unpin + Send + 'static,
@@ -118,7 +112,12 @@ where
         total_parts,
     });
 
-    let http = build_http_client(&options, tls_resolver)?;
+    let http = reqwest::Client::builder()
+        .pool_max_idle_per_host(options.max_concurrency)
+        .build()
+        .map_err(|e| Error::Upload {
+            details: format!("failed to build HTTP client: {e}"),
+        })?;
 
     let ctx = PartCtx {
         upload_service: &upload_service,
@@ -160,29 +159,6 @@ where
             Err(e)
         }
     }
-}
-
-fn build_http_client(
-    options: &UploadOptions,
-    tls_resolver: Option<Arc<dyn ResolvesClientCert>>,
-) -> Result<reqwest::Client> {
-    let mut builder = reqwest::Client::builder().pool_max_idle_per_host(options.max_concurrency);
-    if let Some(resolver) = tls_resolver {
-        let tls = rustls::ClientConfig::builder_with_provider(ring_crypto_provider().clone())
-            .with_safe_default_protocol_versions()
-            .map_err(|e| Error::Tls {
-                details: format!("TLS protocol-version config: {e}"),
-            })?
-            .with_platform_verifier()
-            .map_err(|e| Error::Tls {
-                details: format!("platform verifier: {e}"),
-            })?
-            .with_client_cert_resolver(resolver);
-        builder = builder.use_preconfigured_tls(tls);
-    }
-    builder.build().map_err(|e| Error::Upload {
-        details: format!("failed to build HTTP client: {e}"),
-    })
 }
 
 /// Everything needed to sign and PUT an individual part.
@@ -318,37 +294,5 @@ async fn put_once(ctx: &OwnedPartCtx, part_number: i32, bytes: Bytes) -> Result<
 fn emit(callback: &Option<ProgressCallback>, event: impl FnOnce() -> UploadEvent) {
     if let Some(cb) = callback {
         cb(event());
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rustls::SignatureScheme;
-    use rustls::sign::CertifiedKey;
-
-    #[derive(Debug)]
-    struct MockResolver;
-    impl ResolvesClientCert for MockResolver {
-        fn resolve(&self, _: &[&[u8]], _: &[SignatureScheme]) -> Option<Arc<CertifiedKey>> {
-            None
-        }
-        fn has_certs(&self) -> bool {
-            false
-        }
-    }
-
-    #[test]
-    fn build_http_client_without_resolver_succeeds() {
-        let options = UploadOptions::default();
-        let result = build_http_client(&options, None);
-        assert!(result.is_ok(), "plain client build failed: {result:?}");
-    }
-
-    #[test]
-    fn build_http_client_with_resolver_uses_platform_verifier() {
-        let options = UploadOptions::default();
-        let result = build_http_client(&options, Some(Arc::new(MockResolver)));
-        assert!(result.is_ok(), "mTLS client build failed: {result:?}");
     }
 }

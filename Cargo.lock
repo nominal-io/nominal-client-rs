@@ -1718,7 +1718,6 @@ dependencies = [
  "regex",
  "reqwest",
  "rustls",
- "rustls-platform-verifier",
  "serde",
  "serde_yaml",
  "thiserror 2.0.18",
