@@ -239,6 +239,31 @@ mod tests {
     }
 
     #[test]
+    fn load_or_default_returns_empty_when_deprecated_config_exists() {
+        let home = tempfile::tempdir().expect("tempdir");
+        let home_path = home.path().to_path_buf();
+
+        let deprecated_path = home_path.join(".nominal.yml");
+        std::fs::write(
+            &deprecated_path,
+            "environments:\n  api.example.com: legacy-token\n",
+        )
+        .expect("write deprecated config");
+
+        temp_env::with_var("HOME", Some(home_path.as_os_str()), || {
+            let config = Config::load_or_default().expect("load_or_default");
+            assert_eq!(config.version(), CONFIG_VERSION);
+            assert!(config.profiles().is_empty());
+
+            let err = Config::load().unwrap_err();
+            assert!(matches!(
+                err,
+                crate::Error::DeprecatedConfigFound { .. }
+            ));
+        });
+    }
+
+    #[test]
     fn load_or_default_returns_empty_when_missing() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("missing.yml");

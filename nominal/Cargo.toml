@@ -34,4 +34,5 @@ tokio = { version = "1", features = [
 tracing = "0.1"
 
 [dev-dependencies]
+temp-env = "0.3"
 tempfile = "3"
