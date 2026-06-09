@@ -1,5 +1,5 @@
 use anyhow::Context;
-use clap::Subcommand;
+use clap::{ArgAction, Subcommand};
 use inquire::{Confirm, Text};
 use nominal::{Config, Error, Profile, default_config_path, validate_profile};
 
@@ -31,12 +31,9 @@ pub enum ProfileCommands {
         token: String,
         #[arg(short, long)]
         workspace_rid: Option<String>,
-        /// Validate authentication parameters before saving
-        #[arg(long, default_value_t = true)]
-        validate: bool,
         /// Skip validation before saving
-        #[arg(long, default_value_t = false)]
-        no_validate: bool,
+        #[arg(long = "no-validate", action = ArgAction::SetFalse)]
+        validate: bool,
     },
     /// Remove a profile
     Remove { name: String },
@@ -56,17 +53,7 @@ pub async fn handle(cmd: ConfigCommands) -> anyhow::Result<()> {
                 token,
                 workspace_rid,
                 validate,
-                no_validate,
-            } => {
-                add_profile(
-                    &name,
-                    &url,
-                    &token,
-                    workspace_rid.as_deref(),
-                    validate && !no_validate,
-                )
-                .await
-            }
+            } => add_profile(&name, &url, &token, workspace_rid.as_deref(), validate).await,
             ProfileCommands::Remove { name } => remove_profile(&name),
             ProfileCommands::List => list_profiles(),
             ProfileCommands::Show { name } => show_profile(&name),

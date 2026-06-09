@@ -46,7 +46,7 @@ $ nomctl config profile add test-profile \
     --workspace-rid ri.security.example.workspace.00000000-0000-0000-0000-000000000001
 ```
 
-Profiles are validated by default (`--validate` / `--no-validate`). See the [authentication docs](https://docs.nominal.io/core/sdk/python-client/authentication) for how to create an API token.
+Profiles are validated by default; pass `--no-validate` to skip. See the [authentication docs](https://docs.nominal.io/core/sdk/python-client/authentication) for how to create an API token.
 
 > Note: If you have a legacy config at `~/.nominal.yml`, run `nomctl config init` or `nomctl config profile add` to create `~/.config/nominal/config.yml`.
 
