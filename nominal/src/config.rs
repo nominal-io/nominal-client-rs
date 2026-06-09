@@ -181,13 +181,25 @@ impl Config {
 }
 
 pub fn default_config_path() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or(crate::Error::HomeDirNotFound)?;
-    Ok(home.join(".config").join("nominal").join("config.yml"))
+    Ok(home_dir()?
+        .join(".config")
+        .join("nominal")
+        .join("config.yml"))
 }
 
 pub fn deprecated_config_path() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or(crate::Error::HomeDirNotFound)?;
-    Ok(home.join(".nominal.yml"))
+    Ok(home_dir()?.join(".nominal.yml"))
+}
+
+/// Resolve the directory used for config files (`~/.config/nominal/`, `~/.nominal.yml`).
+///
+/// `NOMINAL_HOME` overrides `dirs::home_dir()` when set (useful in tests; on Windows
+/// `dirs::home_dir()` reads the shell profile folder and ignores `HOME`/`USERPROFILE`).
+fn home_dir() -> Result<PathBuf> {
+    if let Some(home) = std::env::var_os("NOMINAL_HOME").filter(|home| !home.is_empty()) {
+        return Ok(PathBuf::from(home));
+    }
+    dirs::home_dir().ok_or(crate::Error::HomeDirNotFound)
 }
 
 fn is_default_config_path(path: &Path) -> bool {
@@ -207,6 +219,12 @@ mod tests {
         let mut file = std::fs::File::create(&path).expect("create config");
         write!(file, "{contents}").expect("write config");
         (dir, path)
+    }
+
+    /// Isolate config path resolution to a temp directory via `NOMINAL_HOME`.
+    fn with_home_dir<F: FnOnce()>(home: &Path, f: F) {
+        let home = home.to_str().expect("home path must be utf-8");
+        temp_env::with_var("NOMINAL_HOME", Some(home), f);
     }
 
     #[test]
@@ -250,7 +268,7 @@ mod tests {
         )
         .expect("write deprecated config");
 
-        temp_env::with_var("HOME", Some(home_path.as_os_str()), || {
+        with_home_dir(&home_path, || {
             let config = Config::load_or_default().expect("load_or_default");
             assert_eq!(config.version(), CONFIG_VERSION);
             assert!(config.profiles().is_empty());
