@@ -29,7 +29,7 @@ pub fn print_profile_added_success(
         println!("Set as default profile.");
     }
     println!(
-        "Use this profile with `nom --profile {profile_name}` or `export NOMINAL_PROFILE={profile_name}`."
+        "Use this profile with `nomctl --profile {profile_name}` or `export NOMINAL_PROFILE={profile_name}`."
     );
 }
 

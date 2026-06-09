@@ -50,12 +50,12 @@ pub enum Error {
     ProfileNotFound { name: String },
 
     #[error(
-        "no config file found at {path}: create with `nom config profile add` or `nom config init`"
+        "no config file found at {path}: create with `nomctl config profile add` or `nomctl config init`"
     )]
     ConfigNotFound { path: String },
 
     #[error(
-        "no config file found at {path}: deprecated config file {deprecated_path} found. migrate with `nom config migrate`"
+        "no config file found at {path}: deprecated config file {deprecated_path} found. migrate with `nomctl config migrate`"
     )]
     DeprecatedConfigFound {
         path: String,
