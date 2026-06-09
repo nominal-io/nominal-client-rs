@@ -11,7 +11,8 @@ use nominal_api::objects::api::rids::WorkspaceRid;
 use crate::core::rid::parse_rid;
 use crate::{Error, Result};
 
-/// Client for workspace operations.
+/// Thin wrapper around the workspace API, used during profile
+/// validation to confirm that credentials can reach a workspace.
 pub struct WorkspacesClient {
     service: AsyncWorkspaceServiceClient<Client>,
     token: BearerToken,
@@ -25,9 +26,12 @@ impl WorkspacesClient {
         }
     }
 
-    /// Resolve the configured workspace, or the tenant default when none is configured.
+    /// Verify that the token can reach a workspace.
+    /// Only needs to check workspace *exists* and credentials are valid.
+    /// The profile config already stores the RID when one is provided.
     pub async fn resolve_workspace(&self, workspace_rid: Option<&str>) -> Result<()> {
         if let Some(rid) = workspace_rid {
+            // Explicit RID: confirm it resolves (404 → validation error).
             let workspace_rid = parse_rid::<WorkspaceRid>(rid).map_err(Error::from)?;
             self.service
                 .get_workspace(&self.token, &workspace_rid)
@@ -36,6 +40,7 @@ impl WorkspacesClient {
             return Ok(());
         }
 
+        // No explicit RID: ensure the tenant has a default workspace.
         let workspaces = self
             .service
             .get_default_workspace(&self.token)
