@@ -107,7 +107,7 @@ async fn add_profile(
     config.save().context("Failed to save config")?;
 
     let config_path = display_config_path(&default_config_path()?);
-    print_profile_added_success(name, token, user.as_ref(), &config_path, set_default);
+    print_profile_added_success(name, user.as_ref(), &config_path, set_default);
     Ok(())
 }
 
@@ -160,7 +160,7 @@ fn show_profile(name: &str) -> anyhow::Result<()> {
     let config_path = display_config_path(&default_config_path()?);
     println!("Profile '{name}' from `{config_path}`:");
     println!("  base_url: {}", profile.base_url());
-    println!("  token: {}", crate::output::mask_token(profile.token()));
+
     if let Some(workspace_rid) = profile.workspace_rid() {
         println!("  workspace_rid: {workspace_rid}");
     }

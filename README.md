@@ -58,14 +58,14 @@ Use a profile with `--profile`, `NOMINAL_PROFILE`, or `default_profile` in the c
 
 ### Example commands
 
-```
+```sh
 $ nomctl config profile add test-profile \
     -u https://api.example.com/api \
     -t $NOMINAL_TOKEN \
     -w ri.security.example.workspace.00000000-0000-0000-0000-000000000001
 ```
 
-```
+```sh
 $ nomctl --profile test-profile user who-am-i
 RID: ri.authn.example.user.00000000-0000-0000-0000-000000000001
 Org RID: ri.authn.example.organization.00000000-0000-0000-0000-000000000002
@@ -73,7 +73,7 @@ Email: user@example.com
 Display Name: Example User
 ```
 
-```
+```sh
 $ nomctl config profile list
 $ nomctl config profile show test-profile
 $ nomctl config profile remove test-profile
