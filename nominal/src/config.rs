@@ -6,6 +6,9 @@ use std::path::{Path, PathBuf};
 
 pub const CONFIG_VERSION: u32 = 2;
 
+/// Nominal v2 configuration stored at `~/.config/nominal/config.yml`.
+///
+/// Example format: `nominal/tests/fixtures/config/config-v2-example.yml`.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
     profiles: HashMap<String, Profile>,
@@ -213,6 +216,12 @@ mod tests {
     use super::*;
     use std::io::Write;
 
+    fn fixture_path(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/config")
+            .join(name)
+    }
+
     fn temp_config(contents: &str) -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("config.yml");
@@ -249,11 +258,67 @@ mod tests {
 
     #[test]
     fn load_requires_version_key() {
-        let (_dir, path) = temp_config(
-            "profiles:\n  default:\n    base_url: https://api.example/api\n    token: tok\n",
-        );
+        let path = fixture_path("config-v2-bad-example.yml");
         let err = Config::load_from(&path).unwrap_err();
         assert!(matches!(err, crate::Error::ConfigMissingVersion { .. }));
+    }
+
+    #[test]
+    fn load_v2_example_fixture() {
+        let path = fixture_path("config-v2-example.yml");
+        let config = Config::load_from(&path).expect("load example fixture");
+
+        assert_eq!(config.version(), CONFIG_VERSION);
+        assert_eq!(config.default_profile(), Some("default"));
+        assert!(config.get_profile("default").is_some());
+        assert!(config.get_profile("staging").is_some());
+        assert_eq!(
+            config
+                .get_profile("staging")
+                .and_then(Profile::workspace_rid),
+            Some("ri.security.example.workspace.00000000-0000-0000-0000-000000000001")
+        );
+    }
+
+    #[test]
+    fn reject_v2_bad_example_fixture() {
+        let path = fixture_path("config-v2-bad-example.yml");
+        let err = Config::load_from(&path).unwrap_err();
+        assert!(matches!(err, crate::Error::ConfigMissingVersion { .. }));
+    }
+
+    #[test]
+    fn example_fixture_roundtrips_via_save() {
+        let path = fixture_path("config-v2-example.yml");
+        let config = Config::load_from(&path).expect("load example fixture");
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let saved_path = dir.path().join("config.yml");
+        config.save_to(&saved_path).expect("save");
+
+        let loaded = Config::load_from(&saved_path).expect("reload");
+        assert_eq!(loaded.version(), config.version());
+        assert_eq!(loaded.default_profile(), config.default_profile());
+        assert_eq!(loaded.profiles().len(), config.profiles().len());
+        for (name, profile) in config.profiles() {
+            let reloaded = loaded
+                .get_profile(name)
+                .expect("profile present after reload");
+            assert_eq!(reloaded.base_url(), profile.base_url());
+            assert_eq!(reloaded.token(), profile.token());
+            assert_eq!(reloaded.workspace_rid(), profile.workspace_rid());
+        }
+    }
+
+    #[test]
+    fn load_deprecated_example_fixture() {
+        let path = fixture_path("config-v1-deprecated-example.yml");
+        let config = DeprecatedConfig::load_from(&path).expect("load deprecated fixture");
+        assert_eq!(config.environments().len(), 1);
+        assert_eq!(
+            config.environments().get("api.example.com/api"),
+            Some(&"legacy-example-token".to_string())
+        );
     }
 
     #[test]
@@ -262,11 +327,11 @@ mod tests {
         let home_path = home.path().to_path_buf();
 
         let deprecated_path = home_path.join(".nominal.yml");
-        std::fs::write(
+        std::fs::copy(
+            fixture_path("config-v1-deprecated-example.yml"),
             &deprecated_path,
-            "environments:\n  api.example.com: legacy-token\n",
         )
-        .expect("write deprecated config");
+        .expect("copy deprecated config fixture");
 
         with_home_dir(&home_path, || {
             let config = Config::load_or_default().expect("load_or_default");

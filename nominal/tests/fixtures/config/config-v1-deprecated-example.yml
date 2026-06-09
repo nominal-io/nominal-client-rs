@@ -1,0 +1,2 @@
+environments:
+  api.example.com/api: legacy-example-token
