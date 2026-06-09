@@ -26,7 +26,7 @@ A CLI to take actions on Nominal's APIs.
 
 ### Install
 ```sh
-cargo install nominal-cli
+$ cargo install nominal-cli
 ```
 
 ### First-time setup
@@ -34,13 +34,13 @@ cargo install nominal-cli
 Recommended first run:
 
 ```sh
-nom config init
+$ nomctl config init
 ```
 
 This interactive wizard creates `~/.config/nominal/config.yml` with a named profile. You can also add profiles manually:
 
 ```sh
-nom config profile add test-profile \
+$ nomctl config profile add test-profile \
     --base-url https://api.gov.nominal.io/api \
     --token $NOMINAL_TOKEN \
     --workspace-rid ri.security.cerulean-staging.workspace.8649e5e7-bf9b-45e8-897f-adfabbdd66b9
@@ -51,7 +51,7 @@ Profiles are validated by default (`--validate` / `--no-validate`). See the [aut
 If you still have the legacy config at `~/.nominal.yml`, migrate with:
 
 ```sh
-nom config migrate
+$ nomctl config migrate
 ```
 
 ### Config file
@@ -82,11 +82,11 @@ RID: ri.authn.cerulean-staging.user.3de9b720-b35d-4ebe-b724-752b66732d20
 Org RID: ri.authn.cerulean-staging.organization.c531d9b0-490d-4d5f-abe1-3b83817c20bb
 Email: name@nominal.io
 Display Name: Firstname Lastname
-$ nom config profile list
-$ nom config profile show test-profile
-$ nom config profile remove test-profile
+$ nomctl config profile list
+$ nomctl config profile show test-profile
+$ nomctl config profile remove test-profile
 ```
 
 ### Coming soon: browser login
 
-Browser-based profile setup (similar to Nominal Connect) is planned as a follow-up once CLI client-integrity registration is in place. Until then, use `nom config init` or `nom config profile add` with a manually created API token.
+Browser-based profile setup (similar to Nominal Connect) is planned as a follow-up once CLI client-integrity registration is in place. Until then, use `nomctl config init` or `nomctl config profile add` with a manually created API token.
