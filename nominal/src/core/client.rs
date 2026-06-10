@@ -23,7 +23,6 @@ pub struct NominalClient {
     token: BearerToken,
     workspace_rid: Option<String>,
     base_url: String,
-    tls_resolver: Option<Arc<dyn ResolvesClientCert>>,
 }
 
 impl std::fmt::Debug for NominalClient {
@@ -116,7 +115,6 @@ impl NominalClient {
             &self.runtime,
             self.token.clone(),
             self.workspace_rid.clone(),
-            self.tls_resolver.clone(),
         )
     }
 }
@@ -171,9 +169,12 @@ impl NominalClientBuilder {
 
     /// Provide a custom TLS client-certificate resolver for mTLS connections.
     ///
-    /// When set, every connection (both to the Nominal API via conjure-runtime
-    /// and to S3 during multipart uploads) will present the resolved client
-    /// certificate during TLS handshakes that request one.
+    /// When set, connections to the Nominal API (via conjure-runtime) present
+    /// the resolved client certificate during TLS handshakes that request one.
+    ///
+    /// This does **not** apply to S3 multipart part uploads: those go to
+    /// presigned object-store URLs authenticated by AWS SigV4 query parameters,
+    /// so no client certificate is sent (matching the Python client).
     pub fn client_cert_resolver(mut self, resolver: Arc<dyn ResolvesClientCert>) -> Self {
         self.tls_resolver = Some(resolver);
         self
@@ -181,14 +182,13 @@ impl NominalClientBuilder {
 
     pub fn build(self) -> Result<NominalClient> {
         let bearer_token = create_bearer_token(&self.token)?;
-        let client = create_client(&self.base_url, self.user_agent, self.tls_resolver.clone())?;
+        let client = create_client(&self.base_url, self.user_agent, self.tls_resolver)?;
         Ok(NominalClient {
             client,
             runtime: Arc::new(ConjureRuntime::default()),
             token: bearer_token,
             workspace_rid: self.workspace_rid,
             base_url: self.base_url,
-            tls_resolver: self.tls_resolver,
         })
     }
 }

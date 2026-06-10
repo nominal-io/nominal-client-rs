@@ -35,7 +35,6 @@ tokio = { version = "1", features = [
 ] }
 tracing = "0.1"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
-rustls-platform-verifier = "0.6"
 cryptoki = { version = "0.12", optional = true }
 rpassword = { version = "7", optional = true }
 x509-cert = { version = "0.2", optional = true }
