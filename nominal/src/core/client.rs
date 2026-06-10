@@ -171,10 +171,6 @@ impl NominalClientBuilder {
     ///
     /// When set, connections to the Nominal API (via conjure-runtime) present
     /// the resolved client certificate during TLS handshakes that request one.
-    ///
-    /// This does **not** apply to S3 multipart part uploads: those go to
-    /// presigned object-store URLs authenticated by AWS SigV4 query parameters,
-    /// so no client certificate is sent (matching the Python client).
     pub fn client_cert_resolver(mut self, resolver: Arc<dyn ResolvesClientCert>) -> Self {
         self.tls_resolver = Some(resolver);
         self
@@ -228,6 +224,19 @@ fn create_client(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rustls::SignatureScheme;
+    use rustls::sign::CertifiedKey;
+
+    #[derive(Debug)]
+    struct MockResolver;
+    impl ResolvesClientCert for MockResolver {
+        fn resolve(&self, _: &[&[u8]], _: &[SignatureScheme]) -> Option<Arc<CertifiedKey>> {
+            None
+        }
+        fn has_certs(&self) -> bool {
+            true
+        }
+    }
 
     #[test]
     fn default_user_agent_uses_sdk_name_and_crate_version() {
@@ -259,21 +268,6 @@ mod tests {
 
     #[test]
     fn builder_with_resolver_sets_resolver() {
-        use rustls::SignatureScheme;
-        use rustls::client::ResolvesClientCert;
-        use rustls::sign::CertifiedKey;
-
-        #[derive(Debug)]
-        struct MockResolver;
-        impl ResolvesClientCert for MockResolver {
-            fn resolve(&self, _: &[&[u8]], _: &[SignatureScheme]) -> Option<Arc<CertifiedKey>> {
-                None
-            }
-            fn has_certs(&self) -> bool {
-                true
-            }
-        }
-
         let builder =
             NominalClientBuilder::new("token").client_cert_resolver(Arc::new(MockResolver));
         assert!(builder.tls_resolver.is_some());
@@ -282,23 +276,9 @@ mod tests {
 
     #[test]
     fn builder_with_resolver_builds_successfully() {
-        use rustls::SignatureScheme;
-        use rustls::client::ResolvesClientCert;
-        use rustls::sign::CertifiedKey;
-
-        #[derive(Debug)]
-        struct MockResolver;
-        impl ResolvesClientCert for MockResolver {
-            fn resolve(&self, _: &[&[u8]], _: &[SignatureScheme]) -> Option<Arc<CertifiedKey>> {
-                None
-            }
-            fn has_certs(&self) -> bool {
-                false
-            }
-        }
-
-        // Verify that the builder wires through to conjure-runtime without
-        // error. No network connection is made; the Client is constructed lazily.
+        // Verify the resolver wires through to conjure-runtime: build() constructs
+        // the rustls ClientConfig eagerly (consuming the resolver), so this
+        // exercises the wiring without making a network connection.
         let result = NominalClientBuilder::new("validtoken123")
             .base_url("https://api.example.com/api")
             .client_cert_resolver(Arc::new(MockResolver))
