@@ -8,7 +8,7 @@ description = "CLI for automating Nominal workflows"
 homepage = "https://nominal.io"
 
 [[bin]]
-name = "nom"
+name = "nomctl"
 path = "src/main.rs"
 
 [dependencies]
