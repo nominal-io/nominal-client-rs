@@ -20,6 +20,7 @@ nominal-api = "0.1218"
 nominal-streaming = "0.9.1"
 regex = "1.12"
 reqwest = { version = "0.12", default-features = false, features = ["http2", "rustls-tls"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_yaml = "0.9.34"
 thiserror = "2"
@@ -34,7 +35,6 @@ tokio = { version = "1", features = [
     "time",
 ] }
 tracing = "0.1"
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 cryptoki = { version = "0.12", optional = true }
 rpassword = { version = "7", optional = true }
 x509-cert = { version = "0.2", optional = true }
