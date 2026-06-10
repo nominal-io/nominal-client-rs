@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use cryptoki::context::{CInitializeArgs, CInitializeFlags, Pkcs11};
+use cryptoki::error::{Error as CryptokiError, RvError};
 use rustls::SignatureScheme;
 use rustls::client::ResolvesClientCert;
 use rustls::sign::CertifiedKey;
@@ -57,9 +58,10 @@ impl SmartcardCertResolver {
             details: format!("failed to load PKCS#11 module {module_path:?}: {e}"),
         })?;
 
-        pkcs11
-            .initialize(CInitializeArgs::new(CInitializeFlags::OS_LOCKING_OK))
-            .map_err(tls_err("C_Initialize failed"))?;
+        match pkcs11.initialize(CInitializeArgs::new(CInitializeFlags::OS_LOCKING_OK)) {
+            Ok(()) | Err(CryptokiError::Pkcs11(RvError::CryptokiAlreadyInitialized, _)) => {}
+            Err(e) => return Err(tls_err("C_Initialize failed")(e)),
+        }
 
         let slots = pkcs11
             .get_slots_with_token()

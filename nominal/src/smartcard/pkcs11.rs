@@ -78,7 +78,9 @@ pub(super) fn open_session(pkcs11: &Pkcs11, slot: Slot) -> Result<Session> {
         let pin = rpassword::prompt_password(&prompt).map_err(tls_err("Failed to read PIN"))?;
 
         match session.login(UserType::User, Some(&AuthPin::new(pin.into_boxed_str()))) {
-            Ok(()) => return Ok(session),
+            Ok(()) | Err(CryptokiError::Pkcs11(RvError::UserAlreadyLoggedIn, _)) => {
+                return Ok(session);
+            }
 
             Err(CryptokiError::Pkcs11(RvError::PinLocked, _)) => {
                 return Err(tls_static(
