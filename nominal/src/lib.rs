@@ -1,7 +1,10 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 pub mod config;
 pub mod core;
 pub mod error;
 #[cfg(feature = "smartcard")]
+#[cfg_attr(docsrs, doc(cfg(feature = "smartcard")))]
 pub mod smartcard;
 
 pub use config::{Config, Profile};

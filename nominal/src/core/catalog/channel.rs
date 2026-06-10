@@ -296,7 +296,7 @@ impl ChannelUpdate {
         name: &str,
     ) -> Result<CreateSeriesMetadataRequest> {
         let channel = ApiChannel(name.to_string());
-        let data_type = self.data_type.into_nominal_data_type()?;
+        let data_type = self.data_type.clone().into_nominal_data_type()?;
         let locator =
             LocatorTemplate::Nominal(NominalLocatorTemplate::new(channel.clone(), data_type));
         let mut b = CreateSeriesMetadataRequest::builder()

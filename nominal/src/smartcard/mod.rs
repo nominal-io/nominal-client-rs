@@ -1,18 +1,4 @@
-//! PKCS#11-backed client-certificate resolver for CAC/PIV mTLS.
-//!
-//! ```rust,no_run
-//! use std::sync::Arc;
-//! use nominal::smartcard::SmartcardCertResolver;
-//!
-//! # fn main() -> nominal::Result<()> {
-//! let resolver = SmartcardCertResolver::new()?;
-//!
-//! let client = nominal::NominalClient::builder("api-token")
-//!     .client_cert_resolver(Arc::new(resolver))
-//!     .build()?;
-//! # Ok(())
-//! # }
-//! ```
+//! PKCS#11-backed client-certificate resolver for mTLS with smartcards.
 
 mod pkcs11;
 mod signing;
@@ -38,7 +24,7 @@ use crate::{Error, Result};
 /// OpenSC paths do not apply (e.g. non-standard installs or ActivClient).
 pub const PKCS11_MODULE_ENV_VAR: &str = "NOMINAL_PKCS11_MODULE";
 
-/// rustls client-certificate resolver backed by a PKCS#11 token (CAC/PIV).
+/// rustls client-certificate resolver backed by a PKCS#11 token.
 ///
 /// Pass to [`NominalClientBuilder::client_cert_resolver`].
 ///
@@ -64,10 +50,6 @@ impl SmartcardCertResolver {
     /// Scans all token slots for a PIV Authentication certificate (slot 9A),
     /// then prompts for PIN once. The session is kept open so no further PIN
     /// prompts occur during TLS handshakes.
-    ///
-    /// Note: some middleware times out idle sessions; if `sign()` starts
-    /// returning errors after a long idle period, the session may need to be
-    /// re-opened by constructing a new resolver.
     pub fn new() -> Result<Self> {
         let module_path = discover_module_path()?;
 
