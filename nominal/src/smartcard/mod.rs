@@ -25,14 +25,6 @@ use crate::{Error, Result};
 /// OpenSC paths do not apply (e.g. non-standard installs or ActivClient).
 pub const PKCS11_MODULE_ENV_VAR: &str = "NOMINAL_PKCS11_MODULE";
 
-/// Environment variable that pins which certificate to use by its `CKA_ID`.
-///
-/// Set to the hex-encoded `CKA_ID` (e.g. `01`, optionally `0x`-prefixed) when a
-/// token exposes several equally-eligible client-authentication certificates
-/// and the default selection (PIV Authentication over Card Authentication, then
-/// smallest `CKA_ID`) does not pick the intended one.
-pub const PKCS11_CERT_ID_ENV_VAR: &str = "NOMINAL_PKCS11_CERT_ID";
-
 /// rustls client-certificate resolver backed by a PKCS#11 token.
 ///
 /// Pass to [`NominalClientBuilder::client_cert_resolver`].
@@ -119,7 +111,7 @@ impl ResolvesClientCert for SmartcardCertResolver {
 /// Checks `NOMINAL_PKCS11_MODULE` first, then walks platform-specific OpenSC
 /// default paths. Returns an error if no module is found.
 fn discover_module_path() -> Result<PathBuf> {
-    // An empty value is treated as unset, matching NOMINAL_PKCS11_CERT_ID.
+    // An empty value is treated as unset.
     let env_val = std::env::var(PKCS11_MODULE_ENV_VAR)
         .ok()
         .filter(|v| !v.trim().is_empty());

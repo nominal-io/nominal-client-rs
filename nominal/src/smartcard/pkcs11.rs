@@ -13,12 +13,12 @@ use rustls::SignatureAlgorithm;
 use rustls::SignatureScheme;
 use rustls::pki_types::CertificateDer;
 use x509_cert::Certificate;
-
-use super::{PKCS11_CERT_ID_ENV_VAR, PKCS11_MODULE_ENV_VAR};
 use x509_cert::der::Decode;
 use x509_cert::der::asn1::ObjectIdentifier;
 use x509_cert::ext::pkix::ExtendedKeyUsage;
 use zeroize::Zeroizing;
+
+use super::PKCS11_MODULE_ENV_VAR;
 
 /// OID for id-ce-extKeyUsage (2.5.29.37).
 const EKU_EXTENSION_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.5.29.37");
@@ -237,8 +237,7 @@ struct SlotCert {
 /// 9A PIV Authentication cert and the 9E Card Authentication cert at minimum),
 /// so finding more than one is normal, not an error. Selection prefers the PIV
 /// Authentication cert by excluding 9E (id-PIV-cardAuth) candidates; remaining
-/// ties break on the smallest `CKA_ID` for determinism. Set
-/// [`PKCS11_CERT_ID_ENV_VAR`] to force a specific certificate by its `CKA_ID`.
+/// ties break on the smallest `CKA_ID` for determinism.
 ///
 /// The same physical card exposed over more than one reader/slot (contact +
 /// contactless) is deduplicated by token serial number, so it is not mistaken
@@ -246,7 +245,6 @@ struct SlotCert {
 /// is found, or when client-auth certificates from two genuinely different
 /// cards are present at once.
 pub(super) fn discover_piv_cert(pkcs11: &Pkcs11, slots: &[Slot]) -> Result<(Slot, DiscoveredCert)> {
-    let id_filter = cert_id_filter()?;
     // (slot, token serial, discovered cert) for the first card we accept.
     let mut found: Option<(Slot, String, DiscoveredCert)> = None;
 
@@ -281,7 +279,7 @@ pub(super) fn discover_piv_cert(pkcs11: &Pkcs11, slots: &[Slot]) -> Result<(Slot
             .filter_map(|handle| read_slot_cert(&session, handle))
             .collect();
 
-        let Some(leaf) = select_leaf(&slot_certs, id_filter.as_deref()) else {
+        let Some(leaf) = select_leaf(&slot_certs) else {
             continue;
         };
 
@@ -312,21 +310,15 @@ pub(super) fn discover_piv_cert(pkcs11: &Pkcs11, slots: &[Slot]) -> Result<(Slot
         }
     }
 
-    found.map(|(slot, _, d)| (slot, d)).ok_or_else(|| {
-        let details = match &id_filter {
-            Some(filter) => format!(
-                "no client-auth certificate with CKA_ID {filter:02x?} found on \
-                 any token slot; correct or unset {PKCS11_CERT_ID_ENV_VAR} to \
-                 use automatic selection"
+    found
+        .map(|(slot, _, d)| (slot, d))
+        .ok_or_else(|| Error::Tls {
+            details: format!(
+                "no certificate with id-kp-clientAuth EKU found on any token slot; \
+             ensure the card is inserted and middleware is installed, or set \
+             {PKCS11_MODULE_ENV_VAR} to override the module path"
             ),
-            None => format!(
-                "no certificate with id-kp-clientAuth EKU found on any token \
-                 slot; ensure the card is inserted and middleware is installed, \
-                 or set {PKCS11_MODULE_ENV_VAR} to override the module path"
-            ),
-        };
-        Error::Tls { details }
-    })
+        })
 }
 
 /// Read and classify one certificate object. Returns `None` (and logs) when the
@@ -419,19 +411,15 @@ fn classify_eku(cert: &Certificate) -> EkuClass {
 /// Select the leaf certificate to present from one slot's certificates.
 ///
 /// Considers only client-auth certs that carry a `CKA_ID` (required to find the
-/// matching private key) and, when set, match the `CKA_ID` filter. Prefers the
-/// PIV Authentication certificate over the Card Authentication (9E) cert by
-/// dropping card-auth candidates whenever another candidate exists, then breaks
-/// ties on the smallest `CKA_ID` for a deterministic result. Returns `None`
-/// when no usable candidate exists on the slot.
-fn select_leaf<'a>(certs: &'a [SlotCert], id_filter: Option<&[u8]>) -> Option<&'a SlotCert> {
+/// matching private key). Prefers the PIV Authentication certificate over the
+/// Card Authentication (9E) cert by dropping card-auth candidates whenever
+/// another candidate exists, then breaks ties on the smallest `CKA_ID` for a
+/// deterministic result. Returns `None` when no usable candidate exists on the
+/// slot.
+fn select_leaf(certs: &[SlotCert]) -> Option<&SlotCert> {
     let eligible: Vec<&SlotCert> = certs
         .iter()
-        .filter(|c| {
-            c.client_auth
-                && c.key_id.is_some()
-                && id_filter.is_none_or(|f| c.key_id.as_deref() == Some(f))
-        })
+        .filter(|c| c.client_auth && c.key_id.is_some())
         .collect();
 
     let any_piv_auth = eligible.iter().any(|c| !c.card_auth);
@@ -445,13 +433,11 @@ fn select_leaf<'a>(certs: &'a [SlotCert], id_filter: Option<&[u8]>) -> Option<&'
         .min_by(|a, b| a.key_id.cmp(&b.key_id))
         .copied()?;
 
-    // Warn when the choice was genuinely ambiguous so an operator can pin it.
     if pool.len() > 1 {
         tracing::warn!(
             chosen_cka_id = ?best.key_id,
-            env = PKCS11_CERT_ID_ENV_VAR,
             "multiple equally-eligible client-auth certificates on one slot; \
-             selected the lowest CKA_ID. Set the env var to choose explicitly."
+             selected the lowest CKA_ID"
         );
     }
 
@@ -463,40 +449,6 @@ fn select_leaf<'a>(certs: &'a [SlotCert], id_filter: Option<&[u8]>) -> Option<&'
 /// interfaces).
 fn same_physical_card(serial_a: &str, serial_b: &str) -> bool {
     !serial_a.is_empty() && serial_a == serial_b
-}
-
-/// Optional `CKA_ID` filter from [`PKCS11_CERT_ID_ENV_VAR`].
-fn cert_id_filter() -> Result<Option<Vec<u8>>> {
-    match std::env::var(PKCS11_CERT_ID_ENV_VAR) {
-        Ok(v) if !v.trim().is_empty() => Ok(Some(parse_hex_id(&v)?)),
-        _ => Ok(None),
-    }
-}
-
-/// Parse a hex `CKA_ID` (optional `0x` prefix; `:` and whitespace ignored).
-fn parse_hex_id(s: &str) -> Result<Vec<u8>> {
-    let cleaned: String = s
-        .trim()
-        .trim_start_matches("0x")
-        .trim_start_matches("0X")
-        .chars()
-        .filter(|c| !c.is_whitespace() && *c != ':')
-        .collect();
-
-    let invalid = || Error::Tls {
-        details: format!(
-            "{PKCS11_CERT_ID_ENV_VAR} must be an even-length hex string such \
-             as \"01\" (got {s:?})"
-        ),
-    };
-
-    if cleaned.is_empty() || cleaned.len() % 2 != 0 {
-        return Err(invalid());
-    }
-    (0..cleaned.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&cleaned[i..i + 2], 16).map_err(|_| invalid()))
-        .collect()
 }
 
 /// Find the private key paired with the certificate located by `locator`.
@@ -817,7 +769,7 @@ mod tests {
             slot_cert(true, true, &[0x01]),
             slot_cert(true, false, &[0x04]),
         ];
-        let leaf = select_leaf(&certs, None).unwrap();
+        let leaf = select_leaf(&certs).unwrap();
         assert_eq!(leaf.key_id.as_deref(), Some(&[0x04][..]));
     }
 
@@ -827,45 +779,20 @@ mod tests {
             slot_cert(true, false, &[0x04]),
             slot_cert(true, false, &[0x01]),
         ];
-        let leaf = select_leaf(&certs, None).unwrap();
+        let leaf = select_leaf(&certs).unwrap();
         assert_eq!(leaf.key_id.as_deref(), Some(&[0x01][..]));
     }
 
     #[test]
     fn select_leaf_falls_back_to_card_auth_when_only_option() {
         let certs = vec![slot_cert(true, true, &[0x04])];
-        assert!(select_leaf(&certs, None).is_some());
+        assert!(select_leaf(&certs).is_some());
     }
 
     #[test]
     fn select_leaf_ignores_non_client_auth_certs() {
         let certs = vec![slot_cert(false, false, &[0x01])];
-        assert!(select_leaf(&certs, None).is_none());
-        assert!(select_leaf(&[], None).is_none());
-    }
-
-    #[test]
-    fn select_leaf_honors_id_filter() {
-        let certs = vec![
-            slot_cert(true, false, &[0x01]),
-            slot_cert(true, false, &[0x04]),
-        ];
-        let leaf = select_leaf(&certs, Some(&[0x04])).unwrap();
-        assert_eq!(leaf.key_id.as_deref(), Some(&[0x04][..]));
-        assert!(select_leaf(&certs, Some(&[0x09])).is_none());
-    }
-
-    #[test]
-    fn parse_hex_id_accepts_plain_and_prefixed() {
-        assert_eq!(parse_hex_id("01").unwrap(), vec![0x01]);
-        assert_eq!(parse_hex_id("0x01ab").unwrap(), vec![0x01, 0xab]);
-        assert_eq!(parse_hex_id("01:AB:cd").unwrap(), vec![0x01, 0xab, 0xcd]);
-    }
-
-    #[test]
-    fn parse_hex_id_rejects_odd_and_nonhex() {
-        assert!(parse_hex_id("1").is_err());
-        assert!(parse_hex_id("zz").is_err());
-        assert!(parse_hex_id("").is_err());
+        assert!(select_leaf(&certs).is_none());
+        assert!(select_leaf(&[]).is_none());
     }
 }
