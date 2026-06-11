@@ -76,7 +76,3 @@ $ nomctl config profile list
 $ nomctl config profile show test-profile
 $ nomctl config profile remove test-profile
 ```
-
-### Coming soon: browser login
-
-Browser-based profile setup (similar to Nominal Connect) is planned as a follow-up once CLI client-integrity registration is in place. Until then, use `nomctl config init` or `nomctl config profile add` with a manually created API token.

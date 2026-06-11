@@ -149,14 +149,7 @@ pub fn default_config_path() -> Result<PathBuf> {
         .join("config.yml"))
 }
 
-/// Resolve the home directory used for config file paths (`~/.config/nominal/`).
-///
-/// `NOMINAL_HOME` overrides `dirs::home_dir()` when set (useful in tests; on Windows
-/// `dirs::home_dir()` reads the shell profile folder and ignores `HOME`/`USERPROFILE`).
 fn home_dir() -> Result<PathBuf> {
-    if let Some(home) = std::env::var_os("NOMINAL_HOME").filter(|home| !home.is_empty()) {
-        return Ok(PathBuf::from(home));
-    }
     dirs::home_dir().ok_or(crate::Error::HomeDirNotFound)
 }
 
