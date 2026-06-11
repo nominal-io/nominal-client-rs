@@ -48,8 +48,6 @@ $ nomctl config profile add test-profile \
 
 Profiles are validated by default; pass `--no-validate` to skip. See the [authentication docs](https://docs.nominal.io/core/sdk/python-client/authentication) for how to create an API token.
 
-> Note: If you have a legacy config at `~/.nominal.yml`, run `nomctl config init` or `nomctl config profile add` to create `~/.config/nominal/config.yml`.
-
 ### Config file
 
 Profiles are stored in `~/.config/nominal/config.yml` as `version: 2`. See [nominal/tests/fixtures/config/config-v2-example.yml](nominal/tests/fixtures/config/config-v2-example.yml) for the full v2 format. Rust and Python SDKs share this format.

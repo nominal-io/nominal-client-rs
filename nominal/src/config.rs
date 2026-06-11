@@ -52,13 +52,11 @@ impl Config {
         }
     }
 
-    /// Load the config from the default path, or return an empty v2 config when no v2
-    /// file exists yet (including when only the deprecated `~/.nominal.yml` is present).
+    /// Load the config from the default path, or return an empty v2 config when no file exists.
     pub fn load_or_default() -> Result<Self> {
         match Self::load() {
             Ok(config) => Ok(config),
-            Err(crate::Error::ConfigNotFound { .. })
-            | Err(crate::Error::DeprecatedConfigFound { .. }) => Ok(Self::empty()),
+            Err(crate::Error::ConfigNotFound { .. }) => Ok(Self::empty()),
             Err(err) => Err(err),
         }
     }
@@ -71,14 +69,9 @@ impl Config {
     /// Load the config from an explicit path.
     pub fn load_from(path: &Path) -> Result<Self> {
         if !path.exists() {
-            let path_display = path.display().to_string();
-            if is_default_config_path(path) && deprecated_config_path()?.exists() {
-                return Err(crate::Error::DeprecatedConfigFound {
-                    path: path_display,
-                    deprecated_path: deprecated_config_path()?.display().to_string(),
-                });
-            }
-            return Err(crate::Error::ConfigNotFound { path: path_display });
+            return Err(crate::Error::ConfigNotFound {
+                path: path.display().to_string(),
+            });
         }
 
         let contents = fs::read_to_string(path)?;
@@ -156,11 +149,7 @@ pub fn default_config_path() -> Result<PathBuf> {
         .join("config.yml"))
 }
 
-fn deprecated_config_path() -> Result<PathBuf> {
-    Ok(home_dir()?.join(".nominal.yml"))
-}
-
-/// Resolve the directory used for config files (`~/.config/nominal/`, `~/.nominal.yml`).
+/// Resolve the home directory used for config file paths (`~/.config/nominal/`).
 ///
 /// `NOMINAL_HOME` overrides `dirs::home_dir()` when set (useful in tests; on Windows
 /// `dirs::home_dir()` reads the shell profile folder and ignores `HOME`/`USERPROFILE`).
@@ -169,12 +158,6 @@ fn home_dir() -> Result<PathBuf> {
         return Ok(PathBuf::from(home));
     }
     dirs::home_dir().ok_or(crate::Error::HomeDirNotFound)
-}
-
-fn is_default_config_path(path: &Path) -> bool {
-    default_config_path()
-        .ok()
-        .is_some_and(|default| default == path)
 }
 
 #[cfg(test)]
@@ -194,12 +177,6 @@ mod tests {
         let mut file = std::fs::File::create(&path).expect("create config");
         write!(file, "{contents}").expect("write config");
         (dir, path)
-    }
-
-    /// Isolate config path resolution to a temp directory via `NOMINAL_HOME`.
-    fn with_home_dir<F: FnOnce()>(home: &Path, f: F) {
-        let home = home.to_str().expect("home path must be utf-8");
-        temp_env::with_var("NOMINAL_HOME", Some(home), f);
     }
 
     #[test]
@@ -271,28 +248,6 @@ mod tests {
             assert_eq!(reloaded.token(), profile.token());
             assert_eq!(reloaded.workspace_rid(), profile.workspace_rid());
         }
-    }
-
-    #[test]
-    fn load_or_default_returns_empty_when_deprecated_config_exists() {
-        let home = tempfile::tempdir().expect("tempdir");
-        let home_path = home.path().to_path_buf();
-
-        let deprecated_path = home_path.join(".nominal.yml");
-        std::fs::copy(
-            fixture_path("config-v1-deprecated-example.yml"),
-            &deprecated_path,
-        )
-        .expect("copy deprecated config fixture");
-
-        with_home_dir(&home_path, || {
-            let config = Config::load_or_default().expect("load_or_default");
-            assert_eq!(config.version(), CONFIG_VERSION);
-            assert!(config.profiles().is_empty());
-
-            let err = Config::load().unwrap_err();
-            assert!(matches!(err, crate::Error::DeprecatedConfigFound { .. }));
-        });
     }
 
     #[test]
