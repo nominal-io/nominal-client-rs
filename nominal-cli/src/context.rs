@@ -22,9 +22,12 @@ pub fn resolve_profile(flag: Option<&str>, config: &Config) -> Result<String, Er
 }
 
 pub fn display_config_path(path: &Path) -> String {
-    if let Some(home) = dirs::home_dir() {
-        if path.starts_with(&home) {
-            return format!("~/{}", path.strip_prefix(&home).unwrap().display());
+    // `~/` is only a meaningful shorthand on Unix shells.
+    if cfg!(unix) {
+        if let Some(home) = dirs::home_dir() {
+            if path.starts_with(&home) {
+                return format!("~/{}", path.strip_prefix(&home).unwrap().display());
+            }
         }
     }
     path.display().to_string()
@@ -74,6 +77,10 @@ mod tests {
     fn display_config_path_rewrites_home() {
         let home = dirs::home_dir().expect("home");
         let path = home.join(".config/nominal/config.yml");
-        assert_eq!(display_config_path(&path), "~/.config/nominal/config.yml");
+        if cfg!(unix) {
+            assert_eq!(display_config_path(&path), "~/.config/nominal/config.yml");
+        } else {
+            assert_eq!(display_config_path(&path), path.display().to_string());
+        }
     }
 }

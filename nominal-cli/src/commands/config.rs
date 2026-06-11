@@ -30,7 +30,8 @@ pub enum ProfileCommands {
         token: String,
         #[arg(short, long)]
         workspace_rid: Option<String>,
-        /// Skip validation before saving
+        /// Skip the authentication check that runs before saving. Useful in
+        /// CI or air-gapped environments where the API is unreachable.
         #[arg(long = "no-validate", action = ArgAction::SetFalse)]
         validate: bool,
     },
@@ -121,17 +122,26 @@ fn list_profiles() -> anyhow::Result<()> {
 
     println!("Profiles from `{config_path}`:\n");
     for (profile_name, profile) in config.profiles() {
-        print!("- {profile_name} ({})", profile.base_url());
-        if profile.token().is_empty() {
-            print!(", missing token");
+        let mut tags: Vec<&str> = Vec::new();
+        if config.default_profile() == Some(profile_name.as_str()) {
+            tags.push("default");
         }
         if profile.workspace_rid().is_some() {
-            print!(", in workspace");
+            tags.push("workspace");
         }
-        if config.default_profile() == Some(profile_name.as_str()) {
-            print!(", default");
+        if profile.token().is_empty() {
+            tags.push("missing token");
         }
-        println!(")");
+
+        if tags.is_empty() {
+            println!("  {profile_name}  {}", profile.base_url());
+        } else {
+            println!(
+                "  {profile_name}  {}  [{}]",
+                profile.base_url(),
+                tags.join(", ")
+            );
+        }
     }
 
     Ok(())
