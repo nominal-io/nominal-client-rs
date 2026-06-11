@@ -169,7 +169,7 @@ fn show_profile(name: &str) -> anyhow::Result<()> {
 
 async fn handle_init() -> anyhow::Result<()> {
     let name = Text::new("Profile name:")
-        .with_help_message("Used with --profile or NOMINAL_PROFILE")
+        .with_help_message("A short name for this profile connection")
         .prompt()
         .context("Failed to read profile name")?;
 
@@ -180,21 +180,27 @@ async fn handle_init() -> anyhow::Result<()> {
 
     let url = Text::new("API base URL:")
         .with_default(DEFAULT_BASE_URL)
+        .with_help_message("Press Enter to use the default, or paste your organization's API URL")
         .prompt()
         .context("Failed to read base URL")?;
 
     let token = Text::new("API token or bearer token:")
-        .with_help_message(&format!("See {} for instructions", nominal::AUTH_DOCS_LINK))
+        .with_help_message(&format!(
+            "See {} for instructions to generate a token",
+            nominal::AUTH_DOCS_LINK
+        ))
         .prompt()
         .context("Failed to read token")?;
 
     let workspace_rid = if Confirm::new("Add a workspace RID?:")
         .with_default(false)
+        .with_help_message("Only needed if your organization uses multiple workspaces")
         .prompt()
         .context("Failed to read workspace prompt")?
     {
         Some(
             Text::new("Workspace RID:")
+                .with_help_message("Find this in the Nominal app under Settings > Workspaces")
                 .prompt()
                 .context("Failed to read workspace RID")?,
         )
