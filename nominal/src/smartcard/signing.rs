@@ -1,4 +1,4 @@
-// rustls signing bridge: SigningKey + Signer backed by a PKCS#11 private key.
+//! rustls signing bridge: `SigningKey` + `Signer` backed by a PKCS#11 private key.
 
 use std::sync::{Arc, Mutex};
 
@@ -64,16 +64,28 @@ impl std::fmt::Debug for Pkcs11Signer {
 impl Signer for Pkcs11Signer {
     fn sign(&self, message: &[u8]) -> std::result::Result<Vec<u8>, rustls::Error> {
         // C_Sign on a hardware token is synchronous and can take 100–500 ms.
-        // This runs synchronously inside the TLS handshake on whatever runtime
-        // the caller drives. We deliberately do NOT wrap it in
-        // tokio::task::block_in_place: that panics on a current-thread runtime,
-        // and this is a public library whose consumers control the runtime
-        // flavor. The brief block happens at most once per handshake.
+        // This runs synchronously inside rustls's `Signer` callback, on
+        // whatever runtime thread is driving the handshake, and the whole
+        // operation is serialized behind the session mutex because a single
+        // PKCS#11 session cannot have two signing operations in flight at once.
+        //
+        // Consequences the caller should be aware of:
+        //   * On a current-thread runtime, the in-progress sign blocks the
+        //     entire reactor until the token responds.
+        //   * On a multi-threaded runtime, each concurrent handshake blocks its
+        //     own worker thread, and they serialize on this mutex — so many
+        //     simultaneous new connections can see added latency.
+        // The block happens at most once per handshake. We deliberately do NOT
+        // use tokio::task::block_in_place: it panics on a current-thread
+        // runtime, and this is a public library whose consumers control the
+        // runtime flavor. Offloading to a dedicated signing thread is the
+        // natural next step if connection-setup throughput becomes a concern.
         let session = self
             .session
             .lock()
             .map_err(|e| rustls::Error::General(e.to_string()))?;
-        sign_with_scheme(&session, self.key_handle, self.scheme, message)
+
+        sign_message(&session, self.key_handle, self.scheme, message)
             .map_err(|e| rustls::Error::General(e.to_string()))
     }
 
@@ -86,7 +98,7 @@ impl Signer for Pkcs11Signer {
 
 /// Return the first element of `offered` that appears in `supported`.
 /// Iterates `offered` first so the server's preference order is respected.
-pub(super) fn first_supported(
+fn first_supported(
     offered: &[SignatureScheme],
     supported: &[SignatureScheme],
 ) -> Option<SignatureScheme> {
@@ -95,82 +107,94 @@ pub(super) fn first_supported(
 
 // --- Signing logic -------------------------------------------------------
 
-fn sign_with_scheme(
+/// Post-processing applied to the raw bytes a PKCS#11 sign returns.
+enum SigPost {
+    /// RSA: the token already emits the encoded signature.
+    Raw,
+    /// ECDSA P-256: the token emits raw `r || s`; convert to DER.
+    EcdsaP256,
+    /// ECDSA P-384: the token emits raw `r || s`; convert to DER.
+    EcdsaP384,
+}
+
+impl SigPost {
+    fn finish(&self, raw: Vec<u8>) -> Result<Vec<u8>> {
+        match self {
+            SigPost::Raw => Ok(raw),
+            SigPost::EcdsaP256 => ecdsa_p256_raw_to_der(&raw),
+            SigPost::EcdsaP384 => ecdsa_p384_raw_to_der(&raw),
+        }
+    }
+}
+
+/// Map a TLS signature scheme to its PKCS#11 mechanism and post-processing.
+///
+/// All mechanisms are compound (hash-and-sign): the token hashes the full
+/// message internally, matching rustls handing over the unhashed message.
+fn mechanism_for_scheme(scheme: SignatureScheme) -> Result<(Mechanism<'static>, SigPost)> {
+    use SignatureScheme as S;
+    Ok(match scheme {
+        S::RSA_PKCS1_SHA256 => (Mechanism::Sha256RsaPkcs, SigPost::Raw),
+        S::RSA_PKCS1_SHA384 => (Mechanism::Sha384RsaPkcs, SigPost::Raw),
+        S::RSA_PKCS1_SHA512 => (Mechanism::Sha512RsaPkcs, SigPost::Raw),
+        S::RSA_PSS_SHA256 => (
+            Mechanism::Sha256RsaPkcsPss(pss_params(MechanismType::SHA256)),
+            SigPost::Raw,
+        ),
+        S::RSA_PSS_SHA384 => (
+            Mechanism::Sha384RsaPkcsPss(pss_params(MechanismType::SHA384)),
+            SigPost::Raw,
+        ),
+        S::RSA_PSS_SHA512 => (
+            Mechanism::Sha512RsaPkcsPss(pss_params(MechanismType::SHA512)),
+            SigPost::Raw,
+        ),
+        S::ECDSA_NISTP256_SHA256 => (Mechanism::EcdsaSha256, SigPost::EcdsaP256),
+        S::ECDSA_NISTP384_SHA384 => (Mechanism::EcdsaSha384, SigPost::EcdsaP384),
+        other => {
+            return Err(Error::Tls {
+                details: format!("unsupported SignatureScheme: {other:?}"),
+            });
+        }
+    })
+}
+
+/// RSA-PSS parameters for `hash`, with the salt length pinned to the hash's
+/// output length (RFC 8017 §9.1 recommendation; mandated by TLS 1.3).
+///
+/// Keying the MGF and salt length off the hash here keeps the three callers
+/// from drifting — a mismatched salt length would silently produce a malformed
+/// signature for just one hash size.
+fn pss_params(hash: MechanismType) -> PkcsPssParams {
+    let (mgf, s_len) = if hash == MechanismType::SHA256 {
+        (PkcsMgfType::MGF1_SHA256, 32.into())
+    } else if hash == MechanismType::SHA384 {
+        (PkcsMgfType::MGF1_SHA384, 48.into())
+    } else {
+        // SHA-512 — the only remaining hash mechanism_for_scheme passes here.
+        (PkcsMgfType::MGF1_SHA512, 64.into())
+    };
+    PkcsPssParams {
+        hash_alg: hash,
+        mgf,
+        s_len,
+    }
+}
+
+/// Sign `message` with the token, converting the result for rustls.
+fn sign_message(
     session: &Session,
     key: ObjectHandle,
     scheme: SignatureScheme,
     message: &[u8],
 ) -> Result<Vec<u8>> {
-    match scheme {
-        // RSA PKCS#1 — compound mechanisms: the token hashes and signs the
-        // full message, so no hashing is needed here.
-        SignatureScheme::RSA_PKCS1_SHA256 => session
-            .sign(&Mechanism::Sha256RsaPkcs, key, message)
-            .map_err(pkcs11_err),
-        SignatureScheme::RSA_PKCS1_SHA384 => session
-            .sign(&Mechanism::Sha384RsaPkcs, key, message)
-            .map_err(pkcs11_err),
-        SignatureScheme::RSA_PKCS1_SHA512 => session
-            .sign(&Mechanism::Sha512RsaPkcs, key, message)
-            .map_err(pkcs11_err),
-
-        // RSA-PSS — compound mechanisms. The PSS parameters specify the hash
-        // algorithm and MGF so the token can perform the full operation.
-        // Salt length is set to the hash output length, which is the
-        // recommended value per RFC 8017 §9.1.1 and what TLS 1.3 mandates.
-        SignatureScheme::RSA_PSS_SHA256 => {
-            let params = PkcsPssParams {
-                hash_alg: MechanismType::SHA256,
-                mgf: PkcsMgfType::MGF1_SHA256,
-                s_len: 32.into(),
-            };
-            session
-                .sign(&Mechanism::Sha256RsaPkcsPss(params), key, message)
-                .map_err(pkcs11_err)
-        }
-        SignatureScheme::RSA_PSS_SHA384 => {
-            let params = PkcsPssParams {
-                hash_alg: MechanismType::SHA384,
-                mgf: PkcsMgfType::MGF1_SHA384,
-                s_len: 48.into(),
-            };
-            session
-                .sign(&Mechanism::Sha384RsaPkcsPss(params), key, message)
-                .map_err(pkcs11_err)
-        }
-        SignatureScheme::RSA_PSS_SHA512 => {
-            let params = PkcsPssParams {
-                hash_alg: MechanismType::SHA512,
-                mgf: PkcsMgfType::MGF1_SHA512,
-                s_len: 64.into(),
-            };
-            session
-                .sign(&Mechanism::Sha512RsaPkcsPss(params), key, message)
-                .map_err(pkcs11_err)
-        }
-
-        // ECDSA — compound mechanisms: the token hashes internally.
-        // PKCS#11 returns raw r || s bytes; TLS requires DER. The curve crates
-        // validate r and s are in range before encoding.
-        SignatureScheme::ECDSA_NISTP256_SHA256 => session
-            .sign(&Mechanism::EcdsaSha256, key, message)
-            .map_err(pkcs11_err)
-            .and_then(|raw| ecdsa_p256_raw_to_der(&raw)),
-        SignatureScheme::ECDSA_NISTP384_SHA384 => session
-            .sign(&Mechanism::EcdsaSha384, key, message)
-            .map_err(pkcs11_err)
-            .and_then(|raw| ecdsa_p384_raw_to_der(&raw)),
-
-        _ => Err(Error::Tls {
-            details: format!("unsupported SignatureScheme: {scheme:?}"),
-        }),
-    }
-}
-
-fn pkcs11_err(e: cryptoki::error::Error) -> Error {
-    Error::Tls {
-        details: format!("PKCS#11 error: {e}"),
-    }
+    let (mechanism, post) = mechanism_for_scheme(scheme)?;
+    let raw = session
+        .sign(&mechanism, key, message)
+        .map_err(|e| Error::Tls {
+            details: format!("PKCS#11 C_Sign failed: {e}"),
+        })?;
+    post.finish(raw)
 }
 
 // --- ECDSA DER conversion ------------------------------------------------
@@ -295,7 +319,7 @@ mod tests {
 
         assert_eq!(der[0], 0x30, "output must start with DER SEQUENCE tag");
         let rt = p256::ecdsa::Signature::from_der(&der).unwrap();
-        assert_eq!(rt.to_bytes().as_slice(), &raw[..]);
+        assert_eq!(rt.to_bytes()[..], raw[..]);
     }
 
     #[test]
@@ -307,7 +331,7 @@ mod tests {
 
         assert_eq!(der[0], 0x30, "output must start with DER SEQUENCE tag");
         let rt = p384::ecdsa::Signature::from_der(&der).unwrap();
-        assert_eq!(rt.to_bytes().as_slice(), &raw[..]);
+        assert_eq!(rt.to_bytes()[..], raw[..]);
     }
 
     #[test]

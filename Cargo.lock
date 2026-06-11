@@ -1863,6 +1863,7 @@ dependencies = [
  "tokio",
  "tracing",
  "x509-cert",
+ "zeroize",
 ]
 
 [[package]]

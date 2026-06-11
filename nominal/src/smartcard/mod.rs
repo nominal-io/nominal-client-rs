@@ -25,6 +25,14 @@ use crate::{Error, Result};
 /// OpenSC paths do not apply (e.g. non-standard installs or ActivClient).
 pub const PKCS11_MODULE_ENV_VAR: &str = "NOMINAL_PKCS11_MODULE";
 
+/// Environment variable that pins which certificate to use by its `CKA_ID`.
+///
+/// Set to the hex-encoded `CKA_ID` (e.g. `01`, optionally `0x`-prefixed) when a
+/// token exposes several equally-eligible client-authentication certificates
+/// and the default selection (PIV Authentication over Card Authentication, then
+/// smallest `CKA_ID`) does not pick the intended one.
+pub const PKCS11_CERT_ID_ENV_VAR: &str = "NOMINAL_PKCS11_CERT_ID";
+
 /// rustls client-certificate resolver backed by a PKCS#11 token.
 ///
 /// Pass to [`NominalClientBuilder::client_cert_resolver`].
@@ -48,9 +56,14 @@ impl SmartcardCertResolver {
     /// 1. `NOMINAL_PKCS11_MODULE` environment variable, if set.
     /// 2. Platform-specific OpenSC default paths.
     ///
-    /// Scans all token slots for a PIV Authentication certificate (slot 9A),
-    /// then prompts for PIN once. The session is kept open so no further PIN
-    /// prompts occur during TLS handshakes.
+    /// Scans all token slots for a TLS client-authentication certificate,
+    /// preferring the PIV Authentication certificate (slot 9A) over the Card
+    /// Authentication certificate (slot 9E) when both are present, then prompts
+    /// for PIN once. The session is kept open so no further PIN prompts occur
+    /// during TLS handshakes.
+    ///
+    /// Only the leaf certificate from the card is presented; the server is
+    /// expected to hold the issuing CA certificates (the DoD PKI intermediates).
     pub fn new() -> Result<Self> {
         let module_path = discover_module_path()?;
 
@@ -67,24 +80,23 @@ impl SmartcardCertResolver {
             .get_slots_with_token()
             .map_err(tls_err("C_GetSlotList failed"))?;
 
-        let (slot, cert_der, key_id) = discover_piv_cert(&pkcs11, &slots)?;
+        let (slot, discovered) = discover_piv_cert(&pkcs11, &slots)?;
 
         let session = open_session(&pkcs11, slot)?;
-        let key_handle = find_key_handle(&session, &key_id)?;
+        let key_handle = find_key_handle(&session, &discovered.key)?;
         let (key_type, ec_params) = probe_key(&session, key_handle)?;
-        let session = Arc::new(Mutex::new(session));
-
         let (schemes, algorithm) = schemes_for_key_type(key_type, ec_params.as_deref())?;
 
         let signing_key: Arc<dyn rustls::sign::SigningKey> = Arc::new(Pkcs11SigningKey {
-            session,
+            session: Arc::new(Mutex::new(session)),
             key_handle,
             schemes,
             algorithm,
         });
 
-        let certified_key = Arc::new(CertifiedKey::new(vec![cert_der], signing_key));
-        Ok(Self { key: certified_key })
+        Ok(Self {
+            key: Arc::new(CertifiedKey::new(vec![discovered.cert], signing_key)),
+        })
     }
 }
 
@@ -107,7 +119,11 @@ impl ResolvesClientCert for SmartcardCertResolver {
 /// Checks `NOMINAL_PKCS11_MODULE` first, then walks platform-specific OpenSC
 /// default paths. Returns an error if no module is found.
 fn discover_module_path() -> Result<PathBuf> {
-    if let Ok(env_val) = std::env::var(PKCS11_MODULE_ENV_VAR) {
+    // An empty value is treated as unset, matching NOMINAL_PKCS11_CERT_ID.
+    let env_val = std::env::var(PKCS11_MODULE_ENV_VAR)
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    if let Some(env_val) = env_val {
         let path = PathBuf::from(&env_val);
         if path.exists() {
             return Ok(path);

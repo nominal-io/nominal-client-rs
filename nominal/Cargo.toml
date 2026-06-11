@@ -29,8 +29,6 @@ tokio = { version = "1", features = [
     "io-util",
     "macros",
     "rt",
-    "rt-multi-thread",
-    "signal",
     "sync",
     "time",
 ] }
@@ -42,9 +40,10 @@ rpassword = { version = "7", optional = true }
 x509-cert = { version = "0.2", optional = true }
 p256 = { version = "0.13", default-features = false, features = ["ecdsa-core"], optional = true }
 p384 = { version = "0.13", default-features = false, features = ["ecdsa-core"], optional = true }
+zeroize = { version = "1", optional = true }
 
 [features]
-smartcard = ["dep:cryptoki", "dep:rpassword", "dep:x509-cert", "dep:p256", "dep:p384"]
+smartcard = ["dep:cryptoki", "dep:rpassword", "dep:x509-cert", "dep:p256", "dep:p384", "dep:zeroize"]
 
 [package.metadata.docs.rs]
 all-features = true

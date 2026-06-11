@@ -1,4 +1,4 @@
-// PKCS#11 session management and object discovery.
+//! PKCS#11 session management and object discovery.
 
 use crate::{Error, Result};
 use cryptoki::context::Pkcs11;
@@ -13,9 +13,12 @@ use rustls::SignatureAlgorithm;
 use rustls::SignatureScheme;
 use rustls::pki_types::CertificateDer;
 use x509_cert::Certificate;
+
+use super::{PKCS11_CERT_ID_ENV_VAR, PKCS11_MODULE_ENV_VAR};
 use x509_cert::der::Decode;
 use x509_cert::der::asn1::ObjectIdentifier;
 use x509_cert::ext::pkix::ExtendedKeyUsage;
+use zeroize::Zeroizing;
 
 /// OID for id-ce-extKeyUsage (2.5.29.37).
 const EKU_EXTENSION_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.5.29.37");
@@ -23,14 +26,45 @@ const EKU_EXTENSION_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.5.29
 /// OID for id-kp-clientAuth (RFC 5280 §4.2.1.12).
 const CLIENT_AUTH_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.5.5.7.3.2");
 
-/// DER-encoded `CKA_EC_PARAMS` (ECParameters namedCurve OID) for NIST P-256
-/// (secp256r1 / prime256v1, OID 1.2.840.10045.3.1.7).
-const EC_PARAMS_P256: &[u8] = &[0x06, 0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07];
+/// OID for id-PIV-cardAuth (NIST SP 800-73, 2.16.840.1.101.3.6.8).
+///
+/// This EKU marks the PIV Card Authentication certificate (slot 9E), whose key
+/// is provisioned with a PIN policy of `NEVER`. The 9E cert also carries
+/// id-kp-clientAuth, so it is rejected as a *leaf* candidate in preference to
+/// the PIV Authentication certificate (slot 9A) when both are present.
+const PIV_CARD_AUTH_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.16.840.1.101.3.6.8");
 
-/// DER-encoded `CKA_EC_PARAMS` (ECParameters namedCurve OID) for NIST P-384
-/// (secp384r1, OID 1.3.132.0.34).
-const EC_PARAMS_P384: &[u8] = &[0x06, 0x05, 0x2B, 0x81, 0x04, 0x00, 0x22];
+/// OID for the NIST P-256 named curve (secp256r1 / prime256v1).
+const P256_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.3.1.7");
 
+/// OID for the NIST P-384 named curve (secp384r1).
+const P384_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.132.0.34");
+
+/// A discovered client-authentication certificate and the data needed to use it.
+pub(super) struct DiscoveredCert {
+    /// The leaf certificate presented during the handshake. CACs store only
+    /// leaf certificates; the server is expected to hold the issuing CAs.
+    pub(super) cert: CertificateDer<'static>,
+    /// How to locate the leaf's private key on the token.
+    pub(super) key: KeyLocator,
+}
+
+/// Identifiers used to find the private key that pairs with a certificate.
+pub(super) struct KeyLocator {
+    /// The certificate's `CKA_ID`. PKCS#11 says a cert and its key SHOULD share
+    /// this value; most middleware honors it.
+    pub(super) id: Vec<u8>,
+    /// The certificate's `CKA_LABEL`, if any — a fallback for middleware that
+    /// does not pair `CKA_ID`s.
+    pub(super) label: Option<Vec<u8>>,
+}
+
+/// Open a read-only session on `slot` and log the user in, prompting for the
+/// PIN on the terminal.
+///
+/// Tokens with `CKF_PROTECTED_AUTHENTICATION_PATH` (e.g. ActivClient) drive PIN
+/// entry through their own UI instead. The card's try-counter is re-read before
+/// each terminal prompt so a retry never spends the card's final attempt.
 pub(super) fn open_session(pkcs11: &Pkcs11, slot: Slot) -> Result<Session> {
     let session = pkcs11
         .open_ro_session(slot)
@@ -48,8 +82,7 @@ pub(super) fn open_session(pkcs11: &Pkcs11, slot: Slot) -> Result<Session> {
     // CKR_ARGUMENTS_BAD; instead call C_Login with no PIN and let the middleware handle it.
     let protected_auth_path = token_info
         .as_ref()
-        .map(|info| info.protected_authentication_path())
-        .unwrap_or(false);
+        .is_some_and(|info| info.protected_authentication_path());
 
     if protected_auth_path {
         match session.login(UserType::User, None) {
@@ -70,14 +103,53 @@ pub(super) fn open_session(pkcs11: &Pkcs11, slot: Slot) -> Result<Session> {
         }
     }
 
+    // Software cap on prompts. The real safeguard against locking the card is
+    // the per-attempt check of the token's hardware try-counter below; this
+    // bound just stops an endless prompt loop if the flags are unavailable.
     const MAX_ATTEMPTS: u32 = 3;
 
-    for attempt in 1..=MAX_ATTEMPTS {
-        let prompt = pin_prompt(&card_label, attempt, MAX_ATTEMPTS);
+    let mut prompted = false;
+    for _ in 0..MAX_ATTEMPTS {
+        // Re-read the card's PIN state before every attempt so a wrong guess is
+        // never driven into a lock. Flags update after each failed C_Login.
+        let token_info = pkcs11.get_token_info(slot).ok();
+        if token_info.as_ref().is_some_and(|i| i.user_pin_locked()) {
+            return Err(tls_static(
+                "Smartcard is locked after too many failed attempts; \
+                 contact your administrator to reset the card",
+            ));
+        }
+        let final_try = token_info.as_ref().is_some_and(|i| i.user_pin_final_try());
+        let count_low = token_info.as_ref().is_some_and(|i| i.user_pin_count_low());
 
-        let pin = rpassword::prompt_password(&prompt).map_err(tls_err("Failed to read PIN"))?;
+        // Never let the retry loop spend the card's last try. If we have
+        // already prompted this run and the card is now down to its final
+        // attempt, stop *before* attempting and make the user re-run
+        // deliberately — auto-retrying here would lock the card. A card that is
+        // already on its final try when we start (prompted == false) still gets
+        // one informed attempt, with a warning in the prompt.
+        if final_try && prompted {
+            return Err(tls_static(
+                "Incorrect PIN; the card is now down to its final attempt. \
+                 Not retrying automatically to avoid locking it — re-run and \
+                 enter the correct PIN.",
+            ));
+        }
 
-        match session.login(UserType::User, Some(&AuthPin::new(pin.into_boxed_str()))) {
+        let prompt = pin_prompt(card_label.as_deref(), prompted, final_try, count_low);
+        prompted = true;
+
+        // Hold the PIN in a zeroizing buffer so the plaintext is wiped on every
+        // exit path, then copy it into an exact-size Box<str> for AuthPin
+        // (itself a zeroizing SecretString). Copying via `Box::from(&str)`
+        // avoids `String::into_boxed_str`'s shrink-to-fit, which can reallocate
+        // and leak the original PIN buffer unzeroized.
+        let pin = Zeroizing::new(
+            rpassword::prompt_password(&prompt).map_err(tls_err("Failed to read PIN"))?,
+        );
+        let auth_pin = AuthPin::new(Box::<str>::from(pin.as_str()));
+
+        match session.login(UserType::User, Some(&auth_pin)) {
             Ok(()) | Err(CryptokiError::Pkcs11(RvError::UserAlreadyLoggedIn, _)) => {
                 return Ok(session);
             }
@@ -96,14 +168,10 @@ pub(super) fn open_session(pkcs11: &Pkcs11, slot: Slot) -> Result<Session> {
                 ));
             }
 
-            Err(CryptokiError::Pkcs11(RvError::PinIncorrect | RvError::PinLenRange, _))
-                if attempt < MAX_ATTEMPTS =>
-            {
-                continue;
-            }
-
             Err(CryptokiError::Pkcs11(RvError::PinIncorrect | RvError::PinLenRange, _)) => {
-                return Err(tls_static("incorrect PIN after too many attempts"));
+                // Loop to re-prompt. The next iteration re-reads the card's
+                // try-counter and bails before spending the final attempt.
+                continue;
             }
 
             Err(e) => {
@@ -114,22 +182,25 @@ pub(super) fn open_session(pkcs11: &Pkcs11, slot: Slot) -> Result<Session> {
         }
     }
 
-    Err(tls_static("PIN authentication failed"))
+    Err(tls_static("incorrect PIN after too many attempts"))
 }
 
-fn pin_prompt(label: &Option<String>, attempt: u32, max_attempts: u32) -> String {
-    if attempt == 1 {
-        match label {
-            Some(label) => format!("Enter PIN for {label}: "),
-            None => "Enter smartcard PIN: ".to_string(),
-        }
+/// Build the PIN prompt, sourcing any "attempts remaining" warning from the
+/// card's real try-counter flags rather than a fabricated software count.
+fn pin_prompt(label: Option<&str>, is_retry: bool, final_try: bool, count_low: bool) -> String {
+    let target = match label {
+        Some(label) => format!("PIN for {label}"),
+        None => "smartcard PIN".to_string(),
+    };
+    let prefix = if is_retry { "Incorrect PIN. " } else { "" };
+    let warning = if final_try {
+        " (WARNING: final attempt before the card locks)"
+    } else if count_low {
+        " (warning: few attempts remain before the card locks)"
     } else {
-        let remaining = max_attempts - attempt + 1;
-        format!(
-            "Incorrect PIN, {remaining} attempt{} remaining: ",
-            if remaining == 1 { "" } else { "s" }
-        )
-    }
+        ""
+    };
+    format!("{prefix}Enter {target}{warning}: ")
 }
 
 pub(super) fn tls_err<E: std::fmt::Display>(context: &'static str) -> impl FnOnce(E) -> Error {
@@ -144,27 +215,48 @@ fn tls_static(msg: &'static str) -> Error {
     }
 }
 
-/// Scan all token slots for a certificate carrying an id-kp-clientAuth EKU.
+/// A certificate read off a single token slot, with the fields needed for leaf
+/// selection.
+struct SlotCert {
+    der: CertificateDer<'static>,
+    key_id: Option<Vec<u8>>,
+    label: Option<Vec<u8>>,
+    /// Carries id-kp-clientAuth — usable for TLS client authentication.
+    client_auth: bool,
+    /// Carries id-PIV-cardAuth — the 9E Card Authentication cert.
+    card_auth: bool,
+}
+
+/// Scan all token slots for a TLS client-authentication certificate.
 ///
 /// Sessions are opened without login since certificate objects on PIV cards are
 /// public and readable unauthenticated. The PIN is only required later when
 /// opening the signing session.
 ///
-/// Returns `(slot, cert_der, key_id)` where `key_id` is the `CKA_ID` of the
-/// matching certificate, which is used to locate the corresponding private key.
-/// Deriving `key_id` from the cert avoids hardcoding OpenSC's `CKA_ID = 0x01`
-/// convention, which does not apply to ActivClient and other middleware.
+/// On a standard PIV/CAC card several certificates carry id-kp-clientAuth (the
+/// 9A PIV Authentication cert and the 9E Card Authentication cert at minimum),
+/// so finding more than one is normal, not an error. Selection prefers the PIV
+/// Authentication cert by excluding 9E (id-PIV-cardAuth) candidates; remaining
+/// ties break on the smallest `CKA_ID` for determinism. Set
+/// [`PKCS11_CERT_ID_ENV_VAR`] to force a specific certificate by its `CKA_ID`.
 ///
-/// Returns an error if no certificate is found, if multiple clientAuth
-/// certificates exist on a single slot, or if clientAuth certificates appear on
-/// more than one slot simultaneously (two cards inserted at once).
-pub(super) fn discover_piv_cert(
-    pkcs11: &Pkcs11,
-    slots: &[Slot],
-) -> Result<(Slot, CertificateDer<'static>, Vec<u8>)> {
-    let mut found: Option<(Slot, CertificateDer<'static>, Vec<u8>)> = None;
+/// The same physical card exposed over more than one reader/slot (contact +
+/// contactless) is deduplicated by token serial number, so it is not mistaken
+/// for two inserted cards. An error is only returned when no usable certificate
+/// is found, or when client-auth certificates from two genuinely different
+/// cards are present at once.
+pub(super) fn discover_piv_cert(pkcs11: &Pkcs11, slots: &[Slot]) -> Result<(Slot, DiscoveredCert)> {
+    let id_filter = cert_id_filter()?;
+    // (slot, token serial, discovered cert) for the first card we accept.
+    let mut found: Option<(Slot, String, DiscoveredCert)> = None;
 
     for &slot in slots {
+        let serial = pkcs11
+            .get_token_info(slot)
+            .ok()
+            .map(|info| info.serial_number().trim().to_string())
+            .unwrap_or_default();
+
         let session = match pkcs11.open_ro_session(slot) {
             Ok(s) => s,
             Err(e) => {
@@ -184,93 +276,124 @@ pub(super) fn discover_piv_cert(
             }
         };
 
-        // Collect every cert on this slot that carries id-kp-clientAuth.
-        let mut slot_matches: Vec<(CertificateDer<'static>, Vec<u8>)> = Vec::new();
+        let slot_certs: Vec<SlotCert> = handles
+            .into_iter()
+            .filter_map(|handle| read_slot_cert(&session, handle))
+            .collect();
 
-        for handle in handles {
-            let attrs = match session
-                .get_attributes(handle, &[AttributeType::Value, AttributeType::Id])
-            {
-                Ok(a) => a,
-                Err(e) => {
-                    tracing::debug!(error = ?e, "skipping cert object: C_GetAttributeValue failed");
-                    continue;
-                }
-            };
+        let Some(leaf) = select_leaf(&slot_certs, id_filter.as_deref()) else {
+            continue;
+        };
 
-            let cert_bytes = attrs.iter().find_map(|a| {
-                if let Attribute::Value(v) = a {
-                    Some(v.clone())
-                } else {
-                    None
-                }
-            });
-            let key_id = attrs.iter().find_map(|a| {
-                if let Attribute::Id(id) = a {
-                    Some(id.clone())
-                } else {
-                    None
-                }
-            });
+        let discovered = DiscoveredCert {
+            cert: leaf.der.clone(),
+            key: KeyLocator {
+                // `select_leaf` only returns candidates that have a CKA_ID.
+                id: leaf.key_id.clone().unwrap_or_default(),
+                label: leaf.label.clone(),
+            },
+        };
 
-            let (Some(cert_bytes), Some(key_id)) = (cert_bytes, key_id) else {
-                tracing::debug!("skipping cert object: missing CKA_VALUE or CKA_ID");
-                continue;
-            };
-
-            if check_client_auth_eku(&cert_bytes).is_ok() {
-                slot_matches.push((CertificateDer::from(cert_bytes), key_id));
+        match &found {
+            Some((_, prev_serial, _)) if same_physical_card(prev_serial, &serial) => {
+                tracing::debug!(slot = ?slot, "same card on another slot; keeping first match");
             }
-        }
-
-        match slot_matches.len() {
-            0 => continue,
-            1 => {
-                let (cert, key_id) = slot_matches.into_iter().next().unwrap();
-                match &found {
-                    // The same physical card exposed through more than one
-                    // reader/slot (e.g. contact + contactless) presents the
-                    // identical certificate — treat that as one card, not a
-                    // conflict.
-                    Some((_, existing_cert, _)) if existing_cert.as_ref() == cert.as_ref() => {}
-                    Some(_) => {
-                        return Err(Error::Tls {
-                            details: "client-auth certificates found on multiple token slots; \
-                                      only one smartcard should be inserted at a time"
-                                .into(),
-                        });
-                    }
-                    None => found = Some((slot, cert, key_id)),
-                }
+            Some((_, _, prev)) if prev.cert.as_ref() == discovered.cert.as_ref() => {
+                tracing::debug!(slot = ?slot, "identical certificate on another slot; ignoring");
             }
-            n => {
+            Some(_) => {
                 return Err(Error::Tls {
-                    details: format!(
-                        "{n} certificates with id-kp-clientAuth EKU found on a single token slot; \
-                         use {env} to select a specific PKCS#11 module or contact support",
-                        env = super::PKCS11_MODULE_ENV_VAR
-                    ),
+                    details: "client-auth certificates found on two different smartcards; \
+                         only one smartcard should be inserted at a time"
+                        .into(),
                 });
             }
+            None => found = Some((slot, serial, discovered)),
         }
     }
 
-    found.ok_or_else(|| Error::Tls {
-        details: format!(
-            "no certificate with id-kp-clientAuth EKU found on any token slot; \
-             ensure the card is inserted and middleware is installed, or set {} \
-             to override the module path",
-            super::PKCS11_MODULE_ENV_VAR
-        ),
+    found.map(|(slot, _, d)| (slot, d)).ok_or_else(|| {
+        let details = match &id_filter {
+            Some(filter) => format!(
+                "no client-auth certificate with CKA_ID {filter:02x?} found on \
+                 any token slot; correct or unset {PKCS11_CERT_ID_ENV_VAR} to \
+                 use automatic selection"
+            ),
+            None => format!(
+                "no certificate with id-kp-clientAuth EKU found on any token \
+                 slot; ensure the card is inserted and middleware is installed, \
+                 or set {PKCS11_MODULE_ENV_VAR} to override the module path"
+            ),
+        };
+        Error::Tls { details }
     })
 }
 
-/// Return an error if the certificate does not contain id-kp-clientAuth in its
-/// Extended Key Usage extension.
-fn check_client_auth_eku(cert_der: &[u8]) -> Result<()> {
-    let cert = Certificate::from_der(cert_der).map_err(|e| Error::Tls {
-        details: format!("failed to parse certificate: {e}"),
-    })?;
+/// Read and classify one certificate object. Returns `None` (and logs) when the
+/// object is missing required attributes or cannot be parsed.
+fn read_slot_cert(session: &Session, handle: ObjectHandle) -> Option<SlotCert> {
+    let attrs = match session.get_attributes(
+        handle,
+        &[
+            AttributeType::Value,
+            AttributeType::Id,
+            AttributeType::Label,
+        ],
+    ) {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::debug!(error = ?e, "skipping cert object: C_GetAttributeValue failed");
+            return None;
+        }
+    };
+
+    let mut value = None;
+    let mut key_id = None;
+    let mut label = None;
+    for attr in attrs {
+        match attr {
+            Attribute::Value(v) => value = Some(v),
+            Attribute::Id(id) => key_id = Some(id),
+            Attribute::Label(l) => label = Some(l),
+            _ => {}
+        }
+    }
+
+    let Some(value) = value else {
+        tracing::debug!("skipping cert object: missing CKA_VALUE");
+        return None;
+    };
+
+    let parsed = match Certificate::from_der(&value) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::debug!(error = ?e, "skipping cert object: failed to parse DER");
+            return None;
+        }
+    };
+
+    let eku = classify_eku(&parsed);
+
+    Some(SlotCert {
+        der: CertificateDer::from(value),
+        key_id,
+        label,
+        client_auth: eku.client_auth,
+        card_auth: eku.card_auth,
+    })
+}
+
+/// Classify a parsed certificate's Extended Key Usage.
+struct EkuClass {
+    client_auth: bool,
+    card_auth: bool,
+}
+
+fn classify_eku(cert: &Certificate) -> EkuClass {
+    let mut class = EkuClass {
+        client_auth: false,
+        card_auth: false,
+    };
 
     let extensions = cert
         .tbs_certificate
@@ -279,45 +402,162 @@ fn check_client_auth_eku(cert_der: &[u8]) -> Result<()> {
         .unwrap_or_default();
 
     for ext in extensions {
-        if ext.extn_id == EKU_EXTENSION_OID {
-            let eku =
-                ExtendedKeyUsage::from_der(ext.extn_value.as_bytes()).map_err(|e| Error::Tls {
-                    details: format!("failed to decode Extended Key Usage extension: {e}"),
-                })?;
-            if eku.0.contains(&CLIENT_AUTH_OID) {
-                return Ok(());
-            }
-            return Err(Error::Tls {
-                details: "certificate does not include id-kp-clientAuth in its \
-                          Extended Key Usage; this certificate cannot be used for TLS \
-                          client authentication"
-                    .into(),
-            });
+        if ext.extn_id != EKU_EXTENSION_OID {
+            continue;
+        }
+        let Ok(eku) = ExtendedKeyUsage::from_der(ext.extn_value.as_bytes()) else {
+            tracing::debug!("failed to decode Extended Key Usage extension; skipping");
+            continue;
+        };
+        class.client_auth = eku.0.contains(&CLIENT_AUTH_OID);
+        class.card_auth = eku.0.contains(&PIV_CARD_AUTH_OID);
+    }
+
+    class
+}
+
+/// Select the leaf certificate to present from one slot's certificates.
+///
+/// Considers only client-auth certs that carry a `CKA_ID` (required to find the
+/// matching private key) and, when set, match the `CKA_ID` filter. Prefers the
+/// PIV Authentication certificate over the Card Authentication (9E) cert by
+/// dropping card-auth candidates whenever another candidate exists, then breaks
+/// ties on the smallest `CKA_ID` for a deterministic result. Returns `None`
+/// when no usable candidate exists on the slot.
+fn select_leaf<'a>(certs: &'a [SlotCert], id_filter: Option<&[u8]>) -> Option<&'a SlotCert> {
+    let eligible: Vec<&SlotCert> = certs
+        .iter()
+        .filter(|c| {
+            c.client_auth
+                && c.key_id.is_some()
+                && id_filter.is_none_or(|f| c.key_id.as_deref() == Some(f))
+        })
+        .collect();
+
+    let any_piv_auth = eligible.iter().any(|c| !c.card_auth);
+    let pool: Vec<&SlotCert> = eligible
+        .into_iter()
+        .filter(|c| !c.card_auth || !any_piv_auth)
+        .collect();
+
+    let best = pool
+        .iter()
+        .min_by(|a, b| a.key_id.cmp(&b.key_id))
+        .copied()?;
+
+    // Warn when the choice was genuinely ambiguous so an operator can pin it.
+    if pool.len() > 1 {
+        tracing::warn!(
+            chosen_cka_id = ?best.key_id,
+            env = PKCS11_CERT_ID_ENV_VAR,
+            "multiple equally-eligible client-auth certificates on one slot; \
+             selected the lowest CKA_ID. Set the env var to choose explicitly."
+        );
+    }
+
+    Some(best)
+}
+
+/// True when two slots clearly belong to the same physical card (matching,
+/// non-empty token serial numbers — e.g. a card's contact and contactless
+/// interfaces).
+fn same_physical_card(serial_a: &str, serial_b: &str) -> bool {
+    !serial_a.is_empty() && serial_a == serial_b
+}
+
+/// Optional `CKA_ID` filter from [`PKCS11_CERT_ID_ENV_VAR`].
+fn cert_id_filter() -> Result<Option<Vec<u8>>> {
+    match std::env::var(PKCS11_CERT_ID_ENV_VAR) {
+        Ok(v) if !v.trim().is_empty() => Ok(Some(parse_hex_id(&v)?)),
+        _ => Ok(None),
+    }
+}
+
+/// Parse a hex `CKA_ID` (optional `0x` prefix; `:` and whitespace ignored).
+fn parse_hex_id(s: &str) -> Result<Vec<u8>> {
+    let cleaned: String = s
+        .trim()
+        .trim_start_matches("0x")
+        .trim_start_matches("0X")
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != ':')
+        .collect();
+
+    let invalid = || Error::Tls {
+        details: format!(
+            "{PKCS11_CERT_ID_ENV_VAR} must be an even-length hex string such \
+             as \"01\" (got {s:?})"
+        ),
+    };
+
+    if cleaned.is_empty() || cleaned.len() % 2 != 0 {
+        return Err(invalid());
+    }
+    (0..cleaned.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&cleaned[i..i + 2], 16).map_err(|_| invalid()))
+        .collect()
+}
+
+/// Find the private key paired with the certificate located by `locator`.
+///
+/// Tries, in order: the cert's `CKA_ID` (the PKCS#11 SHOULD-pairing), the cert's
+/// `CKA_LABEL` (middleware that does not pair IDs), and finally the sole private
+/// key on the token. This tolerates middleware (e.g. some ActivClient setups)
+/// that assigns different `CKA_ID`s to a cert and its key.
+pub(super) fn find_key_handle(session: &Session, locator: &KeyLocator) -> Result<ObjectHandle> {
+    if let Some(handle) = first_private_key(
+        session,
+        &[
+            Attribute::Class(ObjectClass::PRIVATE_KEY),
+            Attribute::Id(locator.id.clone()),
+        ],
+    )? {
+        return Ok(handle);
+    }
+
+    if let Some(label) = &locator.label {
+        if let Some(handle) = first_private_key(
+            session,
+            &[
+                Attribute::Class(ObjectClass::PRIVATE_KEY),
+                Attribute::Label(label.clone()),
+            ],
+        )? {
+            tracing::debug!("matched private key by CKA_LABEL (CKA_ID did not pair)");
+            return Ok(handle);
         }
     }
 
-    Err(Error::Tls {
-        details: "certificate has no Extended Key Usage extension; \
-                  expected id-kp-clientAuth for TLS client authentication"
-            .into(),
-    })
+    // Last resort: a single-key token unambiguously identifies the key.
+    let all = session
+        .find_objects(&[Attribute::Class(ObjectClass::PRIVATE_KEY)])
+        .map_err(tls_err("C_FindObjects (private key) failed"))?;
+    match all.as_slice() {
+        [only] => {
+            tracing::debug!("matched the token's only private key (CKA_ID/CKA_LABEL did not pair)");
+            Ok(*only)
+        }
+        [] => Err(tls_static(
+            "no private key found on the token; the certificate's key may not \
+             be present or readable",
+        )),
+        _ => Err(Error::Tls {
+            details: format!(
+                "could not match the certificate to a private key: no key with \
+                 CKA_ID {:02x?}, and the token holds multiple private keys",
+                locator.id
+            ),
+        }),
+    }
 }
 
-/// Find the private key whose `CKA_ID` matches `key_id` and return its handle.
-pub(super) fn find_key_handle(session: &Session, key_id: &[u8]) -> Result<ObjectHandle> {
-    session
-        .find_objects(&[
-            Attribute::Class(ObjectClass::PRIVATE_KEY),
-            Attribute::Id(key_id.to_vec()),
-        ])
-        .map_err(|e| Error::Tls {
-            details: format!("C_FindObjects (private key) failed: {e}"),
-        })?
+fn first_private_key(session: &Session, template: &[Attribute]) -> Result<Option<ObjectHandle>> {
+    Ok(session
+        .find_objects(template)
+        .map_err(tls_err("C_FindObjects (private key) failed"))?
         .into_iter()
-        .next()
-        .ok_or_else(|| Error::Tls {
-            details: format!("private key with CKA_ID {key_id:02x?} not found on token"),
-        })
+        .next())
 }
 
 /// Read the `CKA_KEY_TYPE` of the private key `handle`, plus its
@@ -371,10 +611,11 @@ pub(super) fn probe_key(
 
 /// Return the rustls signature schemes and algorithm family for a key.
 ///
-/// For RSA, PSS is listed before PKCS#1 so TLS 1.3 servers negotiate PSS while
-/// TLS 1.2 servers that only support PKCS#1 still find a match.
+/// For RSA, both PSS and PKCS#1 schemes are supported. Only set membership
+/// matters: the signer picks the first scheme the *server* offers that appears
+/// in this list, and rustls itself excludes PKCS#1 from TLS 1.3 negotiation.
 ///
-/// For EC, only the single scheme matching the key's actual curve (from
+/// For EC, only the single scheme matching the key's actual curve (decoded from
 /// `ec_params`, the `CKA_EC_PARAMS` value) is advertised. Advertising a scheme
 /// for the wrong curve (e.g. ECDSA_NISTP384 for a P-256 key) makes rustls sign
 /// with a mismatched mechanism, producing a signature the server rejects under
@@ -401,17 +642,17 @@ pub(super) fn schemes_for_key_type(
                           curve for TLS signature scheme selection"
                     .into(),
             })?;
-            let scheme = if params == EC_PARAMS_P256 {
-                SignatureScheme::ECDSA_NISTP256_SHA256
-            } else if params == EC_PARAMS_P384 {
-                SignatureScheme::ECDSA_NISTP384_SHA384
-            } else {
-                return Err(Error::Tls {
-                    details: format!(
-                        "unsupported EC curve (CKA_EC_PARAMS = {params:02x?}); \
-                         only NIST P-256 and P-384 are supported"
-                    ),
-                });
+            let scheme = match curve_from_ec_params(params) {
+                Some(Curve::P256) => SignatureScheme::ECDSA_NISTP256_SHA256,
+                Some(Curve::P384) => SignatureScheme::ECDSA_NISTP384_SHA384,
+                None => {
+                    return Err(Error::Tls {
+                        details: format!(
+                            "unsupported EC curve (CKA_EC_PARAMS = {params:02x?}); \
+                             only NIST P-256 and P-384 are supported"
+                        ),
+                    });
+                }
             };
             Ok((vec![scheme], SignatureAlgorithm::ECDSA))
         }
@@ -421,9 +662,41 @@ pub(super) fn schemes_for_key_type(
     }
 }
 
+/// A supported NIST curve.
+#[derive(Debug, PartialEq, Eq)]
+enum Curve {
+    P256,
+    P384,
+}
+
+/// Identify the curve from a `CKA_EC_PARAMS` value (an `ECParameters`
+/// namedCurve `OBJECT IDENTIFIER`).
+fn curve_from_ec_params(params: &[u8]) -> Option<Curve> {
+    match ObjectIdentifier::from_der(params).ok()? {
+        oid if oid == P256_OID => Some(Curve::P256),
+        oid if oid == P384_OID => Some(Curve::P384),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// DER `CKA_EC_PARAMS` (namedCurve OID) for NIST P-256 (1.2.840.10045.3.1.7).
+    const EC_PARAMS_P256: &[u8] = &[0x06, 0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07];
+    /// DER `CKA_EC_PARAMS` (namedCurve OID) for NIST P-384 (1.3.132.0.34).
+    const EC_PARAMS_P384: &[u8] = &[0x06, 0x05, 0x2B, 0x81, 0x04, 0x00, 0x22];
+
+    fn slot_cert(client_auth: bool, card_auth: bool, key_id: &[u8]) -> SlotCert {
+        SlotCert {
+            der: CertificateDer::from(vec![0x30]),
+            key_id: Some(key_id.to_vec()),
+            label: None,
+            client_auth,
+            card_auth,
+        }
+    }
 
     #[test]
     fn rsa_algorithm_family_is_rsa() {
@@ -445,23 +718,6 @@ mod tests {
         assert!(
             schemes.contains(&SignatureScheme::RSA_PSS_SHA512),
             "RSA_PSS_SHA512 required"
-        );
-    }
-
-    #[test]
-    fn rsa_pss_listed_before_pkcs1_for_tls13_preference() {
-        let (schemes, _) = schemes_for_key_type(KeyType::RSA, None).unwrap();
-        let pss_pos = schemes
-            .iter()
-            .position(|s| *s == SignatureScheme::RSA_PSS_SHA256)
-            .expect("RSA_PSS_SHA256 must be present");
-        let pkcs1_pos = schemes
-            .iter()
-            .position(|s| *s == SignatureScheme::RSA_PKCS1_SHA256)
-            .expect("RSA_PKCS1_SHA256 must be present");
-        assert!(
-            pss_pos < pkcs1_pos,
-            "PSS (pos {pss_pos}) must come before PKCS#1 (pos {pkcs1_pos})"
         );
     }
 
@@ -538,5 +794,78 @@ mod tests {
             msg.contains("unsupported"),
             "error should mention 'unsupported', got: {msg}"
         );
+    }
+
+    #[test]
+    fn curve_decoded_from_named_curve_oid() {
+        assert_eq!(curve_from_ec_params(EC_PARAMS_P256), Some(Curve::P256));
+        assert_eq!(curve_from_ec_params(EC_PARAMS_P384), Some(Curve::P384));
+    }
+
+    #[test]
+    fn curve_unknown_oid_returns_none() {
+        // OID 1.3.101.112 (Ed25519) — not a supported NIST P-curve.
+        let unknown = [0x06u8, 0x03, 0x2B, 0x65, 0x70];
+        assert_eq!(curve_from_ec_params(&unknown), None);
+    }
+
+    #[test]
+    fn select_leaf_prefers_piv_auth_over_card_auth() {
+        // 9E card-auth cert has the lower CKA_ID but must lose to the 9A
+        // PIV-auth cert when both are present.
+        let certs = vec![
+            slot_cert(true, true, &[0x01]),
+            slot_cert(true, false, &[0x04]),
+        ];
+        let leaf = select_leaf(&certs, None).unwrap();
+        assert_eq!(leaf.key_id.as_deref(), Some(&[0x04][..]));
+    }
+
+    #[test]
+    fn select_leaf_breaks_ties_on_smallest_id() {
+        let certs = vec![
+            slot_cert(true, false, &[0x04]),
+            slot_cert(true, false, &[0x01]),
+        ];
+        let leaf = select_leaf(&certs, None).unwrap();
+        assert_eq!(leaf.key_id.as_deref(), Some(&[0x01][..]));
+    }
+
+    #[test]
+    fn select_leaf_falls_back_to_card_auth_when_only_option() {
+        let certs = vec![slot_cert(true, true, &[0x04])];
+        assert!(select_leaf(&certs, None).is_some());
+    }
+
+    #[test]
+    fn select_leaf_ignores_non_client_auth_certs() {
+        let certs = vec![slot_cert(false, false, &[0x01])];
+        assert!(select_leaf(&certs, None).is_none());
+        assert!(select_leaf(&[], None).is_none());
+    }
+
+    #[test]
+    fn select_leaf_honors_id_filter() {
+        let certs = vec![
+            slot_cert(true, false, &[0x01]),
+            slot_cert(true, false, &[0x04]),
+        ];
+        let leaf = select_leaf(&certs, Some(&[0x04])).unwrap();
+        assert_eq!(leaf.key_id.as_deref(), Some(&[0x04][..]));
+        assert!(select_leaf(&certs, Some(&[0x09])).is_none());
+    }
+
+    #[test]
+    fn parse_hex_id_accepts_plain_and_prefixed() {
+        assert_eq!(parse_hex_id("01").unwrap(), vec![0x01]);
+        assert_eq!(parse_hex_id("0x01ab").unwrap(), vec![0x01, 0xab]);
+        assert_eq!(parse_hex_id("01:AB:cd").unwrap(), vec![0x01, 0xab, 0xcd]);
+    }
+
+    #[test]
+    fn parse_hex_id_rejects_odd_and_nonhex() {
+        assert!(parse_hex_id("1").is_err());
+        assert!(parse_hex_id("zz").is_err());
+        assert!(parse_hex_id("").is_err());
     }
 }
