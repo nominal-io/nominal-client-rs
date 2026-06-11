@@ -168,7 +168,7 @@ fn show_profile(name: &str) -> anyhow::Result<()> {
 }
 
 async fn handle_init() -> anyhow::Result<()> {
-    let name = Text::new("Profile name")
+    let name = Text::new("Profile name:")
         .with_help_message("Used with --profile or NOMINAL_PROFILE")
         .prompt()
         .context("Failed to read profile name")?;
@@ -178,23 +178,23 @@ async fn handle_init() -> anyhow::Result<()> {
         bail!("Profile name cannot be empty");
     }
 
-    let url = Text::new("API base URL")
+    let url = Text::new("API base URL:")
         .with_default(DEFAULT_BASE_URL)
         .prompt()
         .context("Failed to read base URL")?;
 
-    let token = Text::new("API token or bearer token")
+    let token = Text::new("API token or bearer token:")
         .with_help_message(&format!("See {} for instructions", nominal::AUTH_DOCS_LINK))
         .prompt()
         .context("Failed to read token")?;
 
-    let workspace_rid = if Confirm::new("Add a workspace RID?")
+    let workspace_rid = if Confirm::new("Add a workspace RID?:")
         .with_default(false)
         .prompt()
         .context("Failed to read workspace prompt")?
     {
         Some(
-            Text::new("Workspace RID")
+            Text::new("Workspace RID:")
                 .prompt()
                 .context("Failed to read workspace RID")?,
         )
