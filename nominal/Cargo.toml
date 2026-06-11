@@ -33,3 +33,18 @@ tokio = { version = "1", features = [
     "time",
 ] }
 tracing = "0.1"
+
+# Smartcard (CAC/PIV mTLS) dependencies; compiled only with the `smartcard` feature.
+cryptoki = { version = "0.12", optional = true }
+rpassword = { version = "7", optional = true }
+x509-cert = { version = "0.2", optional = true }
+p256 = { version = "0.13", default-features = false, features = ["ecdsa-core"], optional = true }
+p384 = { version = "0.13", default-features = false, features = ["ecdsa-core"], optional = true }
+zeroize = { version = "1", optional = true }
+
+[features]
+smartcard = ["dep:cryptoki", "dep:rpassword", "dep:x509-cert", "dep:p256", "dep:p384", "dep:zeroize"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
