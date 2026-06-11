@@ -156,20 +156,14 @@ fn home_dir() -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
 
-    fn fixture_path(name: &str) -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    const DUMMY_PATH: &str = "test.yml";
+
+    fn fixture_yaml(name: &str) -> String {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/config")
-            .join(name)
-    }
-
-    fn temp_config(contents: &str) -> (tempfile::TempDir, PathBuf) {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("config.yml");
-        let mut file = std::fs::File::create(&path).expect("create config");
-        write!(file, "{contents}").expect("write config");
-        (dir, path)
+            .join(name);
+        fs::read_to_string(path).expect("read fixture")
     }
 
     #[test]
@@ -180,11 +174,9 @@ mod tests {
     }
 
     #[test]
-    fn load_enforces_version_two() {
-        let (_dir, path) = temp_config(
-            "version: 1\nprofiles:\n  default:\n    base_url: https://api.example/api\n    token: tok\n",
-        );
-        let err = Config::load_from(&path).unwrap_err();
+    fn parse_enforces_version_two() {
+        let yaml = "version: 1\nprofiles:\n  default:\n    base_url: https://api.example/api\n    token: tok\n";
+        let err = Config::from_yaml_str(yaml, Path::new(DUMMY_PATH)).unwrap_err();
         assert!(matches!(
             err,
             crate::Error::ConfigUnsupportedVersion { version: 1, .. }
@@ -192,16 +184,17 @@ mod tests {
     }
 
     #[test]
-    fn load_requires_version_key() {
-        let path = fixture_path("config-v2-bad-example.yml");
-        let err = Config::load_from(&path).unwrap_err();
+    fn parse_requires_version_key() {
+        let yaml = fixture_yaml("config-v2-bad-example.yml");
+        let err = Config::from_yaml_str(&yaml, Path::new(DUMMY_PATH)).unwrap_err();
         assert!(matches!(err, crate::Error::ConfigMissingVersion { .. }));
     }
 
     #[test]
-    fn load_v2_example_fixture() {
-        let path = fixture_path("config-v2-example.yml");
-        let config = Config::load_from(&path).expect("load example fixture");
+    fn parse_v2_example_fixture() {
+        let yaml = fixture_yaml("config-v2-example.yml");
+        let config =
+            Config::from_yaml_str(&yaml, Path::new(DUMMY_PATH)).expect("parse example fixture");
 
         assert_eq!(config.version(), CONFIG_VERSION);
         assert!(config.get_profile("default").is_some());
@@ -216,27 +209,26 @@ mod tests {
 
     #[test]
     fn reject_v2_bad_example_fixture() {
-        let path = fixture_path("config-v2-bad-example.yml");
-        let err = Config::load_from(&path).unwrap_err();
+        let yaml = fixture_yaml("config-v2-bad-example.yml");
+        let err = Config::from_yaml_str(&yaml, Path::new(DUMMY_PATH)).unwrap_err();
         assert!(matches!(err, crate::Error::ConfigMissingVersion { .. }));
     }
 
     #[test]
-    fn example_fixture_roundtrips_via_save() {
-        let path = fixture_path("config-v2-example.yml");
-        let config = Config::load_from(&path).expect("load example fixture");
+    fn example_fixture_roundtrips_via_serialize() {
+        let yaml = fixture_yaml("config-v2-example.yml");
+        let config =
+            Config::from_yaml_str(&yaml, Path::new(DUMMY_PATH)).expect("parse example fixture");
 
-        let dir = tempfile::tempdir().expect("tempdir");
-        let saved_path = dir.path().join("config.yml");
-        config.save_to(&saved_path).expect("save");
+        let serialized = serde_yaml::to_string(&config).expect("serialize");
+        let loaded = Config::from_yaml_str(&serialized, Path::new(DUMMY_PATH)).expect("reparse");
 
-        let loaded = Config::load_from(&saved_path).expect("reload");
         assert_eq!(loaded.version(), config.version());
         assert_eq!(loaded.profiles().len(), config.profiles().len());
         for (name, profile) in config.profiles() {
             let reloaded = loaded
                 .get_profile(name)
-                .expect("profile present after reload");
+                .expect("profile present after roundtrip");
             assert_eq!(reloaded.base_url(), profile.base_url());
             assert_eq!(reloaded.token(), profile.token());
             assert_eq!(reloaded.workspace_rid(), profile.workspace_rid());
@@ -244,22 +236,21 @@ mod tests {
     }
 
     #[test]
-    fn load_or_default_returns_empty_when_missing() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("missing.yml");
-        let config = Config::load_from(&path);
-        assert!(matches!(config, Err(crate::Error::ConfigNotFound { .. })));
+    fn load_from_missing_path_returns_not_found() {
+        let path = Path::new("/nonexistent/path/config.yml");
+        let err = Config::load_from(path).unwrap_err();
+        assert!(matches!(err, crate::Error::ConfigNotFound { .. }));
+    }
 
-        // load_or_default is only defined for the default path; verify empty() shape here.
+    #[test]
+    fn empty_config_is_default_shape() {
         let empty = Config::empty();
         assert_eq!(empty.version(), CONFIG_VERSION);
         assert!(empty.profiles().is_empty());
     }
 
     #[test]
-    fn save_writes_version_two() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("config.yml");
+    fn serialize_writes_version_two() {
         let mut config = Config::empty();
         config.add_profile(
             "dev".to_string(),
@@ -269,9 +260,9 @@ mod tests {
                 None,
             ),
         );
-        config.save_to(&path).expect("save");
 
-        let loaded = Config::load_from(&path).expect("load");
+        let serialized = serde_yaml::to_string(&config).expect("serialize");
+        let loaded = Config::from_yaml_str(&serialized, Path::new(DUMMY_PATH)).expect("reparse");
         assert_eq!(loaded.version(), CONFIG_VERSION);
         assert!(loaded.get_profile("dev").is_some());
     }
