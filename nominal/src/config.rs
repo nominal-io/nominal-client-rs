@@ -13,8 +13,6 @@ pub const CONFIG_VERSION: u32 = 2;
 pub struct Config {
     profiles: HashMap<String, Profile>,
     version: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    default_profile: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -51,7 +49,6 @@ impl Config {
         Self {
             profiles: HashMap::new(),
             version: CONFIG_VERSION,
-            default_profile: None,
         }
     }
 
@@ -124,14 +121,6 @@ impl Config {
 
     pub fn profiles(&self) -> &HashMap<String, Profile> {
         &self.profiles
-    }
-
-    pub fn default_profile(&self) -> Option<&str> {
-        self.default_profile.as_deref()
-    }
-
-    pub fn set_default_profile(&mut self, name: Option<String>) {
-        self.default_profile = name;
     }
 
     pub fn add_profile(&mut self, name: String, profile: Profile) {
@@ -218,7 +207,6 @@ mod tests {
         let config = Config::empty();
         assert_eq!(config.version(), CONFIG_VERSION);
         assert!(config.profiles().is_empty());
-        assert!(config.default_profile().is_none());
     }
 
     #[test]
@@ -246,7 +234,6 @@ mod tests {
         let config = Config::load_from(&path).expect("load example fixture");
 
         assert_eq!(config.version(), CONFIG_VERSION);
-        assert_eq!(config.default_profile(), Some("default"));
         assert!(config.get_profile("default").is_some());
         assert!(config.get_profile("staging").is_some());
         assert_eq!(
@@ -275,7 +262,6 @@ mod tests {
 
         let loaded = Config::load_from(&saved_path).expect("reload");
         assert_eq!(loaded.version(), config.version());
-        assert_eq!(loaded.default_profile(), config.default_profile());
         assert_eq!(loaded.profiles().len(), config.profiles().len());
         for (name, profile) in config.profiles() {
             let reloaded = loaded
@@ -340,17 +326,5 @@ mod tests {
         let loaded = Config::load_from(&path).expect("load");
         assert_eq!(loaded.version(), CONFIG_VERSION);
         assert!(loaded.get_profile("dev").is_some());
-    }
-
-    #[test]
-    fn roundtrip_default_profile() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("config.yml");
-        let mut config = Config::empty();
-        config.set_default_profile(Some("dev".to_string()));
-        config.save_to(&path).expect("save");
-
-        let loaded = Config::load_from(&path).expect("load");
-        assert_eq!(loaded.default_profile(), Some("dev"));
     }
 }

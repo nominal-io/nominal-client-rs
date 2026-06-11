@@ -79,7 +79,6 @@ async fn add_profile(
     };
 
     let mut config = Config::load_or_default().context("Failed to load config")?;
-    let set_default = config.profiles().is_empty() && config.default_profile().is_none();
     config.add_profile(
         name.to_string(),
         Profile::new(
@@ -88,13 +87,10 @@ async fn add_profile(
             workspace_rid.map(ToString::to_string),
         ),
     );
-    if set_default {
-        config.set_default_profile(Some(name.to_string()));
-    }
     config.save().context("Failed to save config")?;
 
     let config_path = display_config_path(&default_config_path()?);
-    print_profile_added_success(name, user.as_ref(), &config_path, set_default);
+    print_profile_added_success(name, user.as_ref(), &config_path);
     Ok(())
 }
 
@@ -103,9 +99,6 @@ fn remove_profile(name: &str) -> anyhow::Result<()> {
     config
         .remove_profile(name)
         .ok_or_else(|| anyhow::anyhow!("Profile '{name}' not found"))?;
-    if config.default_profile() == Some(name) {
-        config.set_default_profile(None);
-    }
     config.save().context("Failed to save config")?;
     println!("Profile '{name}' removed.");
     Ok(())
@@ -123,9 +116,6 @@ fn list_profiles() -> anyhow::Result<()> {
     println!("Profiles from `{config_path}`:\n");
     for (profile_name, profile) in config.profiles() {
         let mut tags: Vec<&str> = Vec::new();
-        if config.default_profile() == Some(profile_name.as_str()) {
-            tags.push("default");
-        }
         if profile.workspace_rid().is_some() {
             tags.push("workspace");
         }
@@ -159,9 +149,6 @@ fn show_profile(name: &str) -> anyhow::Result<()> {
 
     if let Some(workspace_rid) = profile.workspace_rid() {
         println!("  workspace_rid: {workspace_rid}");
-    }
-    if config.default_profile() == Some(name) {
-        println!("  default: true");
     }
 
     Ok(())

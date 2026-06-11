@@ -54,7 +54,7 @@ Profiles are validated by default; pass `--no-validate` to skip. See the [authen
 
 Profiles are stored in `~/.config/nominal/config.yml` as `version: 2`. See [nominal/tests/fixtures/config/config-v2-example.yml](nominal/tests/fixtures/config/config-v2-example.yml) for the full v2 format. Rust and Python SDKs share this format.
 
-Use a profile with `--profile`, `NOMINAL_PROFILE`, or `default_profile` in the config file.
+Use a profile with `--profile` or the `NOMINAL_PROFILE` environment variable.
 
 ### Example commands
 

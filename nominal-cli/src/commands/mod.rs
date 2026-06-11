@@ -29,13 +29,13 @@ pub(crate) fn descriptor_pool() -> &'static DescriptorPool {
 }
 
 pub(crate) fn load_profile(flag: Option<&str>) -> anyhow::Result<Profile> {
-    let config = Config::load().map_err(anyhow::Error::new)?;
-    let profile_name = resolve_profile(flag, &config).map_err(|err| match err {
+    let profile_name = resolve_profile(flag).map_err(|err| match err {
         Error::EnvVarNotSet { .. } => {
-            anyhow::anyhow!("no profile specified: pass --profile, set NOMINAL_PROFILE, or set default_profile in config")
+            anyhow::anyhow!("no profile specified: pass --profile or set NOMINAL_PROFILE")
         }
         other => anyhow::Error::new(other),
     })?;
+    let config = Config::load().map_err(anyhow::Error::new)?;
     config
         .get_profile(&profile_name)
         .cloned()
