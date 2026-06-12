@@ -1,10 +1,11 @@
 use anyhow::{Context, bail};
 use clap::{ArgAction, Subcommand};
 use inquire::Text;
-use nominal::{Config, Error, Profile, default_config_path, validate_profile};
+use nominal::{Config, Profile, default_config_path};
 
 use crate::context::display_config_path;
 use crate::output::{print_profile_added_success, print_validation_error};
+use crate::validate::{AUTH_DOCS_LINK, ValidationError, validate_profile};
 
 const DEFAULT_BASE_URL: &str = "https://api.gov.nominal.io/api";
 
@@ -174,7 +175,7 @@ async fn handle_init() -> anyhow::Result<()> {
     let token = Text::new("API token or bearer token:")
         .with_help_message(&format!(
             "See {} for instructions to generate a token",
-            nominal::AUTH_DOCS_LINK
+            AUTH_DOCS_LINK
         ))
         .prompt()
         .context("Failed to read token")?;
@@ -183,7 +184,7 @@ async fn handle_init() -> anyhow::Result<()> {
     if token.is_empty() {
         bail!(
             "API token cannot be empty. See {} for how to generate one.",
-            nominal::AUTH_DOCS_LINK
+            AUTH_DOCS_LINK
         );
     }
 
@@ -202,23 +203,18 @@ async fn handle_init() -> anyhow::Result<()> {
     add_profile(&name, &url, &token, Some(&workspace_rid), true).await
 }
 
-fn map_config_error(err: Error) -> anyhow::Error {
+fn map_config_error(err: nominal::Error) -> anyhow::Error {
     anyhow::Error::new(err)
 }
 
-fn map_validation_error(err: Error) -> anyhow::Error {
-    if let Error::Validation(validation) = err {
-        print_validation_error(&validation);
-        anyhow::Error::new(validation)
-    } else {
-        anyhow::Error::new(err)
-    }
+fn map_validation_error(err: ValidationError) -> anyhow::Error {
+    print_validation_error(&err);
+    anyhow::Error::new(err)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nominal::ValidationError;
 
     #[test]
     fn default_base_url_is_gov_api() {
@@ -227,7 +223,7 @@ mod tests {
 
     #[test]
     fn validation_error_maps_to_anyhow() {
-        let err = map_validation_error(Error::Validation(ValidationError::InvalidToken));
+        let err = map_validation_error(ValidationError::InvalidToken);
         assert!(err.to_string().contains("authorization token"));
     }
 }

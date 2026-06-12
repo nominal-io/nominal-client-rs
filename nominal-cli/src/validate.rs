@@ -1,5 +1,4 @@
-use crate::core::{NominalClient, User};
-use crate::{Error, Result};
+use nominal::{Error, NominalClient, User};
 
 pub const AUTH_DOCS_LINK: &str = "https://docs.nominal.io/core/sdk/python-client/authentication";
 
@@ -8,36 +7,37 @@ pub async fn validate_profile(
     base_url: &str,
     token: &str,
     workspace_rid: Option<&str>,
-) -> Result<User> {
+) -> Result<User, ValidationError> {
     let client = NominalClient::builder(token)
         .base_url(base_url)
         .workspace_rid(workspace_rid.map(ToString::to_string))
-        .build()?;
+        .build()
+        .map_err(|e| ValidationError::Unexpected(e.to_string()))?;
 
     let user = match client.users().who_am_i().await {
         Ok(user) => user,
-        Err(err) => return Err(map_auth_error(err)?.into()),
+        Err(err) => return Err(map_auth_error(err)),
     };
 
     match client.workspaces().resolve_workspace(workspace_rid).await {
         Ok(()) => Ok(user),
-        Err(Error::NoDefaultWorkspace) => Err(ValidationError::NoDefaultWorkspace.into()),
-        Err(err) => Err(map_workspace_error(err)?.into()),
+        Err(Error::NoDefaultWorkspace) => Err(ValidationError::NoDefaultWorkspace),
+        Err(err) => Err(map_workspace_error(err)),
     }
 }
 
-fn map_auth_error(err: Error) -> Result<ValidationError> {
-    if let Some(status) = err.http_status() {
-        return Ok(auth_error_for_status(status));
+fn map_auth_error(err: Error) -> ValidationError {
+    match err.http_status() {
+        Some(status) => auth_error_for_status(status),
+        None => ValidationError::Unexpected(err.to_string()),
     }
-    Err(err)
 }
 
-fn map_workspace_error(err: Error) -> Result<ValidationError> {
-    if let Some(status) = err.http_status() {
-        return Ok(workspace_error_for_status(status));
+fn map_workspace_error(err: Error) -> ValidationError {
+    match err.http_status() {
+        Some(status) => workspace_error_for_status(status),
+        None => ValidationError::Unexpected(err.to_string()),
     }
-    Err(err)
 }
 
 fn auth_error_for_status(status: u16) -> ValidationError {
@@ -79,12 +79,9 @@ pub enum ValidationError {
         "There is likely a misconfiguration; received status={status}. Contact support for help."
     )]
     WorkspaceMisconfiguration { status: u16 },
-}
 
-impl From<ValidationError> for Error {
-    fn from(value: ValidationError) -> Self {
-        Self::Validation(value)
-    }
+    #[error("Unexpected error: {0}")]
+    Unexpected(String),
 }
 
 #[cfg(test)]

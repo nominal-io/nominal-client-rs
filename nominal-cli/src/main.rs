@@ -3,6 +3,7 @@ use clap_complete::Shell;
 mod commands;
 mod context;
 mod output;
+mod validate;
 use commands::api::ApiArgs;
 use commands::asset::AssetCommands;
 use commands::channel::ChannelCommands;

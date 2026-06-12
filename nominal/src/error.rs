@@ -22,9 +22,6 @@ pub enum Error {
         status: Option<u16>,
     },
 
-    #[error("{0}")]
-    Validation(crate::validate::ValidationError),
-
     #[error("Workspace not provided, but there is no default workspace for the user.")]
     NoDefaultWorkspace,
 

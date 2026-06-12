@@ -1,5 +1,7 @@
 use nominal::User;
 
+use crate::validate::ValidationError;
+
 pub fn print_profile_added_success(profile_name: &str, user: Option<&User>, config_path: &str) {
     if let Some(user) = user {
         println!("Authenticated as {}.", user.email());
@@ -10,7 +12,7 @@ pub fn print_profile_added_success(profile_name: &str, user: Option<&User>, conf
     );
 }
 
-pub fn print_validation_error(err: &nominal::ValidationError) {
+pub fn print_validation_error(err: &ValidationError) {
     eprintln!("{err}");
     eprintln!("Failed to authenticate. See above for details.");
 }
