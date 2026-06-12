@@ -7,7 +7,8 @@ use conjure_runtime::{Agent, Client, UserAgent};
 use crate::config::{Config, Profile};
 use crate::core::{
     asset::AssetsClient, catalog::CatalogClient, ingest::IngestClient, run::RunsClient,
-    user::UsersClient, utils::api_base_url_to_app_base_url, workspace::WorkspacesClient,
+    template::TemplatesClient, user::UsersClient, utils::api_base_url_to_app_base_url,
+    workbook::WorkbooksClient, workspace::WorkspacesClient,
 };
 use crate::{Error, Result};
 
@@ -104,6 +105,27 @@ impl NominalClient {
     /// Access catalog operations: datasets, videos, and connections.
     pub fn catalog(&self) -> CatalogClient {
         CatalogClient::new(
+            self.client.clone(),
+            &self.runtime,
+            self.token.clone(),
+            self.workspace_rid.clone(),
+            api_base_url_to_app_base_url(&self.base_url),
+        )
+    }
+
+    /// Access template operations.
+    pub fn templates(&self) -> TemplatesClient {
+        TemplatesClient::new(
+            self.client.clone(),
+            &self.runtime,
+            self.token.clone(),
+            api_base_url_to_app_base_url(&self.base_url),
+        )
+    }
+
+    /// Access workbook operations.
+    pub fn workbooks(&self) -> WorkbooksClient {
+        WorkbooksClient::new(
             self.client.clone(),
             &self.runtime,
             self.token.clone(),
