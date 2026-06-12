@@ -236,30 +236,37 @@ pub enum WorkbookQuery {
 }
 
 impl WorkbookQuery {
+    /// Fuzzy full-text search against title and description.
     pub fn search_text(text: impl Into<String>) -> Self {
         Self::SearchText(text.into())
     }
 
+    /// Filter by label.
     pub fn label(label: impl Into<String>) -> Self {
         Self::Label(label.into())
     }
 
+    /// Filter by property key and value.
     pub fn property(key: impl Into<String>, value: impl Into<String>) -> Self {
         Self::Property(key.into(), value.into())
     }
 
+    /// Filter to workbooks attached to a given asset.
     pub fn asset_rid(rid: impl Into<String>) -> Self {
         Self::AssetRid(rid.into())
     }
 
+    /// Filter to workbooks attached to a given run.
     pub fn run_rid(rid: impl Into<String>) -> Self {
         Self::RunRid(rid.into())
     }
 
+    /// All sub-queries must match.
     pub fn and(queries: impl IntoIterator<Item = WorkbookQuery>) -> Self {
         Self::And(queries.into_iter().collect())
     }
 
+    /// At least one sub-query must match.
     pub fn or(queries: impl IntoIterator<Item = WorkbookQuery>) -> Self {
         Self::Or(queries.into_iter().collect())
     }
