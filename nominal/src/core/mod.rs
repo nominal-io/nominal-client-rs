@@ -6,8 +6,10 @@ pub(crate) mod datetime;
 pub(crate) mod ingest;
 pub(crate) mod rid;
 pub(crate) mod run;
+pub(crate) mod template;
 pub(crate) mod user;
 pub(crate) mod utils;
+pub(crate) mod workbook;
 pub(crate) mod workspace;
 
 pub use asset::{Asset, AssetCreate, AssetQuery, AssetUpdate, AssetsClient};
@@ -24,5 +26,7 @@ pub use ingest::{
     TimeUnit, Timestamp, UploadEvent, UploadOptions, VideoIngest, VideoTarget,
 };
 pub use run::{Run, RunCreate, RunQuery, RunUpdate, RunsClient};
+pub use template::{Template, TemplatesClient};
 pub use user::{User, UsersClient};
+pub use workbook::{Workbook, WorkbookCreate, WorkbookDataScope, WorkbookQuery, WorkbooksClient};
 pub use workspace::WorkspacesClient;
