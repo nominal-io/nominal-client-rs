@@ -1,6 +1,6 @@
 use anyhow::{Context, bail};
 use clap::{ArgAction, Subcommand};
-use inquire::{Confirm, Text};
+use inquire::Text;
 use nominal::{Config, Error, Profile, default_config_path, validate_profile};
 
 use crate::context::display_config_path;
@@ -29,7 +29,7 @@ pub enum ProfileCommands {
         #[arg(short, long)]
         token: String,
         #[arg(short, long)]
-        workspace_rid: Option<String>,
+        workspace_rid: String,
         /// Skip the authentication check that runs before saving. Useful in
         /// CI or air-gapped environments where the API is unreachable.
         #[arg(long = "no-validate", action = ArgAction::SetFalse)]
@@ -53,7 +53,7 @@ pub async fn handle(cmd: ConfigCommands) -> anyhow::Result<()> {
                 token,
                 workspace_rid,
                 validate,
-            } => add_profile(&name, &url, &token, workspace_rid.as_deref(), validate).await,
+            } => add_profile(&name, &url, &token, Some(&workspace_rid), validate).await,
             ProfileCommands::Remove { name } => remove_profile(&name),
             ProfileCommands::List => list_profiles(),
             ProfileCommands::Show { name } => show_profile(&name),
@@ -179,23 +179,27 @@ async fn handle_init() -> anyhow::Result<()> {
         .prompt()
         .context("Failed to read token")?;
 
-    let workspace_rid = if Confirm::new("Add a workspace RID?:")
-        .with_default(false)
-        .with_help_message("Only needed if your organization uses multiple workspaces")
-        .prompt()
-        .context("Failed to read workspace prompt")?
-    {
-        Some(
-            Text::new("Workspace RID:")
-                .with_help_message("Find this in the Nominal app under Settings > Workspaces")
-                .prompt()
-                .context("Failed to read workspace RID")?,
-        )
-    } else {
-        None
-    };
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        bail!(
+            "API token cannot be empty. See {} for how to generate one.",
+            nominal::AUTH_DOCS_LINK
+        );
+    }
 
-    add_profile(&name, &url, &token, workspace_rid.as_deref(), true).await
+    let workspace_rid = Text::new("Workspace RID:")
+        .with_help_message("Find this in the Nominal app under Settings > Workspaces")
+        .prompt()
+        .context("Failed to read workspace RID")?;
+
+    let workspace_rid = workspace_rid.trim().to_string();
+    if workspace_rid.is_empty() {
+        bail!(
+            "Workspace RID cannot be empty. Find it in the Nominal app under Settings > Workspaces."
+        );
+    }
+
+    add_profile(&name, &url, &token, Some(&workspace_rid), true).await
 }
 
 fn map_config_error(err: Error) -> anyhow::Error {
