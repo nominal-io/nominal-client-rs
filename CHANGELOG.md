@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.4.3...nominal-v0.5.0) - 2026-06-12
+
+### Added
+
+- add workbook and template clients ([#96](https://github.com/nominal-io/nominal-client-rs/pull/96))
+- harden config and profile management ([#80](https://github.com/nominal-io/nominal-client-rs/pull/80))
+
 ## [0.4.3](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.4.2...nominal-v0.4.3) - 2026-05-21
 
 ### Added
