@@ -13,9 +13,11 @@ pub mod video;
 
 use anyhow::Context;
 use nominal::core::{NominalClient, NominalClientBuilder};
-use nominal::{Config, Profile};
+use nominal::{Config, Error, Profile};
 use once_cell::sync::OnceCell;
 use prost_reflect::DescriptorPool;
+
+use crate::context::resolve_profile;
 
 static DESCRIPTOR_POOL: OnceCell<DescriptorPool> = OnceCell::new();
 
@@ -26,17 +28,14 @@ pub(crate) fn descriptor_pool() -> &'static DescriptorPool {
     })
 }
 
-fn resolve_profile(flag: Option<&str>) -> anyhow::Result<String> {
-    if let Some(name) = flag {
-        return Ok(name.to_string());
-    }
-    std::env::var("NOMINAL_PROFILE")
-        .map_err(|_| anyhow::anyhow!("no profile specified: pass --profile or set NOMINAL_PROFILE"))
-}
-
 pub(crate) fn load_profile(flag: Option<&str>) -> anyhow::Result<Profile> {
-    let profile_name = resolve_profile(flag)?;
-    let config = Config::load().context("Failed to load config")?;
+    let profile_name = resolve_profile(flag).map_err(|err| match err {
+        Error::EnvVarNotSet { .. } => {
+            anyhow::anyhow!("no profile specified: pass --profile or set NOMINAL_PROFILE")
+        }
+        other => anyhow::Error::new(other),
+    })?;
+    let config = Config::load().map_err(anyhow::Error::new)?;
     config
         .get_profile(&profile_name)
         .cloned()

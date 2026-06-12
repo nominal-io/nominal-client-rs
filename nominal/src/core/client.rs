@@ -7,7 +7,7 @@ use conjure_runtime::{Agent, Client, UserAgent};
 use crate::config::{Config, Profile};
 use crate::core::{
     asset::AssetsClient, catalog::CatalogClient, ingest::IngestClient, run::RunsClient,
-    user::UsersClient, utils::api_base_url_to_app_base_url,
+    user::UsersClient, utils::api_base_url_to_app_base_url, workspace::WorkspacesClient,
 };
 use crate::{Error, Result};
 
@@ -94,6 +94,11 @@ impl NominalClient {
     /// Access user operations.
     pub fn users(&self) -> UsersClient {
         UsersClient::new(self.client.clone(), &self.runtime, self.token.clone())
+    }
+
+    /// Access workspace operations.
+    pub fn workspaces(&self) -> WorkspacesClient {
+        WorkspacesClient::new(self.client.clone(), &self.runtime, self.token.clone())
     }
 
     /// Access catalog operations: datasets, videos, and connections.

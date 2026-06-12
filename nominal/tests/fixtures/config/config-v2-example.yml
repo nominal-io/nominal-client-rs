@@ -1,0 +1,9 @@
+version: 2
+profiles:
+  default:
+    base_url: https://api.example.com/api
+    token: example-token-not-a-real-secret
+  staging:
+    base_url: https://api-staging.example.com/api
+    token: example-token-staging
+    workspace_rid: ri.security.example.workspace.00000000-0000-0000-0000-000000000001
