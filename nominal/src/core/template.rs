@@ -49,13 +49,29 @@ impl Template {
         &self.created_at
     }
 
-    /// The template's layout. Serializes to JSON via [`serde`].
-    pub fn layout(&self) -> &WorkbookLayout {
+    /// The template's layout as a JSON string.
+    ///
+    /// The schema is tied to the Nominal frontend and may evolve.
+    pub fn layout_json(&self) -> String {
+        serde_json::to_string(&self.layout).expect("WorkbookLayout always serializes to JSON")
+    }
+
+    /// The template's content as a JSON string.
+    ///
+    /// The schema is tied to the Nominal frontend and may evolve.
+    pub fn content_json(&self) -> String {
+        serde_json::to_string(&self.content).expect("WorkbookContent always serializes to JSON")
+    }
+
+    /// Raw layout for internal use when building a `CreateNotebookRequest`.
+    /// These are crate-private so callers can't reach conjure types from the public API.
+    pub(crate) fn layout(&self) -> &WorkbookLayout {
         &self.layout
     }
 
-    /// The template's content. Serializes to JSON via [`serde`].
-    pub fn content(&self) -> &WorkbookContent {
+    /// Raw content for internal use when building a `CreateNotebookRequest`.
+    /// These are crate-private so callers can't reach conjure types from the public API.
+    pub(crate) fn content(&self) -> &WorkbookContent {
         &self.content
     }
 

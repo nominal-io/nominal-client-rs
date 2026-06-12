@@ -25,10 +25,6 @@ pub use ingest::{
     IngestJobStatus, IngestType, JournalJsonIngest, McapIngest, ParquetIngest, ProgressCallback,
     TimeUnit, Timestamp, UploadEvent, UploadOptions, VideoIngest, VideoTarget,
 };
-// Re-exported from nominal_api so callers can name the types returned by
-// `Template::layout` and `Template::content` without depending on nominal_api directly.
-pub use nominal_api::objects::scout::layout::api::WorkbookLayout;
-pub use nominal_api::objects::scout::workbookcommon::api::WorkbookContent;
 pub use run::{Run, RunCreate, RunQuery, RunUpdate, RunsClient};
 pub use template::{Template, TemplatesClient};
 pub use user::{User, UsersClient};
