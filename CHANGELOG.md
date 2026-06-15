@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.1](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.5.0...nominal-v0.5.1) - 2026-06-15
+
+### Added
+
+- add archive methods to workbook client ([#100](https://github.com/nominal-io/nominal-client-rs/pull/100))
+
 ## [0.5.0](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.4.3...nominal-v0.5.0) - 2026-06-12
 
 ### Added
