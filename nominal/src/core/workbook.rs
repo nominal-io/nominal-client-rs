@@ -489,6 +489,26 @@ impl WorkbooksClient {
         let conjure_query = query.into_conjure()?;
         self.search_stream(conjure_query).try_collect().await
     }
+
+    /// Archive a workbook. Archived workbooks are hidden from the UI but not deleted.
+    pub async fn archive(&self, rid: &str) -> Result<()> {
+        let notebook_rid = parse_rid(rid)?;
+        self.service
+            .archive(&self.token, &notebook_rid)
+            .await
+            .map_err(Error::from)?;
+        Ok(())
+    }
+
+    /// Unarchive a workbook, restoring its visibility in the UI.
+    pub async fn unarchive(&self, rid: &str) -> Result<()> {
+        let notebook_rid = parse_rid(rid)?;
+        self.service
+            .unarchive(&self.token, &notebook_rid)
+            .await
+            .map_err(Error::from)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
