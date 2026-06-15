@@ -6,3 +6,4 @@ pub use config::{CONFIG_VERSION, Config, Profile, default_config_path};
 pub use core::{NominalClient, NominalClientBuilder, User};
 pub use error::{Error, Result};
 pub use nominal_streaming as streaming;
+pub use rustls::client::ResolvesClientCert;
