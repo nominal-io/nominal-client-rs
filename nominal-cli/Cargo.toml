@@ -11,6 +11,10 @@ homepage = "https://nominal.io"
 name = "nomctl"
 path = "src/main.rs"
 
+[features]
+default = []
+unstable = []
+
 [dependencies]
 nominal = { version = "0.5.1", path = "../nominal" }
 anyhow = "1"

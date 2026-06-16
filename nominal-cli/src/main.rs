@@ -11,6 +11,8 @@ use commands::config::ConfigCommands;
 use commands::connection::ConnectionCommands;
 use commands::dataset::DatasetCommands;
 use commands::endpoint::EndpointCommands;
+#[cfg(feature = "unstable")]
+use commands::fs::FsCommands;
 use commands::ingest::IngestCommands;
 use commands::run::RunCommands;
 use commands::user::UserCommands;
@@ -59,6 +61,12 @@ enum Commands {
     Endpoint {
         #[command(subcommand)]
         endpoint_command: EndpointCommands,
+    },
+    /// File Store commands
+    #[cfg(feature = "unstable")]
+    Fs {
+        #[command(subcommand)]
+        fs_command: FsCommands,
     },
     /// Upload files and ingest them as datasets
     Ingest {
@@ -144,6 +152,8 @@ async fn run() -> anyhow::Result<()> {
             commands::dataset::handle(dataset_command, client).await
         }
         Commands::Endpoint { endpoint_command } => commands::endpoint::handle(endpoint_command),
+        #[cfg(feature = "unstable")]
+        Commands::Fs { fs_command } => commands::fs::handle(fs_command).await,
         Commands::Ingest { ingest_command } => {
             let client = commands::load_client(cli.profile.as_deref())?;
             commands::ingest::handle(*ingest_command, client).await
