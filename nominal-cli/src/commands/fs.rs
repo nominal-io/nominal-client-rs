@@ -44,22 +44,10 @@ pub async fn handle(cmd: FsCommands) -> anyhow::Result<()> {
 
 async fn handle_drive(cmd: DriveCommands) -> anyhow::Result<()> {
     match cmd {
-        DriveCommands::Create { name } => {
-            let _ = name;
-            file_store_unimplemented()
-        }
-        DriveCommands::Get { drive_rid } => {
-            let _ = drive_rid;
-            file_store_unimplemented()
-        }
-        DriveCommands::GetVirtual { drive_rid } => {
-            let _ = drive_rid;
-            file_store_unimplemented()
-        }
-        DriveCommands::List { include_archived } => {
-            let _ = include_archived;
-            file_store_unimplemented()
-        }
+        DriveCommands::Create { _name } => file_store_unimplemented(),
+        DriveCommands::Get { _drive_rid } => file_store_unimplemented(),
+        DriveCommands::GetVirtual { _drive_rid } => file_store_unimplemented(),
+        DriveCommands::List { _include_archived } => file_store_unimplemented(),
     }
 }
 
