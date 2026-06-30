@@ -8,8 +8,34 @@ use nominal_api::clients::security::api::workspace::{
 };
 use nominal_api::objects::api::rids::WorkspaceRid;
 
-use crate::core::rid::parse_rid;
+use crate::core::rid::{parse_rid, rid_to_string};
 use crate::{Error, Result};
+
+/// A workspace the authenticated user can access.
+#[derive(Debug, Clone)]
+pub struct Workspace {
+    rid: String,
+    display_name: Option<String>,
+}
+
+impl Workspace {
+    pub fn rid(&self) -> &str {
+        &self.rid
+    }
+
+    pub fn display_name(&self) -> Option<&str> {
+        self.display_name.as_deref()
+    }
+
+    pub(crate) fn from_conjure(
+        workspace: nominal_api::objects::security::api::workspace::Workspace,
+    ) -> Self {
+        Self {
+            rid: rid_to_string(workspace.rid()),
+            display_name: workspace.display_name().map(ToString::to_string),
+        }
+    }
+}
 
 /// Thin wrapper around the workspace API, used during profile
 /// validation to confirm that credentials can reach a workspace.
@@ -24,6 +50,27 @@ impl WorkspacesClient {
             service: AsyncWorkspaceServiceClient::new(client, runtime),
             token,
         }
+    }
+
+    /// List the workspaces the authenticated user can access,
+    /// sorted by display name (then RID).
+    pub async fn list_workspaces(&self) -> Result<Vec<Workspace>> {
+        let workspaces = self
+            .service
+            .get_workspaces(&self.token)
+            .await
+            .map_err(Error::from)?;
+
+        let mut workspaces: Vec<Workspace> = workspaces
+            .into_iter()
+            .map(Workspace::from_conjure)
+            .collect();
+        workspaces.sort_by(|a, b| {
+            a.display_name
+                .cmp(&b.display_name)
+                .then_with(|| a.rid.cmp(&b.rid))
+        });
+        Ok(workspaces)
     }
 
     /// Verify that the token can reach a workspace.

@@ -37,7 +37,9 @@ Recommended first run:
 $ nomctl config init
 ```
 
-This interactive wizard creates `~/.config/nominal/config.yml` with a named profile. You can also add profiles manually:
+This interactive wizard creates `~/.config/nominal/config.yml` with a named profile. After you enter the API URL and token, it fetches the workspaces your account can access and lets you select one from a list. If the workspaces can't be listed (for example the API is unreachable), you can enter a workspace RID manually instead. When the API is unreachable for validation, the wizard offers to save the profile anyway without validation.
+
+You can also add profiles manually:
 
 ```sh
 $ nomctl config profile add test-profile \
