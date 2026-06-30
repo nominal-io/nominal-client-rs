@@ -29,4 +29,4 @@ pub use run::{Run, RunCreate, RunQuery, RunUpdate, RunsClient};
 pub use template::{Template, TemplatesClient};
 pub use user::{User, UsersClient};
 pub use workbook::{Workbook, WorkbookCreate, WorkbookDataScope, WorkbookQuery, WorkbooksClient};
-pub use workspace::WorkspacesClient;
+pub use workspace::{Workspace, WorkspacesClient};
