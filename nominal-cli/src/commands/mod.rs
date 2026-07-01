@@ -5,6 +5,8 @@ pub mod config;
 pub mod connection;
 pub mod dataset;
 pub mod endpoint;
+#[cfg(feature = "unstable")]
+pub mod fs;
 pub mod grpc;
 pub mod ingest;
 pub mod run;
