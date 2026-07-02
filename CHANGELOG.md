@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.2](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.5.1...nominal-v0.5.2) - 2026-07-01
+
+### Other
+
+- add workspace list selector and updated validation states ([#112](https://github.com/nominal-io/nominal-client-rs/pull/112))
+
 ## [0.5.1](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.5.0...nominal-v0.5.1) - 2026-06-15
 
 ### Added
