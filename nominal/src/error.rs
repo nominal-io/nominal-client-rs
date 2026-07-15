@@ -74,6 +74,34 @@ pub enum Error {
 
     #[error("ingest error: {details}")]
     Ingest { details: String },
+
+    #[cfg(feature = "unstable")]
+    #[error("gRPC error ({code:?}): {message}")]
+    Grpc { code: tonic::Code, message: String },
+
+    #[cfg(feature = "unstable")]
+    #[error("gRPC transport error: {details}")]
+    GrpcTransport { details: String },
+
+    #[cfg(feature = "unstable")]
+    #[error("server response missing required field: {field}")]
+    MissingResponseField { field: &'static str },
+
+    #[cfg(feature = "unstable")]
+    #[error(
+        "workspace RID required for this operation: set workspace_rid on the profile or client builder"
+    )]
+    WorkspaceRequired,
+}
+
+#[cfg(feature = "unstable")]
+impl From<tonic::Status> for Error {
+    fn from(value: tonic::Status) -> Self {
+        Self::Grpc {
+            code: value.code(),
+            message: value.message().to_string(),
+        }
+    }
 }
 
 impl From<RidConversionError> for Error {

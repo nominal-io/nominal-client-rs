@@ -13,7 +13,7 @@ path = "src/main.rs"
 
 [features]
 default = []
-unstable = []
+unstable = ["nominal/unstable"]
 
 [dependencies]
 nominal = { version = "0.5.1", path = "../nominal" }

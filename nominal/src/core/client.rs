@@ -23,6 +23,8 @@ pub struct NominalClient {
     token: BearerToken,
     workspace_rid: Option<String>,
     base_url: String,
+    #[cfg(feature = "unstable")]
+    grpc: crate::core::grpc::GrpcConnection,
 }
 
 impl std::fmt::Debug for NominalClient {
@@ -134,6 +136,12 @@ impl NominalClient {
         )
     }
 
+    /// Access drive operations in the Nominal file store.
+    #[cfg(feature = "unstable")]
+    pub fn drives(&self) -> crate::core::file_store::DrivesClient {
+        crate::core::file_store::DrivesClient::new(&self.grpc, self.workspace_rid.clone())
+    }
+
     /// Access ingest operations: uploading files and triggering ingest jobs.
     pub fn ingest(&self) -> IngestClient {
         IngestClient::new(
@@ -194,12 +202,16 @@ impl NominalClientBuilder {
     pub fn build(self) -> Result<NominalClient> {
         let bearer_token = create_bearer_token(&self.token)?;
         let client = create_client(&self.base_url, self.user_agent)?;
+        #[cfg(feature = "unstable")]
+        let grpc = crate::core::grpc::GrpcConnection::connect_lazy(&self.base_url, &bearer_token)?;
         Ok(NominalClient {
             client,
             runtime: Arc::new(ConjureRuntime::default()),
             token: bearer_token,
             workspace_rid: self.workspace_rid,
             base_url: self.base_url,
+            #[cfg(feature = "unstable")]
+            grpc,
         })
     }
 }

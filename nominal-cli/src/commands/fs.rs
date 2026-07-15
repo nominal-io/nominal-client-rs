@@ -1,5 +1,7 @@
-use anyhow::bail;
+use anyhow::Context;
+use chrono::SecondsFormat;
 use clap::Subcommand;
+use nominal::core::{Drive, DrivesClient, NominalClient};
 
 #[derive(Subcommand)]
 pub enum FsCommands {
@@ -12,47 +14,127 @@ pub enum FsCommands {
 
 #[derive(Subcommand)]
 pub enum DriveCommands {
-    /// Create a managed drive
-    Create {
-        /// The drive name
-        #[arg(short, long)]
-        name: String,
-    },
-    /// Get a drive by RID
-    Get {
-        /// The RID of the drive to retrieve
-        drive_rid: String,
-    },
-    /// Get virtual drive details by drive RID
-    GetVirtual {
-        /// The RID of the virtual drive to retrieve
-        drive_rid: String,
-    },
-    /// List drives in a workspace
+    /// List drives in the workspace
     List {
         /// Include archived drives
         #[arg(long)]
         include_archived: bool,
     },
+    /// Create a managed drive
+    Create {
+        /// The drive ID
+        id: String,
+    },
+    /// Get a drive by ID or RID
+    Get {
+        /// Drive ID or RID
+        drive: String,
+    },
+    /// Change a drive's ID
+    Rename {
+        /// Drive ID or RID
+        drive: String,
+        /// The new drive ID
+        new_id: String,
+    },
+    /// Archive a drive. Archived drives are hidden from the UI but not deleted
+    Archive {
+        /// Drive ID or RID
+        drive: String,
+    },
+    /// Unarchive a drive, restoring its visibility in the UI
+    Unarchive {
+        /// Drive ID or RID
+        drive: String,
+    },
 }
 
-pub async fn handle(cmd: FsCommands) -> anyhow::Result<()> {
+pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()> {
     match cmd {
-        FsCommands::Drive { drive_command } => handle_drive(drive_command).await,
+        FsCommands::Drive { drive_command } => handle_drive(drive_command, client).await,
     }
 }
 
-async fn handle_drive(cmd: DriveCommands) -> anyhow::Result<()> {
+async fn handle_drive(cmd: DriveCommands, client: NominalClient) -> anyhow::Result<()> {
+    let drives = client.drives();
     match cmd {
-        DriveCommands::Create { _name } => file_store_unimplemented(),
-        DriveCommands::Get { _drive_rid } => file_store_unimplemented(),
-        DriveCommands::GetVirtual { _drive_rid } => file_store_unimplemented(),
-        DriveCommands::List { _include_archived } => file_store_unimplemented(),
+        DriveCommands::List { include_archived } => {
+            let all = drives
+                .list(include_archived)
+                .await
+                .context("Failed to list drives")?;
+            for drive in all {
+                println!(
+                    "{}\t{}\t{}\t{}",
+                    drive.id(),
+                    drive.rid(),
+                    drive.kind(),
+                    drive.state()
+                );
+            }
+        }
+        DriveCommands::Create { id } => {
+            let drive = drives
+                .create(&id)
+                .await
+                .with_context(|| format!("Failed to create drive '{id}'"))?;
+            print_drive(&drive);
+        }
+        DriveCommands::Get { drive } => {
+            let drive = resolve_drive(&drives, &drive).await?;
+            print_drive(&drive);
+        }
+        DriveCommands::Rename { drive, new_id } => {
+            let resolved = resolve_drive(&drives, &drive).await?;
+            let drive = drives
+                .rename(resolved.rid(), &new_id)
+                .await
+                .with_context(|| format!("Failed to rename drive '{drive}'"))?;
+            print_drive(&drive);
+        }
+        DriveCommands::Archive { drive } => {
+            let resolved = resolve_drive(&drives, &drive).await?;
+            let drive = drives
+                .archive(resolved.rid())
+                .await
+                .with_context(|| format!("Failed to archive drive '{drive}'"))?;
+            print_drive(&drive);
+        }
+        DriveCommands::Unarchive { drive } => {
+            let resolved = resolve_drive(&drives, &drive).await?;
+            let drive = drives
+                .unarchive(resolved.rid())
+                .await
+                .with_context(|| format!("Failed to unarchive drive '{drive}'"))?;
+            print_drive(&drive);
+        }
     }
+
+    Ok(())
 }
 
-fn file_store_unimplemented() -> anyhow::Result<()> {
-    bail!(
-        "file store drive commands are not implemented yet; wire this to nominal.file_store.v1 once the API crate is published"
-    )
+/// Accept either a drive RID or a drive ID, and resolve it to a drive.
+async fn resolve_drive(drives: &DrivesClient, id_or_rid: &str) -> anyhow::Result<Drive> {
+    if id_or_rid.starts_with("ri.") {
+        drives.get(id_or_rid).await
+    } else {
+        drives.get_by_id(id_or_rid).await
+    }
+    .with_context(|| format!("Failed to resolve drive '{id_or_rid}'"))
+}
+
+fn print_drive(drive: &Drive) {
+    println!("RID: {}", drive.rid());
+    println!("ID: {}", drive.id());
+    println!("Kind: {}", drive.kind());
+    println!("State: {}", drive.state());
+    if let Some(created_at) = drive.created_at() {
+        println!(
+            "Created: {}",
+            created_at.to_rfc3339_opts(SecondsFormat::Nanos, true)
+        );
+    }
+    if let Some(created_by) = drive.created_by() {
+        println!("Created by: {created_by}");
+    }
 }

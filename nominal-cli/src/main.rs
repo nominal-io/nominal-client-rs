@@ -153,7 +153,10 @@ async fn run() -> anyhow::Result<()> {
         }
         Commands::Endpoint { endpoint_command } => commands::endpoint::handle(endpoint_command),
         #[cfg(feature = "unstable")]
-        Commands::Fs { fs_command } => commands::fs::handle(fs_command).await,
+        Commands::Fs { fs_command } => {
+            let client = commands::load_client(cli.profile.as_deref())?;
+            commands::fs::handle(fs_command, client).await
+        }
         Commands::Ingest { ingest_command } => {
             let client = commands::load_client(cli.profile.as_deref())?;
             commands::ingest::handle(*ingest_command, client).await
