@@ -138,7 +138,7 @@ where
                 .map(|(n, etag)| Part::new(n, etag))
                 .collect();
             let complete_resp = upload_service
-                .complete_multipart_upload(&token, &upload_id, &key, &parts)
+                .complete_multipart_upload(&token, &upload_id, &key, None, &parts)
                 .await?;
             let location = complete_resp
                 .location()
@@ -154,7 +154,7 @@ where
         Err(e) => {
             // Best-effort abort; surface the original error regardless.
             let _ = upload_service
-                .abort_multipart_upload(&token, &upload_id, &key)
+                .abort_multipart_upload(&token, &upload_id, &key, None)
                 .await;
             Err(e)
         }
@@ -264,7 +264,7 @@ async fn put_once(ctx: &OwnedPartCtx, part_number: i32, bytes: Bytes) -> Result<
     // Re-sign on every attempt: presigned URLs can expire between retries.
     let sign_resp = ctx
         .upload_service
-        .sign_part(&ctx.token, &ctx.upload_id, &ctx.key, part_number)
+        .sign_part(&ctx.token, &ctx.upload_id, &ctx.key, part_number, None)
         .await?;
     let mut req = ctx.http.put(sign_resp.url()).body(bytes);
     for (k, v) in sign_resp.headers() {

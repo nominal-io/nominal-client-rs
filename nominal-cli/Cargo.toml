@@ -25,7 +25,8 @@ thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 # Used by generated endpoint_table.rs and api/grpc commands
-nominal-api = "0.1300.0"
+# TODO: restore the registry version once the fixed API crates are published
+nominal-api = { path = "../../scout/scout-service-api-rust/nominal-api" }
 conjure-object = "5.10"
 serde_json = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "http2", "rustls-tls-native-roots"] }

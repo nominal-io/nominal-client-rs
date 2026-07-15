@@ -16,7 +16,8 @@ conjure-http = "5.10"
 conjure-object = "5.10"
 conjure-runtime = { package = "conjure-runtime-rustls-platform-verifier", version = "0.2" }
 dirs = "5"
-nominal-api = "0.1300.0"
+# TODO: restore the registry version once the fixed API crates are published
+nominal-api = { path = "../../scout/scout-service-api-rust/nominal-api" }
 nominal-streaming = "0.9.1"
 regex = "1.12"
 reqwest = { version = "0.12", default-features = false, features = ["http2", "rustls-tls-native-roots"] }

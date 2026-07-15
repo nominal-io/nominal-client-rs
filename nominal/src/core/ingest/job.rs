@@ -50,6 +50,8 @@ pub enum IngestType {
     Containerized,
     Video,
     AvroStream,
+    PointCloud,
+    Multi,
     /// An ingest type returned by the server that this client does not recognize.
     Unknown(String),
 }
@@ -64,6 +66,8 @@ impl From<&ApiIngestType> for IngestType {
             ApiIngestType::Containerized => Self::Containerized,
             ApiIngestType::Video => Self::Video,
             ApiIngestType::AvroStream => Self::AvroStream,
+            ApiIngestType::PointCloud => Self::PointCloud,
+            ApiIngestType::Multi => Self::Multi,
             ApiIngestType::Unknown(u) => Self::Unknown(u.to_string()),
         }
     }
