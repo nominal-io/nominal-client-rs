@@ -25,6 +25,7 @@ use nominal_api::clients::ingest::api::{
     AsyncIngestJobService, AsyncIngestJobServiceClient, AsyncIngestService,
     AsyncIngestServiceClient,
 };
+use nominal_api::objects::api::rids::WorkspaceRid;
 use nominal_api::objects::ingest::api::{
     IngestDetails, IngestJobRid, IngestOptions, IngestRequest,
 };
@@ -41,7 +42,7 @@ pub struct IngestClient {
     conjure_client: Client,
     runtime: Arc<ConjureRuntime>,
     token: BearerToken,
-    workspace_rid: Option<String>,
+    workspace_rid: Option<WorkspaceRid>,
 }
 
 impl IngestClient {
@@ -49,7 +50,7 @@ impl IngestClient {
         client: Client,
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
-        workspace_rid: Option<String>,
+        workspace_rid: Option<WorkspaceRid>,
     ) -> Self {
         Self {
             ingest_service: AsyncIngestServiceClient::new(client.clone(), runtime),
@@ -59,6 +60,10 @@ impl IngestClient {
             token,
             workspace_rid,
         }
+    }
+
+    fn workspace_rid_str(&self) -> Option<&str> {
+        self.workspace_rid.as_ref().map(|w| w.0.as_str())
     }
 
     /// Upload a CSV file and ingest it into the given dataset.
@@ -95,7 +100,7 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
+        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
         self.trigger_ingest(IngestOptions::Csv(opts)).await
     }
 
@@ -130,7 +135,7 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
+        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
         self.trigger_ingest(IngestOptions::Parquet(opts)).await
     }
 
@@ -160,7 +165,7 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
+        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
         self.trigger_ingest(IngestOptions::McapProtobufTimeseries(opts))
             .await
     }
@@ -193,7 +198,7 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
+        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
         self.trigger_ingest(IngestOptions::JournalJson(opts)).await
     }
 
@@ -222,7 +227,7 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
+        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
         self.trigger_ingest(IngestOptions::AvroStream(opts)).await
     }
 
@@ -252,7 +257,7 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
+        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
         self.trigger_ingest(IngestOptions::Dataflash(opts)).await
     }
 
@@ -292,7 +297,7 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
+        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
         self.trigger_video_ingest(IngestOptions::Video(opts)).await
     }
 

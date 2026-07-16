@@ -6,6 +6,7 @@ use conjure_object::BearerToken;
 use conjure_runtime::Client;
 use futures::Stream;
 use nominal_api::clients::scout::{AsyncRunService, AsyncRunServiceClient};
+use nominal_api::objects::api::rids::WorkspaceRid;
 use nominal_api::objects::api::{Label, PropertyName, PropertyValue, SetOperator};
 use nominal_api::objects::scout::rids::api::AssetRid;
 use nominal_api::objects::scout::rids::api::{LabelsFilter, PropertiesFilter};
@@ -310,9 +311,11 @@ impl RunCreate {
         self
     }
 
-    pub(crate) fn into_request(self, workspace_rid: Option<&str>) -> Result<CreateRunRequest> {
+    pub(crate) fn into_request(
+        self,
+        workspace_rid: Option<&WorkspaceRid>,
+    ) -> Result<CreateRunRequest> {
         use crate::core::datetime::NominalDateTime;
-        use nominal_api::objects::api::rids::WorkspaceRid;
 
         let RunCreate {
             name,
@@ -350,7 +353,7 @@ impl RunCreate {
             b = b.assets(asset_rids);
         }
         if let Some(wid) = workspace_rid {
-            b = b.workspace(parse_rid::<WorkspaceRid>(wid)?);
+            b = b.workspace(wid.clone());
         }
 
         Ok(b.build())
@@ -494,7 +497,7 @@ impl RunQuery {
 pub struct RunsClient {
     service: AsyncRunServiceClient<Client>,
     token: BearerToken,
-    workspace_rid: Option<String>,
+    workspace_rid: Option<WorkspaceRid>,
     app_base_url: String,
 }
 
@@ -503,7 +506,7 @@ impl RunsClient {
         client: Client,
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
-        workspace_rid: Option<String>,
+        workspace_rid: Option<WorkspaceRid>,
         app_base_url: String,
     ) -> Self {
         Self {
@@ -532,7 +535,7 @@ impl RunsClient {
     /// # Ok(()) }
     /// ```
     pub async fn create(&self, create: RunCreate) -> Result<Run> {
-        let request = create.into_request(self.workspace_rid.as_deref())?;
+        let request = create.into_request(self.workspace_rid.as_ref())?;
         let response = self
             .service
             .create_run(&self.token, &request)
@@ -580,8 +583,17 @@ impl RunsClient {
         self.search(RunQuery::search_text("")).await
     }
 
+    /// Wraps the caller's run query in an `And` with a `Workspace` filter when the
+    /// client is configured with a workspace RID.
+    fn scoped_conjure_query(&self, query: SearchQuery) -> SearchQuery {
+        let Some(ws) = self.workspace_rid.as_ref() else {
+            return query;
+        };
+        SearchQuery::And(vec![query, SearchQuery::Workspace(ws.clone())])
+    }
+
     fn search_stream(&self, query: RunQuery) -> Result<impl Stream<Item = Result<Run>>> {
-        let conjure_query = query.into_conjure()?;
+        let conjure_query = self.scoped_conjure_query(query.into_conjure()?);
         let service = self.service.clone();
         let token = self.token.clone();
         let app_base_url = self.app_base_url.clone();
