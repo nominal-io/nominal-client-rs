@@ -6,6 +6,7 @@ use conjure_object::BearerToken;
 use conjure_runtime::Client;
 use futures::Stream;
 use nominal_api::clients::scout::assets::{AsyncAssetService, AsyncAssetServiceClient};
+use nominal_api::objects::api::rids::WorkspaceRid;
 use nominal_api::objects::api::{
     Label, PropertyName, PropertyValue, SetOperator, TagName, TagValue,
 };
@@ -238,9 +239,10 @@ impl AssetCreate {
         self
     }
 
-    pub(crate) fn into_request(self, workspace_rid: Option<&str>) -> Result<CreateAssetRequest> {
-        use nominal_api::objects::api::rids::WorkspaceRid;
-
+    pub(crate) fn into_request(
+        self,
+        workspace_rid: Option<&WorkspaceRid>,
+    ) -> Result<CreateAssetRequest> {
         let AssetCreate {
             name,
             description,
@@ -264,7 +266,7 @@ impl AssetCreate {
             b = b.labels(l.into_iter().map(Label).collect::<BTreeSet<_>>());
         }
         if let Some(wid) = workspace_rid {
-            b = b.workspace(parse_rid::<WorkspaceRid>(wid)?);
+            b = b.workspace(wid.clone());
         }
 
         Ok(b.build())
@@ -286,6 +288,9 @@ pub enum AssetQuery {
     And(Vec<AssetQuery>),
     /// At least one sub-query must match.
     Or(Vec<AssetQuery>),
+    /// Opt out of the client's default workspace scoping, searching across every
+    /// workspace the caller has access to. Combine with `AssetQuery::and`.
+    AllWorkspaces,
 }
 
 impl AssetQuery {
@@ -329,6 +334,16 @@ impl AssetQuery {
         }
     }
 
+    /// Returns `true` if this query (at any depth) opts out of workspace scoping via
+    /// `AllWorkspaces`.
+    pub(crate) fn wants_all_workspaces(&self) -> bool {
+        match self {
+            Self::AllWorkspaces => true,
+            Self::And(qs) | Self::Or(qs) => qs.iter().any(Self::wants_all_workspaces),
+            _ => false,
+        }
+    }
+
     fn into_conjure(self) -> SearchAssetsQuery {
         match self {
             Self::SearchText(s) => SearchAssetsQuery::SearchText(s),
@@ -345,10 +360,16 @@ impl AssetQuery {
                     .extend_values([PropertyValue(v)])
                     .build(),
             ),
-            Self::And(qs) => {
-                SearchAssetsQuery::And(qs.into_iter().map(Self::into_conjure).collect())
-            }
+            Self::And(qs) => SearchAssetsQuery::And(
+                qs.into_iter()
+                    .filter(|q| !matches!(q, Self::AllWorkspaces))
+                    .map(Self::into_conjure)
+                    .collect(),
+            ),
             Self::Or(qs) => SearchAssetsQuery::Or(qs.into_iter().map(Self::into_conjure).collect()),
+            // Standalone `AllWorkspaces` (not nested under `And`) has no filtering
+            // effect of its own; it only suppresses the client's workspace scoping.
+            Self::AllWorkspaces => SearchAssetsQuery::SearchText(String::new()),
         }
     }
 }
@@ -357,7 +378,7 @@ impl AssetQuery {
 pub struct AssetsClient {
     service: AsyncAssetServiceClient<Client>,
     token: BearerToken,
-    workspace_rid: Option<String>,
+    workspace_rid: Option<WorkspaceRid>,
     app_base_url: String,
 }
 
@@ -366,7 +387,7 @@ impl AssetsClient {
         client: Client,
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
-        workspace_rid: Option<String>,
+        workspace_rid: Option<WorkspaceRid>,
         app_base_url: String,
     ) -> Self {
         Self {
@@ -379,7 +400,7 @@ impl AssetsClient {
 
     /// Create a new asset.
     pub async fn create(&self, create: AssetCreate) -> Result<Asset> {
-        let request = create.into_request(self.workspace_rid.as_deref())?;
+        let request = create.into_request(self.workspace_rid.as_ref())?;
         let response = self
             .service
             .create_asset(&self.token, &request)
@@ -447,7 +468,13 @@ impl AssetsClient {
     }
 
     fn search_stream(&self, query: AssetQuery) -> impl Stream<Item = Result<Asset>> {
+        let all_workspaces = query.wants_all_workspaces();
         let conjure_query = query.into_conjure();
+        let conjure_query = if all_workspaces {
+            conjure_query
+        } else {
+            self.scoped_conjure_query(conjure_query)
+        };
         let service = self.service.clone();
         let token = self.token.clone();
         let app_base_url = self.app_base_url.clone();
@@ -482,6 +509,16 @@ impl AssetsClient {
                     .collect()
             },
         )
+    }
+
+    /// Wraps the caller's query in an `And` with a `Workspace` filter when the client
+    /// is configured with a workspace RID. Without this the server returns results
+    /// from every workspace the API key can see.
+    fn scoped_conjure_query(&self, query: SearchAssetsQuery) -> SearchAssetsQuery {
+        let Some(ws) = self.workspace_rid.as_ref() else {
+            return query;
+        };
+        SearchAssetsQuery::And(vec![query, SearchAssetsQuery::Workspace(ws.clone())])
     }
 
     /// Search assets with a query, collecting all pages eagerly.
@@ -755,6 +792,24 @@ mod tests {
         };
         assert!(matches!(children[0], SearchAssetsQuery::Labels(_)));
         assert!(matches!(children[1], SearchAssetsQuery::Or(_)));
+    }
+
+    #[test]
+    fn query_all_workspaces_detected_standalone_and_nested() {
+        assert!(AssetQuery::AllWorkspaces.wants_all_workspaces());
+        assert!(!AssetQuery::search_text("x").wants_all_workspaces());
+
+        let nested = AssetQuery::and([AssetQuery::search_text("x"), AssetQuery::AllWorkspaces]);
+        assert!(nested.wants_all_workspaces());
+    }
+
+    #[test]
+    fn query_all_workspaces_stripped_from_and() {
+        let q = AssetQuery::and([AssetQuery::search_text("x"), AssetQuery::AllWorkspaces]);
+        let SearchAssetsQuery::And(children) = q.into_conjure() else {
+            panic!("expected And variant");
+        };
+        assert_eq!(children, vec![SearchAssetsQuery::SearchText("x".into())]);
     }
 
     // --- AssetUpdate::into_request ---

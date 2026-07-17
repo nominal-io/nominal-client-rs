@@ -14,7 +14,6 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 
 use crate::core::ingest::options::UploadOptions;
 use crate::core::ingest::progress::{ProgressCallback, UploadEvent};
-use crate::core::rid::parse_rid;
 use crate::{Error, Result};
 
 /// Upload a local file to Nominal-backed object storage using multipart upload.
@@ -32,7 +31,7 @@ pub(crate) async fn upload_file(
     conjure_client: Client,
     runtime: &Arc<ConjureRuntime>,
     token: BearerToken,
-    workspace_rid: Option<String>,
+    workspace_rid: Option<WorkspaceRid>,
     path: impl AsRef<Path>,
     filename: String,
     mimetype: String,
@@ -63,7 +62,7 @@ pub(crate) async fn upload_reader<R>(
     conjure_client: Client,
     runtime: &Arc<ConjureRuntime>,
     token: BearerToken,
-    workspace_rid: Option<String>,
+    workspace_rid: Option<WorkspaceRid>,
     reader: R,
     total_bytes: u64,
     filename: String,
@@ -90,15 +89,11 @@ where
     }
 
     let upload_service = AsyncUploadServiceClient::new(conjure_client, runtime);
-    let workspace = workspace_rid
-        .as_deref()
-        .map(parse_rid::<WorkspaceRid>)
-        .transpose()?;
 
     let init_req = InitiateMultipartUploadRequest::builder()
         .filename(filename)
         .filetype(mimetype)
-        .workspace(workspace)
+        .workspace(workspace_rid)
         .build();
     let init_resp = upload_service
         .initiate_multipart_upload(&token, &init_req)

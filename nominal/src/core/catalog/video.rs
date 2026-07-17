@@ -122,7 +122,10 @@ impl VideoCreate {
         self
     }
 
-    pub(crate) fn into_request(self, workspace_rid: Option<&str>) -> Result<CreateVideoRequest> {
+    pub(crate) fn into_request(
+        self,
+        workspace_rid: Option<&WorkspaceRid>,
+    ) -> Result<CreateVideoRequest> {
         let VideoCreate {
             name,
             description,
@@ -146,7 +149,7 @@ impl VideoCreate {
             b = b.labels(l.into_iter().map(Label).collect::<BTreeSet<_>>());
         }
         if let Some(wid) = workspace_rid {
-            b = b.workspace(parse_rid::<WorkspaceRid>(wid)?);
+            b = b.workspace(wid.clone());
         }
 
         Ok(b.build())
@@ -281,6 +284,9 @@ pub enum VideoQuery {
     And(Vec<VideoQuery>),
     /// At least one sub-query must match.
     Or(Vec<VideoQuery>),
+    /// Opt out of the client's default workspace scoping, searching across every
+    /// workspace the caller has access to. Combine with `VideoQuery::and`.
+    AllWorkspaces,
 }
 
 impl VideoQuery {
@@ -304,6 +310,16 @@ impl VideoQuery {
         Self::Or(queries.into_iter().collect())
     }
 
+    /// Returns `true` if this query (at any depth) opts out of workspace scoping via
+    /// `AllWorkspaces`.
+    pub(crate) fn wants_all_workspaces(&self) -> bool {
+        match self {
+            Self::AllWorkspaces => true,
+            Self::And(qs) | Self::Or(qs) => qs.iter().any(Self::wants_all_workspaces),
+            _ => false,
+        }
+    }
+
     pub(crate) fn into_conjure(self) -> SearchVideosQuery {
         match self {
             Self::SearchText(s) => SearchVideosQuery::SearchText(s),
@@ -313,6 +329,7 @@ impl VideoQuery {
             }
             Self::And(qs) => SearchVideosQuery::And(
                 qs.into_iter()
+                    .filter(|q| !matches!(q, Self::AllWorkspaces))
                     .map(Self::into_conjure)
                     .collect::<BTreeSet<_>>(),
             ),
@@ -321,6 +338,9 @@ impl VideoQuery {
                     .map(Self::into_conjure)
                     .collect::<BTreeSet<_>>(),
             ),
+            // Standalone `AllWorkspaces` (not nested under `And`) has no filtering
+            // effect of its own; it only suppresses the client's workspace scoping.
+            Self::AllWorkspaces => SearchVideosQuery::SearchText(String::new()),
         }
     }
 }
@@ -370,6 +390,27 @@ mod tests {
             panic!("expected Or");
         };
         assert_eq!(children.len(), 2);
+    }
+
+    #[test]
+    fn query_all_workspaces_detected_standalone_and_nested() {
+        assert!(VideoQuery::AllWorkspaces.wants_all_workspaces());
+        assert!(!VideoQuery::search_text("x").wants_all_workspaces());
+
+        let nested = VideoQuery::and([VideoQuery::search_text("x"), VideoQuery::AllWorkspaces]);
+        assert!(nested.wants_all_workspaces());
+    }
+
+    #[test]
+    fn query_all_workspaces_stripped_from_and() {
+        let q = VideoQuery::and([VideoQuery::search_text("x"), VideoQuery::AllWorkspaces]);
+        let SearchVideosQuery::And(children) = q.into_conjure() else {
+            panic!("expected And variant");
+        };
+        assert_eq!(
+            children,
+            BTreeSet::from([SearchVideosQuery::SearchText("x".into())])
+        );
     }
 
     #[test]

@@ -6,6 +6,7 @@ use conjure_object::BearerToken;
 use conjure_runtime::Client;
 use futures::Stream;
 use nominal_api::clients::scout::{AsyncRunService, AsyncRunServiceClient};
+use nominal_api::objects::api::rids::WorkspaceRid;
 use nominal_api::objects::api::{Label, PropertyName, PropertyValue, SetOperator};
 use nominal_api::objects::scout::rids::api::AssetRid;
 use nominal_api::objects::scout::rids::api::{LabelsFilter, PropertiesFilter};
@@ -310,9 +311,11 @@ impl RunCreate {
         self
     }
 
-    pub(crate) fn into_request(self, workspace_rid: Option<&str>) -> Result<CreateRunRequest> {
+    pub(crate) fn into_request(
+        self,
+        workspace_rid: Option<&WorkspaceRid>,
+    ) -> Result<CreateRunRequest> {
         use crate::core::datetime::NominalDateTime;
-        use nominal_api::objects::api::rids::WorkspaceRid;
 
         let RunCreate {
             name,
@@ -350,7 +353,7 @@ impl RunCreate {
             b = b.assets(asset_rids);
         }
         if let Some(wid) = workspace_rid {
-            b = b.workspace(parse_rid::<WorkspaceRid>(wid)?);
+            b = b.workspace(wid.clone());
         }
 
         Ok(b.build())
@@ -380,6 +383,9 @@ pub enum RunQuery {
     Or(Vec<RunQuery>),
     /// Negates the sub-query.
     Not(Box<RunQuery>),
+    /// Opt out of the client's default workspace scoping, searching across every
+    /// workspace the caller has access to. Combine with `RunQuery::and`.
+    AllWorkspaces,
 }
 
 impl RunQuery {
@@ -440,6 +446,17 @@ impl RunQuery {
         }
     }
 
+    /// Returns `true` if this query (at any depth) opts out of workspace scoping via
+    /// `AllWorkspaces`.
+    pub(crate) fn wants_all_workspaces(&self) -> bool {
+        match self {
+            Self::AllWorkspaces => true,
+            Self::And(qs) | Self::Or(qs) => qs.iter().any(Self::wants_all_workspaces),
+            Self::Not(q) => q.wants_all_workspaces(),
+            _ => false,
+        }
+    }
+
     fn into_conjure(self) -> crate::Result<SearchQuery> {
         use crate::core::datetime::NominalDateTime;
         Ok(match self {
@@ -477,6 +494,7 @@ impl RunQuery {
             }
             Self::And(qs) => SearchQuery::And(
                 qs.into_iter()
+                    .filter(|q| !matches!(q, Self::AllWorkspaces))
                     .map(Self::into_conjure)
                     .collect::<crate::Result<_>>()?,
             ),
@@ -486,6 +504,9 @@ impl RunQuery {
                     .collect::<crate::Result<_>>()?,
             ),
             Self::Not(q) => SearchQuery::Not(Box::new(q.into_conjure()?)),
+            // Standalone `AllWorkspaces` (not nested under `And`) has no filtering
+            // effect of its own; it only suppresses the client's workspace scoping.
+            Self::AllWorkspaces => SearchQuery::SearchText(String::new()),
         })
     }
 }
@@ -494,7 +515,7 @@ impl RunQuery {
 pub struct RunsClient {
     service: AsyncRunServiceClient<Client>,
     token: BearerToken,
-    workspace_rid: Option<String>,
+    workspace_rid: Option<WorkspaceRid>,
     app_base_url: String,
 }
 
@@ -503,7 +524,7 @@ impl RunsClient {
         client: Client,
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
-        workspace_rid: Option<String>,
+        workspace_rid: Option<WorkspaceRid>,
         app_base_url: String,
     ) -> Self {
         Self {
@@ -532,7 +553,7 @@ impl RunsClient {
     /// # Ok(()) }
     /// ```
     pub async fn create(&self, create: RunCreate) -> Result<Run> {
-        let request = create.into_request(self.workspace_rid.as_deref())?;
+        let request = create.into_request(self.workspace_rid.as_ref())?;
         let response = self
             .service
             .create_run(&self.token, &request)
@@ -580,8 +601,23 @@ impl RunsClient {
         self.search(RunQuery::search_text("")).await
     }
 
+    /// Wraps the caller's run query in an `And` with a `Workspace` filter when the
+    /// client is configured with a workspace RID.
+    fn scoped_conjure_query(&self, query: SearchQuery) -> SearchQuery {
+        let Some(ws) = self.workspace_rid.as_ref() else {
+            return query;
+        };
+        SearchQuery::And(vec![query, SearchQuery::Workspace(ws.clone())])
+    }
+
     fn search_stream(&self, query: RunQuery) -> Result<impl Stream<Item = Result<Run>>> {
+        let all_workspaces = query.wants_all_workspaces();
         let conjure_query = query.into_conjure()?;
+        let conjure_query = if all_workspaces {
+            conjure_query
+        } else {
+            self.scoped_conjure_query(conjure_query)
+        };
         let service = self.service.clone();
         let token = self.token.clone();
         let app_base_url = self.app_base_url.clone();
@@ -908,6 +944,24 @@ mod tests {
             panic!("expected And variant");
         };
         assert_eq!(children.len(), 2);
+    }
+
+    #[test]
+    fn query_all_workspaces_detected_standalone_and_nested() {
+        assert!(RunQuery::AllWorkspaces.wants_all_workspaces());
+        assert!(!RunQuery::search_text("x").wants_all_workspaces());
+
+        let nested = RunQuery::and([RunQuery::search_text("x"), RunQuery::AllWorkspaces]);
+        assert!(nested.wants_all_workspaces());
+    }
+
+    #[test]
+    fn query_all_workspaces_stripped_from_and() {
+        let q = RunQuery::and([RunQuery::search_text("x"), RunQuery::AllWorkspaces]);
+        let SearchQuery::And(children) = q.into_conjure().unwrap() else {
+            panic!("expected And variant");
+        };
+        assert_eq!(children, vec![SearchQuery::SearchText("x".into())]);
     }
 
     #[test]
