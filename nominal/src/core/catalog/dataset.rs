@@ -136,7 +136,10 @@ impl DatasetCreate {
         self
     }
 
-    pub(crate) fn into_request(self, workspace_rid: Option<&str>) -> Result<CreateDataset> {
+    pub(crate) fn into_request(
+        self,
+        workspace_rid: Option<&WorkspaceRid>,
+    ) -> Result<CreateDataset> {
         let DatasetCreate {
             name,
             description,
@@ -168,7 +171,7 @@ impl DatasetCreate {
             b = b.labels(l.into_iter().map(Label).collect::<BTreeSet<_>>());
         }
         if let Some(wid) = workspace_rid {
-            b = b.workspace(parse_rid::<WorkspaceRid>(wid)?);
+            b = b.workspace(wid.clone());
         }
 
         Ok(b.build())

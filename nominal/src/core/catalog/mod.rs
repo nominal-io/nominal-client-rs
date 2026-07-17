@@ -28,18 +28,18 @@ use nominal_api::clients::timeseries::channelmetadata::{
 use nominal_api::clients::timeseries::metadata::{
     AsyncSeriesMetadataService, AsyncSeriesMetadataServiceClient,
 };
-use nominal_api::objects::api::rids::{DataSourceRid, VideoRid};
+use nominal_api::objects::api::rids::{DataSourceRid, VideoRid, WorkspaceRid};
 use nominal_api::objects::datasource::api::{SearchChannelsRequest, SearchChannelsResponse};
 use nominal_api::objects::scout::catalog::{
-    GetDatasetsRequest, SearchDatasetsRequest, SearchDatasetsResponse,
+    GetDatasetsRequest, SearchDatasetsQuery, SearchDatasetsRequest, SearchDatasetsResponse,
     SortField as DatasetSortField, SortOptions as DatasetSortOptions,
 };
 use nominal_api::objects::scout::datasource::connection::api::{
     ConnectionRid, ListConnectionsResponse,
 };
 use nominal_api::objects::scout::video::api::{
-    GetVideosRequest, SearchVideosRequest, SearchVideosResponse, SortField as VideoSortField,
-    SortOptions as VideoSortOptions,
+    GetVideosRequest, SearchVideosQuery, SearchVideosRequest, SearchVideosResponse,
+    SortField as VideoSortField, SortOptions as VideoSortOptions,
 };
 use nominal_api::objects::timeseries::channelmetadata::api::{
     ChannelIdentifier, GetChannelMetadataRequest,
@@ -60,7 +60,7 @@ pub struct CatalogClient {
     channel_metadata_service: AsyncChannelMetadataServiceClient<Client>,
     series_metadata_service: AsyncSeriesMetadataServiceClient<Client>,
     token: BearerToken,
-    workspace_rid: Option<String>,
+    workspace_rid: Option<WorkspaceRid>,
     app_base_url: String,
 }
 
@@ -69,7 +69,7 @@ impl CatalogClient {
         client: Client,
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
-        workspace_rid: Option<String>,
+        workspace_rid: Option<WorkspaceRid>,
         app_base_url: String,
     ) -> Self {
         Self {
@@ -90,7 +90,7 @@ impl CatalogClient {
 
     /// Create a new dataset.
     pub async fn create_dataset(&self, create: DatasetCreate) -> Result<Dataset> {
-        let request = create.into_request(self.workspace_rid.as_deref())?;
+        let request = create.into_request(self.workspace_rid.as_ref())?;
         let response = self
             .catalog_service
             .create_dataset(&self.token, &request)
@@ -147,8 +147,21 @@ impl CatalogClient {
             .collect())
     }
 
+    /// Wraps the caller's dataset query in an `And` with a `Workspace` filter when the
+    /// client is configured with a workspace RID. Without this the server returns
+    /// datasets from every workspace the API key can see.
+    fn scoped_dataset_query(&self, query: SearchDatasetsQuery) -> SearchDatasetsQuery {
+        let Some(ws) = self.workspace_rid.as_ref() else {
+            return query;
+        };
+        SearchDatasetsQuery::And(BTreeSet::from([
+            query,
+            SearchDatasetsQuery::Workspace(ws.clone()),
+        ]))
+    }
+
     fn search_datasets_stream(&self, query: DatasetQuery) -> impl Stream<Item = Result<Dataset>> {
-        let conjure_query = query.into_conjure();
+        let conjure_query = self.scoped_dataset_query(query.into_conjure());
         let service = self.catalog_service.clone();
         let token = self.token.clone();
         let app_base_url = self.app_base_url.clone();
@@ -251,7 +264,7 @@ impl CatalogClient {
 
     /// Create a new video.
     pub async fn create_video(&self, create: VideoCreate) -> Result<Video> {
-        let request = create.into_request(self.workspace_rid.as_deref())?;
+        let request = create.into_request(self.workspace_rid.as_ref())?;
         let response = self
             .video_service
             .create(&self.token, &request)
@@ -299,8 +312,20 @@ impl CatalogClient {
             .collect())
     }
 
+    /// Wraps the caller's video query in an `And` with a `Workspace` filter when the
+    /// client is configured with a workspace RID.
+    fn scoped_video_query(&self, query: SearchVideosQuery) -> SearchVideosQuery {
+        let Some(ws) = self.workspace_rid.as_ref() else {
+            return query;
+        };
+        SearchVideosQuery::And(BTreeSet::from([
+            query,
+            SearchVideosQuery::Workspace(ws.clone()),
+        ]))
+    }
+
     fn search_videos_stream(&self, query: VideoQuery) -> impl Stream<Item = Result<Video>> {
-        let conjure_query = query.into_conjure();
+        let conjure_query = self.scoped_video_query(query.into_conjure());
         let service = self.video_service.clone();
         let token = self.token.clone();
         let app_base_url = self.app_base_url.clone();

@@ -7,6 +7,7 @@ use conjure_object::BearerToken;
 use conjure_runtime::Client;
 use futures::{Stream, TryStreamExt};
 use nominal_api::clients::scout::{AsyncNotebookService, AsyncNotebookServiceClient};
+use nominal_api::objects::api::rids::WorkspaceRid;
 use nominal_api::objects::api::{Label, PropertyName, PropertyValue, SetOperator};
 use nominal_api::objects::scout::notebook::api::{
     AssetsFilter, CreateNotebookRequest, NotebookDataScope, NotebookMetadata, RunsFilter,
@@ -316,7 +317,7 @@ impl WorkbookQuery {
 pub struct WorkbooksClient {
     service: AsyncNotebookServiceClient<Client>,
     token: BearerToken,
-    workspace_rid: Option<String>,
+    workspace_rid: Option<WorkspaceRid>,
     app_base_url: String,
 }
 
@@ -325,7 +326,7 @@ impl WorkbooksClient {
         client: Client,
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
-        workspace_rid: Option<String>,
+        workspace_rid: Option<WorkspaceRid>,
         app_base_url: String,
     ) -> Self {
         Self {
@@ -359,8 +360,6 @@ impl WorkbooksClient {
         scope: WorkbookDataScope,
         create: WorkbookCreate,
     ) -> Result<Workbook> {
-        use nominal_api::objects::api::rids::WorkspaceRid;
-
         let data_scope = scope.into_conjure()?;
         let WorkbookCreate {
             title,
@@ -393,8 +392,8 @@ impl WorkbooksClient {
                     .collect::<BTreeMap<_, _>>(),
             );
         }
-        if let Some(wid) = self.workspace_rid.as_deref() {
-            b = b.workspace(parse_rid::<WorkspaceRid>(wid)?);
+        if let Some(wid) = self.workspace_rid.as_ref() {
+            b = b.workspace(wid.clone());
         }
 
         let response = self
@@ -442,6 +441,15 @@ impl WorkbooksClient {
             .collect())
     }
 
+    /// Wraps the caller's workbook query in an `And` with a `Workspace` filter when
+    /// the client is configured with a workspace RID.
+    fn scoped_conjure_query(&self, query: SearchNotebooksQuery) -> SearchNotebooksQuery {
+        let Some(ws) = self.workspace_rid.as_ref() else {
+            return query;
+        };
+        SearchNotebooksQuery::And(vec![query, SearchNotebooksQuery::Workspace(ws.clone())])
+    }
+
     fn search_stream(&self, query: SearchNotebooksQuery) -> impl Stream<Item = Result<Workbook>> {
         let service = self.service.clone();
         let token = self.token.clone();
@@ -486,7 +494,7 @@ impl WorkbooksClient {
     /// # Ok(()) }
     /// ```
     pub async fn search(&self, query: WorkbookQuery) -> Result<Vec<Workbook>> {
-        let conjure_query = query.into_conjure()?;
+        let conjure_query = self.scoped_conjure_query(query.into_conjure()?);
         self.search_stream(conjure_query).try_collect().await
     }
 
