@@ -288,6 +288,9 @@ pub enum AssetQuery {
     And(Vec<AssetQuery>),
     /// At least one sub-query must match.
     Or(Vec<AssetQuery>),
+    /// Opt out of the client's default workspace scoping, searching across every
+    /// workspace the caller has access to. Combine with `AssetQuery::and`.
+    AllWorkspaces,
 }
 
 impl AssetQuery {
@@ -331,6 +334,16 @@ impl AssetQuery {
         }
     }
 
+    /// Returns `true` if this query (at any depth) opts out of workspace scoping via
+    /// `AllWorkspaces`.
+    pub(crate) fn wants_all_workspaces(&self) -> bool {
+        match self {
+            Self::AllWorkspaces => true,
+            Self::And(qs) | Self::Or(qs) => qs.iter().any(Self::wants_all_workspaces),
+            _ => false,
+        }
+    }
+
     fn into_conjure(self) -> SearchAssetsQuery {
         match self {
             Self::SearchText(s) => SearchAssetsQuery::SearchText(s),
@@ -347,10 +360,16 @@ impl AssetQuery {
                     .extend_values([PropertyValue(v)])
                     .build(),
             ),
-            Self::And(qs) => {
-                SearchAssetsQuery::And(qs.into_iter().map(Self::into_conjure).collect())
-            }
+            Self::And(qs) => SearchAssetsQuery::And(
+                qs.into_iter()
+                    .filter(|q| !matches!(q, Self::AllWorkspaces))
+                    .map(Self::into_conjure)
+                    .collect(),
+            ),
             Self::Or(qs) => SearchAssetsQuery::Or(qs.into_iter().map(Self::into_conjure).collect()),
+            // Standalone `AllWorkspaces` (not nested under `And`) has no filtering
+            // effect of its own; it only suppresses the client's workspace scoping.
+            Self::AllWorkspaces => SearchAssetsQuery::SearchText(String::new()),
         }
     }
 }
@@ -449,7 +468,13 @@ impl AssetsClient {
     }
 
     fn search_stream(&self, query: AssetQuery) -> impl Stream<Item = Result<Asset>> {
-        let conjure_query = self.scoped_conjure_query(query.into_conjure());
+        let all_workspaces = query.wants_all_workspaces();
+        let conjure_query = query.into_conjure();
+        let conjure_query = if all_workspaces {
+            conjure_query
+        } else {
+            self.scoped_conjure_query(conjure_query)
+        };
         let service = self.service.clone();
         let token = self.token.clone();
         let app_base_url = self.app_base_url.clone();
@@ -767,6 +792,24 @@ mod tests {
         };
         assert!(matches!(children[0], SearchAssetsQuery::Labels(_)));
         assert!(matches!(children[1], SearchAssetsQuery::Or(_)));
+    }
+
+    #[test]
+    fn query_all_workspaces_detected_standalone_and_nested() {
+        assert!(AssetQuery::AllWorkspaces.wants_all_workspaces());
+        assert!(!AssetQuery::search_text("x").wants_all_workspaces());
+
+        let nested = AssetQuery::and([AssetQuery::search_text("x"), AssetQuery::AllWorkspaces]);
+        assert!(nested.wants_all_workspaces());
+    }
+
+    #[test]
+    fn query_all_workspaces_stripped_from_and() {
+        let q = AssetQuery::and([AssetQuery::search_text("x"), AssetQuery::AllWorkspaces]);
+        let SearchAssetsQuery::And(children) = q.into_conjure() else {
+            panic!("expected And variant");
+        };
+        assert_eq!(children, vec![SearchAssetsQuery::SearchText("x".into())]);
     }
 
     // --- AssetUpdate::into_request ---

@@ -316,6 +316,9 @@ pub enum DatasetQuery {
     And(Vec<DatasetQuery>),
     /// At least one sub-query must match.
     Or(Vec<DatasetQuery>),
+    /// Opt out of the client's default workspace scoping, searching across every
+    /// workspace the caller has access to. Combine with `DatasetQuery::and`.
+    AllWorkspaces,
 }
 
 impl DatasetQuery {
@@ -359,6 +362,16 @@ impl DatasetQuery {
         }
     }
 
+    /// Returns `true` if this query (at any depth) opts out of workspace scoping via
+    /// `AllWorkspaces`.
+    pub(crate) fn wants_all_workspaces(&self) -> bool {
+        match self {
+            Self::AllWorkspaces => true,
+            Self::And(qs) | Self::Or(qs) => qs.iter().any(Self::wants_all_workspaces),
+            _ => false,
+        }
+    }
+
     pub(crate) fn into_conjure(self) -> SearchDatasetsQuery {
         match self {
             Self::SearchText(s) => SearchDatasetsQuery::SearchText(s),
@@ -369,6 +382,7 @@ impl DatasetQuery {
             }
             Self::And(qs) => SearchDatasetsQuery::And(
                 qs.into_iter()
+                    .filter(|q| !matches!(q, Self::AllWorkspaces))
                     .map(Self::into_conjure)
                     .collect::<BTreeSet<_>>(),
             ),
@@ -377,6 +391,9 @@ impl DatasetQuery {
                     .map(Self::into_conjure)
                     .collect::<BTreeSet<_>>(),
             ),
+            // Standalone `AllWorkspaces` (not nested under `And`) has no filtering
+            // effect of its own; it only suppresses the client's workspace scoping.
+            Self::AllWorkspaces => SearchDatasetsQuery::SearchText(String::new()),
         }
     }
 }
@@ -447,6 +464,28 @@ mod tests {
             panic!("expected Or variant");
         };
         assert_eq!(children.len(), 2);
+    }
+
+    #[test]
+    fn query_all_workspaces_detected_standalone_and_nested() {
+        assert!(DatasetQuery::AllWorkspaces.wants_all_workspaces());
+        assert!(!DatasetQuery::search_text("x").wants_all_workspaces());
+
+        let nested =
+            DatasetQuery::and([DatasetQuery::search_text("x"), DatasetQuery::AllWorkspaces]);
+        assert!(nested.wants_all_workspaces());
+    }
+
+    #[test]
+    fn query_all_workspaces_stripped_from_and() {
+        let q = DatasetQuery::and([DatasetQuery::search_text("x"), DatasetQuery::AllWorkspaces]);
+        let SearchDatasetsQuery::And(children) = q.into_conjure() else {
+            panic!("expected And variant");
+        };
+        assert_eq!(
+            children,
+            BTreeSet::from([SearchDatasetsQuery::SearchText("x".into())])
+        );
     }
 
     #[test]

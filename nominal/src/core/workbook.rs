@@ -234,6 +234,9 @@ pub enum WorkbookQuery {
     And(Vec<WorkbookQuery>),
     /// At least one sub-query must match.
     Or(Vec<WorkbookQuery>),
+    /// Opt out of the client's default workspace scoping, searching across every
+    /// workspace the caller has access to. Combine with `WorkbookQuery::and`.
+    AllWorkspaces,
 }
 
 impl WorkbookQuery {
@@ -272,6 +275,16 @@ impl WorkbookQuery {
         Self::Or(queries.into_iter().collect())
     }
 
+    /// Returns `true` if this query (at any depth) opts out of workspace scoping via
+    /// `AllWorkspaces`.
+    pub(crate) fn wants_all_workspaces(&self) -> bool {
+        match self {
+            Self::AllWorkspaces => true,
+            Self::And(qs) | Self::Or(qs) => qs.iter().any(Self::wants_all_workspaces),
+            _ => false,
+        }
+    }
+
     fn into_conjure(self) -> Result<SearchNotebooksQuery> {
         Ok(match self {
             Self::SearchText(s) => SearchNotebooksQuery::SearchText(s),
@@ -301,6 +314,7 @@ impl WorkbookQuery {
             ),
             Self::And(qs) => SearchNotebooksQuery::And(
                 qs.into_iter()
+                    .filter(|q| !matches!(q, Self::AllWorkspaces))
                     .map(Self::into_conjure)
                     .collect::<Result<Vec<_>>>()?,
             ),
@@ -309,6 +323,9 @@ impl WorkbookQuery {
                     .map(Self::into_conjure)
                     .collect::<Result<Vec<_>>>()?,
             ),
+            // Standalone `AllWorkspaces` (not nested under `And`) has no filtering
+            // effect of its own; it only suppresses the client's workspace scoping.
+            Self::AllWorkspaces => SearchNotebooksQuery::SearchText(String::new()),
         })
     }
 }
@@ -494,7 +511,13 @@ impl WorkbooksClient {
     /// # Ok(()) }
     /// ```
     pub async fn search(&self, query: WorkbookQuery) -> Result<Vec<Workbook>> {
-        let conjure_query = self.scoped_conjure_query(query.into_conjure()?);
+        let all_workspaces = query.wants_all_workspaces();
+        let conjure_query = query.into_conjure()?;
+        let conjure_query = if all_workspaces {
+            conjure_query
+        } else {
+            self.scoped_conjure_query(conjure_query)
+        };
         self.search_stream(conjure_query).try_collect().await
     }
 
@@ -599,6 +622,30 @@ mod tests {
             panic!("expected Or variant");
         };
         assert_eq!(children.len(), 2);
+    }
+
+    #[test]
+    fn query_all_workspaces_detected_standalone_and_nested() {
+        assert!(WorkbookQuery::AllWorkspaces.wants_all_workspaces());
+        assert!(!WorkbookQuery::search_text("x").wants_all_workspaces());
+
+        let nested = WorkbookQuery::and([
+            WorkbookQuery::search_text("x"),
+            WorkbookQuery::AllWorkspaces,
+        ]);
+        assert!(nested.wants_all_workspaces());
+    }
+
+    #[test]
+    fn query_all_workspaces_stripped_from_and() {
+        let q = WorkbookQuery::and([
+            WorkbookQuery::search_text("x"),
+            WorkbookQuery::AllWorkspaces,
+        ]);
+        let SearchNotebooksQuery::And(children) = q.into_conjure().unwrap() else {
+            panic!("expected And variant");
+        };
+        assert_eq!(children, vec![SearchNotebooksQuery::SearchText("x".into())]);
     }
 
     #[test]

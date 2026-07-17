@@ -161,7 +161,13 @@ impl CatalogClient {
     }
 
     fn search_datasets_stream(&self, query: DatasetQuery) -> impl Stream<Item = Result<Dataset>> {
-        let conjure_query = self.scoped_dataset_query(query.into_conjure());
+        let all_workspaces = query.wants_all_workspaces();
+        let conjure_query = query.into_conjure();
+        let conjure_query = if all_workspaces {
+            conjure_query
+        } else {
+            self.scoped_dataset_query(conjure_query)
+        };
         let service = self.catalog_service.clone();
         let token = self.token.clone();
         let app_base_url = self.app_base_url.clone();
@@ -325,7 +331,13 @@ impl CatalogClient {
     }
 
     fn search_videos_stream(&self, query: VideoQuery) -> impl Stream<Item = Result<Video>> {
-        let conjure_query = self.scoped_video_query(query.into_conjure());
+        let all_workspaces = query.wants_all_workspaces();
+        let conjure_query = query.into_conjure();
+        let conjure_query = if all_workspaces {
+            conjure_query
+        } else {
+            self.scoped_video_query(conjure_query)
+        };
         let service = self.video_service.clone();
         let token = self.token.clone();
         let app_base_url = self.app_base_url.clone();
