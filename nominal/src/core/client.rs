@@ -142,6 +142,17 @@ impl NominalClient {
         crate::core::file_store::DrivesClient::new(&self.grpc, self.workspace_rid.clone())
     }
 
+    /// Access file operations in the Nominal file store.
+    #[cfg(feature = "unstable")]
+    pub fn files(&self) -> crate::core::files::FilesClient {
+        crate::core::files::FilesClient::new(
+            &self.grpc,
+            self.client.clone(),
+            self.runtime.clone(),
+            self.token.clone(),
+        )
+    }
+
     /// Access ingest operations: uploading files and triggering ingest jobs.
     pub fn ingest(&self) -> IngestClient {
         IngestClient::new(

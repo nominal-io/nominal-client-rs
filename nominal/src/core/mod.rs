@@ -6,6 +6,8 @@ pub(crate) mod datetime;
 #[cfg(feature = "unstable")]
 pub(crate) mod file_store;
 #[cfg(feature = "unstable")]
+pub(crate) mod files;
+#[cfg(feature = "unstable")]
 pub(crate) mod grpc;
 pub(crate) mod ingest;
 pub(crate) mod rid;
@@ -26,6 +28,8 @@ pub use client::{NominalClient, NominalClientBuilder};
 pub use datasource::DataSource;
 #[cfg(feature = "unstable")]
 pub use file_store::{Drive, DriveKind, DriveState, DrivesClient};
+#[cfg(feature = "unstable")]
+pub use files::{Directory, FileEntry, FileRevision, FileState, FilesClient, LogicalFile};
 pub use ingest::{
     AvroStreamIngest, CsvIngest, DataflashIngest, DatasetTarget, FileType, IngestClient, IngestJob,
     IngestJobStatus, IngestType, JournalJsonIngest, McapIngest, ParquetIngest, ProgressCallback,

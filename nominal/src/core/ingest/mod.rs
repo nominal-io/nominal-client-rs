@@ -1,6 +1,6 @@
 mod filetype;
 mod job;
-mod multipart;
+pub(crate) mod multipart;
 mod options;
 mod progress;
 mod timestamp;

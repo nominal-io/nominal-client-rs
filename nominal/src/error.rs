@@ -92,6 +92,10 @@ pub enum Error {
         "workspace RID required for this operation: set workspace_rid on the profile or client builder"
     )]
     WorkspaceRequired,
+
+    #[cfg(feature = "unstable")]
+    #[error("file store operation failed ({code}): {message}")]
+    FileStoreChangeFailed { code: String, message: String },
 }
 
 #[cfg(feature = "unstable")]
