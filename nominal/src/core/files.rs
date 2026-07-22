@@ -7,7 +7,7 @@ use conjure_object::BearerToken;
 use conjure_runtime::Client;
 use nominal_api::objects::ingest::api::UploadDestination;
 use nominal_api::tonic::nominal::file_store::v1::{
-    self as proto, internal_files_service_client::InternalFilesServiceClient,
+    self as proto, files_service_client::FilesServiceClient,
 };
 use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
@@ -17,7 +17,7 @@ use crate::core::ingest::multipart;
 use crate::core::ingest::UploadOptions;
 use crate::{Error, Result};
 
-type FilesService = InternalFilesServiceClient<InterceptedService<Channel, AuthInterceptor>>;
+type FilesService = FilesServiceClient<InterceptedService<Channel, AuthInterceptor>>;
 
 /// The lifecycle state of a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -242,7 +242,7 @@ impl FilesClient {
         token: BearerToken,
     ) -> Self {
         Self {
-            service: InternalFilesServiceClient::with_interceptor(
+            service: FilesServiceClient::with_interceptor(
                 connection.channel(),
                 connection.interceptor(),
             ),
@@ -271,7 +271,7 @@ impl FilesClient {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| destination_path.to_string());
-        let s3_path = multipart::upload_file_to(
+        let upload = multipart::upload_file_to(
             self.conjure_client.clone(),
             &self.runtime,
             self.token.clone(),
@@ -283,7 +283,7 @@ impl FilesClient {
             options,
         )
         .await?;
-        self.put(drive_rid, destination_path, s3_path, size_bytes)
+        self.put(drive_rid, destination_path, upload.object_key, size_bytes)
             .await
     }
 
@@ -369,17 +369,11 @@ impl FilesClient {
         &self,
         drive_rid: &str,
         path: &str,
-        s3_path: String,
+        object_key: String,
         size_bytes: u64,
     ) -> Result<LogicalFile> {
-        let change = proto::FileChange {
-            change: Some(proto::file_change::Change::Put(proto::PutFile {
-                object: Some(proto::UploadedObjectRef { s3_path }),
-                size_bytes,
-                destination: Some(path_destination(path)),
-            })),
-        };
-        self.apply_one(drive_rid, change).await
+        self.apply_one(drive_rid, put_change(path, object_key, size_bytes))
+            .await
     }
 
     /// Move a file, identified by its current head revision, to a new path.
@@ -470,5 +464,31 @@ fn path_destination(path: &str) -> proto::Destination {
                 path: path.to_string(),
             }),
         })),
+    }
+}
+
+fn put_change(path: &str, object_key: String, size_bytes: u64) -> proto::FileChange {
+    proto::FileChange {
+        change: Some(proto::file_change::Change::Put(proto::PutFile {
+            object: Some(proto::UploadedObjectRef { object_key }),
+            size_bytes,
+            destination: Some(path_destination(path)),
+        })),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn put_change_uses_the_multipart_object_key() {
+        let object_key = "file-store/uploads/abc123";
+        let change = put_change("example.txt", object_key.to_string(), 42);
+
+        let Some(proto::file_change::Change::Put(put)) = change.change else {
+            panic!("expected put change");
+        };
+        assert_eq!(put.object.unwrap().object_key, object_key);
     }
 }

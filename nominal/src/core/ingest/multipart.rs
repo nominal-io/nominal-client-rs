@@ -38,7 +38,7 @@ pub(crate) async fn upload_file(
     mimetype: String,
     options: UploadOptions,
 ) -> Result<String> {
-    upload_file_to(
+    Ok(upload_file_to(
         conjure_client,
         runtime,
         token,
@@ -49,11 +49,21 @@ pub(crate) async fn upload_file(
         mimetype,
         options,
     )
-    .await
+    .await?
+    .s3_path)
 }
 
 /// Like [`upload_file`], but allows targeting a non-default upload
 /// destination bucket (e.g. the File Store's dedicated bucket).
+///
+/// The returned object key identifies the completed object within its bucket;
+/// the S3 path is retained for APIs that consume the full storage location.
+#[derive(Debug, Clone)]
+pub(crate) struct CompletedUpload {
+    pub(crate) object_key: String,
+    pub(crate) s3_path: String,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn upload_file_to(
     conjure_client: Client,
@@ -65,7 +75,7 @@ pub(crate) async fn upload_file_to(
     filename: String,
     mimetype: String,
     options: UploadOptions,
-) -> Result<String> {
+) -> Result<CompletedUpload> {
     let file = tokio::fs::File::open(path.as_ref()).await?;
     let total_bytes = file.metadata().await?.len();
     upload_reader_to(
@@ -101,7 +111,7 @@ pub(crate) async fn upload_reader_to<R>(
     filename: String,
     mimetype: String,
     options: UploadOptions,
-) -> Result<String>
+) -> Result<CompletedUpload>
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
@@ -184,7 +194,10 @@ where
             emit(&options.progress, || UploadEvent::Completed {
                 s3_path: location.clone(),
             });
-            Ok(location)
+            Ok(CompletedUpload {
+                object_key: key,
+                s3_path: location,
+            })
         }
         Err(e) => {
             // Best-effort abort; surface the original error regardless.

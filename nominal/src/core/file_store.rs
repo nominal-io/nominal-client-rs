@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use nominal_api::tonic::nominal::file_store::v1::{
-    self as proto, internal_drives_service_client::InternalDrivesServiceClient,
+    self as proto, drives_service_client::DrivesServiceClient,
 };
 use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
@@ -8,7 +8,7 @@ use tonic::transport::Channel;
 use crate::core::grpc::{AuthInterceptor, GrpcConnection};
 use crate::{Error, Result};
 
-type DrivesService = InternalDrivesServiceClient<InterceptedService<Channel, AuthInterceptor>>;
+type DrivesService = DrivesServiceClient<InterceptedService<Channel, AuthInterceptor>>;
 
 /// The lifecycle state of a drive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -157,7 +157,7 @@ pub struct DrivesClient {
 impl DrivesClient {
     pub(crate) fn new(connection: &GrpcConnection, workspace_rid: Option<String>) -> Self {
         Self {
-            service: InternalDrivesServiceClient::with_interceptor(
+            service: DrivesServiceClient::with_interceptor(
                 connection.channel(),
                 connection.interceptor(),
             ),
