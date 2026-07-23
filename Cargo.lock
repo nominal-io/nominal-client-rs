@@ -1795,7 +1795,7 @@ dependencies = [
  "conjure-runtime-rustls-platform-verifier",
  "dirs",
  "futures",
- "nominal-api",
+ "nominal-api 0.1343.0",
  "nominal-streaming",
  "regex",
  "reqwest",
@@ -1822,6 +1822,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "nominal-api"
+version = "0.1343.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c9bc7c8200ce8e01bb4363188402e892df35f1679da8f22acf6bb1d61671d1f"
+dependencies = [
+ "nominal-api-conjure",
+ "nominal-api-proto",
+]
+
+[[package]]
+name = "nominal-api-conjure"
+version = "0.1343.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21f525f587ce24a7ed239dd813a285e3e123affcfde8c1702c3561649531edc6"
+dependencies = [
+ "conjure-error",
+ "conjure-http",
+ "conjure-object",
+]
+
+[[package]]
+name = "nominal-api-proto"
+version = "0.1343.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c8df90ae3f28c6d824a7b7387e57906bd2ab7008a7e3ddbbd46322d7fb40774"
+dependencies = [
+ "prost 0.13.5",
+ "tonic",
+]
+
+[[package]]
 name = "nominal-cli"
 version = "0.5.3"
 dependencies = [
@@ -1835,7 +1866,7 @@ dependencies = [
  "dirs",
  "inquire",
  "nominal",
- "nominal-api",
+ "nominal-api 0.1343.0",
  "once_cell",
  "prost 0.13.5",
  "prost-reflect",
@@ -1864,7 +1895,7 @@ dependencies = [
  "crossbeam-channel",
  "derive_more",
  "futures",
- "nominal-api",
+ "nominal-api 0.1218.0",
  "parking_lot",
  "prost 0.13.5",
  "reqwest",
