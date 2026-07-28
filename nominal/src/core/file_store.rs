@@ -39,8 +39,71 @@ impl std::fmt::Display for DriveState {
     }
 }
 
-/// Whether a drive's files are stored by Nominal (managed) or backed by an
-/// external source such as S3 or Google Drive (virtual).
+/// Where a drive's files come from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DriveSource {
+    Nominal,
+    S3,
+    GoogleDrive,
+    Unknown,
+}
+
+impl DriveSource {
+    fn from_proto(value: i32) -> Self {
+        match proto::DriveSource::try_from(value) {
+            Ok(proto::DriveSource::Nominal) => Self::Nominal,
+            Ok(proto::DriveSource::S3) => Self::S3,
+            Ok(proto::DriveSource::GoogleDrive) => Self::GoogleDrive,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl std::fmt::Display for DriveSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Nominal => "nominal",
+            Self::S3 => "s3",
+            Self::GoogleDrive => "google-drive",
+            Self::Unknown => "unknown",
+        })
+    }
+}
+
+/// Whether a drive's contents can be modified through Nominal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DriveMutability {
+    Writable,
+    ReadOnly,
+    Unknown,
+}
+
+impl DriveMutability {
+    fn from_proto(value: i32) -> Self {
+        match proto::DriveMutability::try_from(value) {
+            Ok(proto::DriveMutability::Writable) => Self::Writable,
+            Ok(proto::DriveMutability::ReadOnly) => Self::ReadOnly,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl std::fmt::Display for DriveMutability {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Writable => "writable",
+            Self::ReadOnly => "read-only",
+            Self::Unknown => "unknown",
+        })
+    }
+}
+
+/// A compatibility summary of a drive's storage model.
+///
+/// Prefer [`Drive::source`] and [`Drive::content_mutability`], which preserve
+/// the provider and write-access details exposed by the File Store API.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum DriveKind {
@@ -50,11 +113,11 @@ pub enum DriveKind {
 }
 
 impl DriveKind {
-    fn from_proto(value: i32) -> Self {
-        match proto::DriveKind::try_from(value) {
-            Ok(proto::DriveKind::Managed) => Self::Managed,
-            Ok(proto::DriveKind::Virtual) => Self::Virtual,
-            _ => Self::Unknown,
+    fn from_source(source: DriveSource) -> Self {
+        match source {
+            DriveSource::Nominal => Self::Managed,
+            DriveSource::S3 | DriveSource::GoogleDrive => Self::Virtual,
+            DriveSource::Unknown => Self::Unknown,
         }
     }
 }
@@ -79,7 +142,8 @@ pub struct Drive {
     workspace_rid: String,
     id: String,
     state: DriveState,
-    kind: DriveKind,
+    source: DriveSource,
+    content_mutability: DriveMutability,
     created_at: Option<DateTime<Utc>>,
     created_by: Option<String>,
 }
@@ -102,8 +166,21 @@ impl Drive {
         self.state
     }
 
+    /// Where the drive's files come from.
+    pub fn source(&self) -> DriveSource {
+        self.source
+    }
+
+    /// Whether the drive's contents can be modified through Nominal.
+    pub fn content_mutability(&self) -> DriveMutability {
+        self.content_mutability
+    }
+
+    /// A compatibility summary of the drive's storage model.
+    ///
+    /// Prefer [`Self::source`] and [`Self::content_mutability`].
     pub fn kind(&self) -> DriveKind {
-        self.kind
+        DriveKind::from_source(self.source)
     }
 
     pub fn created_at(&self) -> Option<DateTime<Utc>> {
@@ -119,7 +196,8 @@ impl Drive {
         let (created_at, created_by) = attribution_parts(drive.created);
         Self {
             state: DriveState::from_proto(drive.state),
-            kind: DriveKind::from_proto(drive.kind),
+            source: DriveSource::from_proto(drive.source),
+            content_mutability: DriveMutability::from_proto(drive.content_mutability),
             rid: drive.rid,
             workspace_rid: drive.workspace_rid,
             id: drive.id,
@@ -278,16 +356,50 @@ mod tests {
     }
 
     #[test]
-    fn drive_kind_from_proto() {
+    fn drive_source_from_proto() {
         assert_eq!(
-            DriveKind::from_proto(proto::DriveKind::Managed as i32),
+            DriveSource::from_proto(proto::DriveSource::Nominal as i32),
+            DriveSource::Nominal
+        );
+        assert_eq!(
+            DriveSource::from_proto(proto::DriveSource::S3 as i32),
+            DriveSource::S3
+        );
+        assert_eq!(
+            DriveSource::from_proto(proto::DriveSource::GoogleDrive as i32),
+            DriveSource::GoogleDrive
+        );
+        assert_eq!(DriveSource::from_proto(0), DriveSource::Unknown);
+    }
+
+    #[test]
+    fn drive_mutability_from_proto() {
+        assert_eq!(
+            DriveMutability::from_proto(proto::DriveMutability::Writable as i32),
+            DriveMutability::Writable
+        );
+        assert_eq!(
+            DriveMutability::from_proto(proto::DriveMutability::ReadOnly as i32),
+            DriveMutability::ReadOnly
+        );
+        assert_eq!(DriveMutability::from_proto(0), DriveMutability::Unknown);
+    }
+
+    #[test]
+    fn drive_kind_remains_compatible_with_drive_source() {
+        assert_eq!(
+            DriveKind::from_source(DriveSource::Nominal),
             DriveKind::Managed
         );
+        assert_eq!(DriveKind::from_source(DriveSource::S3), DriveKind::Virtual);
         assert_eq!(
-            DriveKind::from_proto(proto::DriveKind::Virtual as i32),
+            DriveKind::from_source(DriveSource::GoogleDrive),
             DriveKind::Virtual
         );
-        assert_eq!(DriveKind::from_proto(0), DriveKind::Unknown);
+        assert_eq!(
+            DriveKind::from_source(DriveSource::Unknown),
+            DriveKind::Unknown
+        );
     }
 
     #[test]
@@ -297,7 +409,6 @@ mod tests {
             workspace_rid: "ri.security.test.workspace.def".to_string(),
             id: "flight-logs".to_string(),
             state: proto::DriveState::Active as i32,
-            kind: proto::DriveKind::Managed as i32,
             created: Some(proto::Attribution {
                 time: Some(nominal_api::tonic::google::protobuf::Timestamp {
                     seconds: 1_700_000_000,
@@ -305,11 +416,15 @@ mod tests {
                 }),
                 user_rid: "ri.security.test.user.ghi".to_string(),
             }),
+            source: proto::DriveSource::Nominal as i32,
+            content_mutability: proto::DriveMutability::Writable as i32,
         });
         assert_eq!(drive.rid(), "ri.filestore.test.drive.abc");
         assert_eq!(drive.workspace_rid(), "ri.security.test.workspace.def");
         assert_eq!(drive.id(), "flight-logs");
         assert_eq!(drive.state(), DriveState::Active);
+        assert_eq!(drive.source(), DriveSource::Nominal);
+        assert_eq!(drive.content_mutability(), DriveMutability::Writable);
         assert_eq!(drive.kind(), DriveKind::Managed);
         assert_eq!(
             drive.created_at().map(|t| t.timestamp()),
@@ -325,8 +440,9 @@ mod tests {
             workspace_rid: String::new(),
             id: "d".to_string(),
             state: 0,
-            kind: 0,
             created: None,
+            source: 0,
+            content_mutability: 0,
         });
         assert_eq!(drive.created_at(), None);
         assert_eq!(drive.created_by(), None);

@@ -336,7 +336,8 @@ fn print_file(file: &nominal::core::LogicalFile) {
 fn print_drive(drive: &Drive) {
     println!("RID: {}", drive.rid());
     println!("ID: {}", drive.id());
-    println!("Kind: {}", drive.kind());
+    println!("Source: {}", drive.source());
+    println!("Content mutability: {}", drive.content_mutability());
     println!("State: {}", drive.state());
     if let Some(created_at) = drive.created_at() {
         println!(

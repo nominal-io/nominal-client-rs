@@ -27,7 +27,7 @@ pub use catalog::{
 pub use client::{NominalClient, NominalClientBuilder};
 pub use datasource::DataSource;
 #[cfg(feature = "unstable")]
-pub use file_store::{Drive, DriveKind, DriveState, DrivesClient};
+pub use file_store::{Drive, DriveKind, DriveMutability, DriveSource, DriveState, DrivesClient};
 #[cfg(feature = "unstable")]
 pub use files::{Directory, FileEntry, FileRevision, FileState, FilesClient, LogicalFile};
 pub use ingest::{
