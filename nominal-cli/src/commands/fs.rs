@@ -1,7 +1,7 @@
 use anyhow::Context;
 use chrono::SecondsFormat;
 use clap::Subcommand;
-use nominal::core::{Drive, DrivesClient, FileEntry, NominalClient};
+use nominal::core::{Drive, DrivesClient, FileEntry, FileState, NominalClient};
 
 #[derive(Subcommand)]
 pub enum FsCommands {
@@ -121,9 +121,7 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
                 .list(&drive_rid, &path, include_removed)
                 .await
                 .with_context(|| format!("Failed to list '{path}' in drive '{drive}'"))?;
-            for entry in entries {
-                print_entry(&entry);
-            }
+            print_listing(&entries, include_removed);
             Ok(())
         }
         FsCommands::Push {
@@ -317,11 +315,29 @@ fn current_revision_rid<'a>(
     })
 }
 
-fn print_entry(entry: &FileEntry) {
+fn print_listing(entries: &[FileEntry], include_removed: bool) {
+    for entry in entries {
+        print_entry(entry, include_removed);
+    }
+}
+
+fn print_entry(entry: &FileEntry, include_removed: bool) {
     match entry {
-        FileEntry::File(file) => print_file(file),
+        FileEntry::File(file) => println!(
+            "{}",
+            format_file_listing_line(file.path(), file.state(), include_removed)
+        ),
         FileEntry::Directory(dir) => println!("{}/", dir.path()),
     }
+}
+
+fn format_file_listing_line(path: &str, state: FileState, include_removed: bool) -> String {
+    let state_suffix = if include_removed && state != FileState::Active {
+        format!("  [{state}]")
+    } else {
+        String::new()
+    };
+    format!("{path}{state_suffix}")
 }
 
 fn print_file(file: &nominal::core::LogicalFile) {
@@ -331,6 +347,31 @@ fn print_file(file: &nominal::core::LogicalFile) {
         file.size_bytes(),
         file.state()
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_listing_only_prints_the_path_by_default() {
+        assert_eq!(
+            format_file_listing_line("apollo.txt", FileState::Active, false),
+            "apollo.txt"
+        );
+    }
+
+    #[test]
+    fn file_listing_only_shows_non_active_state_when_requested() {
+        assert_eq!(
+            format_file_listing_line("old.csv", FileState::Removed, false),
+            "old.csv"
+        );
+        assert_eq!(
+            format_file_listing_line("old.csv", FileState::Removed, true),
+            "old.csv  [removed]"
+        );
+    }
 }
 
 fn print_drive(drive: &Drive) {
