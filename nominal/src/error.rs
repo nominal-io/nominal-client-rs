@@ -4,19 +4,19 @@ use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[cfg(feature = "unstable")]
+#[cfg(feature = "drives")]
 #[derive(Debug, Error)]
 #[error("transport error")]
 pub struct TransportError(#[source] Box<dyn std::error::Error + Send + Sync + 'static>);
 
-#[cfg(feature = "unstable")]
+#[cfg(feature = "drives")]
 impl TransportError {
     pub(crate) fn new(error: impl std::error::Error + Send + Sync + 'static) -> Self {
         Self(Box::new(error))
     }
 }
 
-#[cfg(feature = "unstable")]
+#[cfg(feature = "drives")]
 impl TryFrom<tonic::Status> for TransportError {
     type Error = tonic::Status;
 
@@ -33,19 +33,19 @@ impl TryFrom<tonic::Status> for TransportError {
     }
 }
 
-#[cfg(feature = "unstable")]
+#[cfg(feature = "drives")]
 #[derive(Debug, Error)]
 #[error("unexpected error")]
 pub struct UnexpectedError(#[source] Box<dyn std::error::Error + Send + Sync + 'static>);
 
-#[cfg(feature = "unstable")]
+#[cfg(feature = "drives")]
 impl UnexpectedError {
     fn new(error: impl std::error::Error + Send + Sync + 'static) -> Self {
         Self(Box::new(error))
     }
 }
 
-#[cfg(feature = "unstable")]
+#[cfg(feature = "drives")]
 #[derive(Debug, Error)]
 pub enum FileStoreError {
     #[error("server response missing required field: {field}")]
@@ -126,26 +126,26 @@ pub enum Error {
     #[error("ingest error: {details}")]
     Ingest { details: String },
 
-    #[cfg(feature = "unstable")]
+    #[cfg(feature = "drives")]
     #[error(transparent)]
     Transport(#[from] TransportError),
 
-    #[cfg(feature = "unstable")]
+    #[cfg(feature = "drives")]
     #[error(transparent)]
     Unexpected(UnexpectedError),
 
-    #[cfg(feature = "unstable")]
+    #[cfg(feature = "drives")]
     #[error(
         "workspace RID required for this operation: set workspace_rid on the profile or client builder"
     )]
     WorkspaceRequired,
 
-    #[cfg(feature = "unstable")]
+    #[cfg(feature = "drives")]
     #[error(transparent)]
     FileStore(#[from] FileStoreError),
 }
 
-#[cfg(feature = "unstable")]
+#[cfg(feature = "drives")]
 impl From<tonic::Status> for Error {
     fn from(status: tonic::Status) -> Self {
         match TransportError::try_from(status) {
@@ -198,7 +198,7 @@ impl Error {
     }
 }
 
-#[cfg(all(test, feature = "unstable"))]
+#[cfg(all(test, feature = "drives"))]
 mod tests {
     use super::*;
 

@@ -9,8 +9,8 @@ homepage = "https://nominal.io"
 
 [features]
 default = []
-filestore = ["dep:tonic"]
-unstable = ["filestore"]
+drives = ["dep:tonic"]
+unstable = ["drives"]
 
 [dependencies]
 bytes = "1"

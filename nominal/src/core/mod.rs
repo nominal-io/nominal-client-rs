@@ -3,11 +3,11 @@ pub(crate) mod catalog;
 pub(crate) mod client;
 pub(crate) mod datasource;
 pub(crate) mod datetime;
-#[cfg(feature = "unstable")]
+#[cfg(feature = "drives")]
 pub(crate) mod file_store;
-#[cfg(feature = "unstable")]
+#[cfg(feature = "drives")]
 pub(crate) mod files;
-#[cfg(feature = "unstable")]
+#[cfg(feature = "drives")]
 pub(crate) mod grpc;
 pub(crate) mod ingest;
 pub(crate) mod rid;
@@ -26,9 +26,9 @@ pub use catalog::{
 };
 pub use client::{NominalClient, NominalClientBuilder};
 pub use datasource::DataSource;
-#[cfg(feature = "unstable")]
+#[cfg(feature = "drives")]
 pub use file_store::{Drive, DriveKind, DriveMutability, DriveSource, DriveState, DrivesClient};
-#[cfg(feature = "unstable")]
+#[cfg(feature = "drives")]
 pub use files::{
     Directory, FileEntry, FileOperationDestination, FileRevision, FileState, FilesClient,
     LogicalFile,

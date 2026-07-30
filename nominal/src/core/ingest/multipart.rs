@@ -60,7 +60,7 @@ pub(crate) async fn upload_file(
 /// the S3 path is retained for APIs that consume the full storage location.
 #[derive(Debug, Clone)]
 pub(crate) struct CompletedUpload {
-    #[cfg(feature = "unstable")]
+    #[cfg(feature = "drives")]
     pub(crate) object_key: String,
     pub(crate) s3_path: String,
 }
@@ -196,7 +196,7 @@ where
                 s3_path: location.clone(),
             });
             Ok(CompletedUpload {
-                #[cfg(feature = "unstable")]
+                #[cfg(feature = "drives")]
                 object_key: key,
                 s3_path: location,
             })
