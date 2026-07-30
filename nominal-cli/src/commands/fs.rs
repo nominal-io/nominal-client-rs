@@ -163,7 +163,9 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
                 .move_file(revision_rid, destination_path.as_str())
                 .await
                 .with_context(|| {
-                    format!("Failed to move '{source_path}' to '{destination_path}' in drive '{drive}'")
+                    format!(
+                        "Failed to move '{source_path}' to '{destination_path}' in drive '{drive}'"
+                    )
                 })?;
             print_file(&file);
             Ok(())
@@ -193,7 +195,9 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
             let revisions = files
                 .list_revisions(file.file_rid())
                 .await
-                .with_context(|| format!("Failed to list revisions for '{path}' in drive '{drive}'"))?;
+                .with_context(|| {
+                    format!("Failed to list revisions for '{path}' in drive '{drive}'")
+                })?;
             for revision in revisions {
                 println!(
                     "{}\t{}\t{}",
@@ -340,12 +344,7 @@ fn format_file_listing_line(path: &str, state: FileState, include_removed: bool)
 }
 
 fn print_file(file: &nominal::core::LogicalFile) {
-    println!(
-        "{}\t{}\t{}",
-        file.path(),
-        file.size_bytes(),
-        file.state()
-    );
+    println!("{}\t{}\t{}", file.path(), file.size_bytes(), file.state());
 }
 
 #[cfg(test)]
