@@ -33,8 +33,8 @@ pub enum FsCommands {
         /// Drive-qualified source path, formatted as DRIVE:/PATH.
         #[arg(value_name = "DRIVE:/SOURCE_PATH")]
         source_path: String,
-        /// Destination path within the source drive.
-        #[arg(value_name = "DESTINATION_PATH")]
+        /// Root-relative destination path within the source drive, formatted as /PATH.
+        #[arg(value_name = "/DESTINATION_PATH")]
         destination_path: String,
     },
     /// Remove a file from a drive.
@@ -308,9 +308,11 @@ async fn drive_rid_for_id(drives: &DrivesClient, id: &str) -> anyhow::Result<Str
 
 fn parse_relative_path(path: &str) -> anyhow::Result<String> {
     if path.contains(':') {
-        anyhow::bail!("destination path must be relative to the source drive");
+        anyhow::bail!("destination path must be relative to the source drive, not drive-qualified");
     }
-    Ok(path.trim_start_matches('/').to_string())
+    path.strip_prefix('/').map(str::to_owned).ok_or_else(|| {
+        anyhow::anyhow!("destination path must start with '/' and be relative to the source drive")
+    })
 }
 
 fn parse_qualified_path(path: &str) -> anyhow::Result<(String, String)> {
@@ -404,11 +406,12 @@ mod tests {
     }
 
     #[test]
-    fn move_destination_is_relative_to_the_source_drive() {
+    fn move_destination_is_root_relative_to_the_source_drive() {
         assert_eq!(
             parse_relative_path("/archived/flight-042.mcap").unwrap(),
             "archived/flight-042.mcap"
         );
+        assert!(parse_relative_path("archived/flight-042.mcap").is_err());
         assert!(parse_relative_path("ops:/archived/flight-042.mcap").is_err());
     }
 }
