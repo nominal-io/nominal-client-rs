@@ -117,8 +117,8 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
         } => {
             let drive_rid = resolve_drive_rid(&client.drives(), &drive).await?;
             let entries = client
-                .files()
-                .list(&drive_rid, &path, include_removed)
+                .files(drive_rid)
+                .list(&path, include_removed)
                 .await
                 .with_context(|| format!("Failed to list '{path}' in drive '{drive}'"))?;
             print_listing(&entries, include_removed);
@@ -131,9 +131,8 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
         } => {
             let drive_rid = resolve_drive_rid(&client.drives(), &drive).await?;
             let file = client
-                .files()
+                .files(drive_rid)
                 .push(
-                    &drive_rid,
                     &local_path,
                     &destination_path,
                     nominal::core::UploadOptions::new(),
@@ -153,15 +152,15 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
             source_path,
             destination_path,
         } => {
-            let files = client.files();
             let drive_rid = resolve_drive_rid(&client.drives(), &drive).await?;
+            let files = client.files(drive_rid);
             let source = files
-                .get(&drive_rid, &source_path)
+                .get(&source_path)
                 .await
                 .with_context(|| format!("Failed to resolve '{source_path}' in drive '{drive}'"))?;
             let revision_rid = current_revision_rid(&source, &source_path)?;
             let file = files
-                .move_file(&drive_rid, revision_rid, destination_path.as_str())
+                .move_file(revision_rid, destination_path.as_str())
                 .await
                 .with_context(|| {
                     format!("Failed to move '{source_path}' to '{destination_path}' in drive '{drive}'")
@@ -170,29 +169,29 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
             Ok(())
         }
         FsCommands::Rm { drive, path } => {
-            let files = client.files();
             let drive_rid = resolve_drive_rid(&client.drives(), &drive).await?;
+            let files = client.files(drive_rid);
             let file = files
-                .get(&drive_rid, &path)
+                .get(&path)
                 .await
                 .with_context(|| format!("Failed to resolve '{path}' in drive '{drive}'"))?;
             let revision_rid = current_revision_rid(&file, &path)?;
             let file = files
-                .remove(&drive_rid, revision_rid)
+                .remove(revision_rid)
                 .await
                 .with_context(|| format!("Failed to remove '{path}' in drive '{drive}'"))?;
             print_file(&file);
             Ok(())
         }
         FsCommands::Revisions { drive, path } => {
-            let files = client.files();
             let drive_rid = resolve_drive_rid(&client.drives(), &drive).await?;
+            let files = client.files(drive_rid);
             let file = files
-                .get(&drive_rid, &path)
+                .get(&path)
                 .await
                 .with_context(|| format!("Failed to resolve '{path}' in drive '{drive}'"))?;
             let revisions = files
-                .list_revisions(&drive_rid, file.file_rid())
+                .list_revisions(file.file_rid())
                 .await
                 .with_context(|| format!("Failed to list revisions for '{path}' in drive '{drive}'"))?;
             for revision in revisions {
@@ -213,10 +212,10 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
             revision_rid,
             destination_path,
         } => {
-            let files = client.files();
             let drive_rid = resolve_drive_rid(&client.drives(), &drive).await?;
+            let files = client.files(drive_rid);
             let file = files
-                .restore(&drive_rid, &revision_rid, destination_path.as_str())
+                .restore(&revision_rid, destination_path.as_str())
                 .await
                 .with_context(|| {
                     format!("Failed to restore revision '{revision_rid}' in drive '{drive}'")

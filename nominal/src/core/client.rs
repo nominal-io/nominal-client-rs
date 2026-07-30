@@ -142,14 +142,15 @@ impl NominalClient {
         crate::core::fs::DrivesClient::new(&self.grpc, self.workspace_rid.clone())
     }
 
-    /// Access file operations in the Nominal file store.
+    /// Access file operations scoped to `drive_rid` in the Nominal file store.
     #[cfg(feature = "drives")]
-    pub fn files(&self) -> crate::core::fs::FilesClient {
-        crate::core::fs::FilesClient::new(
+    pub fn files(&self, drive_rid: impl Into<String>) -> crate::core::fs::DriveFilesClient {
+        crate::core::fs::DriveFilesClient::new(
             &self.grpc,
             self.client.clone(),
             self.runtime.clone(),
             self.token.clone(),
+            drive_rid,
         )
     }
 

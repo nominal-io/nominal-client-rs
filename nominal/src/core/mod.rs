@@ -26,8 +26,8 @@ pub use client::{NominalClient, NominalClientBuilder};
 pub use datasource::DataSource;
 #[cfg(feature = "drives")]
 pub use fs::{
-    Directory, Drive, DriveKind, DriveMutability, DriveSource, DriveState, DrivesClient, FileEntry,
-    FileOperationDestination, FileRevision, FileState, FilesClient, LogicalFile,
+    Directory, Drive, DriveFilesClient, DriveKind, DriveMutability, DriveSource, DriveState,
+    DrivesClient, FileEntry, FileOperationDestination, FileRevision, FileState, LogicalFile,
 };
 pub use ingest::{
     AvroStreamIngest, CsvIngest, DataflashIngest, DatasetTarget, FileType, IngestClient, IngestJob,

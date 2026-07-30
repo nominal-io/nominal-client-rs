@@ -137,7 +137,7 @@ impl Directory {
     }
 }
 
-/// One entry returned by [`FilesClient::list`]: either a file or a directory.
+/// One entry returned by [`DriveFilesClient::list`]: either a file or a directory.
 #[derive(Debug, Clone)]
 pub enum FileEntry {
     File(LogicalFile),
@@ -229,20 +229,22 @@ fn attribution_parts(
     (at, by)
 }
 
-/// Client for file operations in the Nominal file store.
-pub struct FilesClient {
+/// Client for file operations scoped to a single drive in the Nominal file store.
+pub struct DriveFilesClient {
     service: FilesService,
     conjure_client: Client,
     runtime: Arc<ConjureRuntime>,
     token: BearerToken,
+    drive_rid: String,
 }
 
-impl FilesClient {
+impl DriveFilesClient {
     pub(crate) fn new(
         connection: &GrpcConnection,
         conjure_client: Client,
         runtime: Arc<ConjureRuntime>,
         token: BearerToken,
+        drive_rid: impl Into<String>,
     ) -> Self {
         Self {
             service: FilesServiceClient::with_interceptor(
@@ -252,6 +254,7 @@ impl FilesClient {
             conjure_client,
             runtime,
             token,
+            drive_rid: drive_rid.into(),
         }
     }
 
@@ -259,11 +262,15 @@ impl FilesClient {
         self.service.clone()
     }
 
+    /// The RID of the drive this client operates on.
+    pub fn drive_rid(&self) -> &str {
+        &self.drive_rid
+    }
+
     /// Upload a local file and place it at `destination_path` in the drive,
     /// creating the file. Fails if a file already exists at that path.
     pub async fn push(
         &self,
-        drive_rid: &str,
         local_path: impl AsRef<Path>,
         destination_path: &str,
         options: UploadOptions,
@@ -286,23 +293,18 @@ impl FilesClient {
             options,
         )
         .await?;
-        self.put(drive_rid, destination_path, upload.object_key, size_bytes)
+        self.put(destination_path, upload.object_key, size_bytes)
             .await
     }
 
-    /// List files and directories directly under `parent_path` in a drive.
+    /// List files and directories directly under `parent_path`.
     /// The empty path lists the drive root. Collects all pages eagerly.
-    pub async fn list(
-        &self,
-        drive_rid: &str,
-        parent_path: &str,
-        include_removed: bool,
-    ) -> Result<Vec<FileEntry>> {
+    pub async fn list(&self, parent_path: &str, include_removed: bool) -> Result<Vec<FileEntry>> {
         let mut entries = Vec::new();
         let mut page_token: Option<String> = None;
         loop {
             let request = proto::ListFilesRequest {
-                drive_rid: drive_rid.to_string(),
+                drive_rid: self.drive_rid.clone(),
                 parent_path: Some(proto::LogicalPath {
                     path: parent_path.to_string(),
                 }),
@@ -323,9 +325,9 @@ impl FilesClient {
     }
 
     /// Get a file by its drive-relative path.
-    pub async fn get(&self, drive_rid: &str, path: &str) -> Result<LogicalFile> {
+    pub async fn get(&self, path: &str) -> Result<LogicalFile> {
         let request = proto::GetFileRequest {
-            drive_rid: drive_rid.to_string(),
+            drive_rid: self.drive_rid.clone(),
             path: Some(proto::LogicalPath {
                 path: path.to_string(),
             }),
@@ -340,16 +342,12 @@ impl FilesClient {
     }
 
     /// List revisions for a managed file, oldest first. Collects all pages eagerly.
-    pub async fn list_revisions(
-        &self,
-        drive_rid: &str,
-        file_rid: &str,
-    ) -> Result<Vec<FileRevision>> {
+    pub async fn list_revisions(&self, file_rid: &str) -> Result<Vec<FileRevision>> {
         let mut revisions = Vec::new();
         let mut page_token: Option<String> = None;
         loop {
             let request = proto::ListFileRevisionsRequest {
-                drive_rid: drive_rid.to_string(),
+                drive_rid: self.drive_rid.clone(),
                 file_rid: file_rid.to_string(),
                 page_size: None,
                 page_token: page_token.take(),
@@ -374,12 +372,11 @@ impl FilesClient {
     /// file. Fails if a file already exists at that path.
     pub async fn put(
         &self,
-        drive_rid: &str,
         path: &str,
         object_key: String,
         size_bytes: u64,
     ) -> Result<LogicalFile> {
-        self.apply_one(drive_rid, put_change(path, object_key, size_bytes))
+        self.apply_one(put_change(path, object_key, size_bytes))
             .await
     }
 
@@ -387,7 +384,6 @@ impl FilesClient {
     /// Fails if `source_revision_rid` is not the file's current head.
     pub async fn move_file(
         &self,
-        drive_rid: &str,
         source_revision_rid: &str,
         destination: impl Into<FileOperationDestination>,
     ) -> Result<LogicalFile> {
@@ -397,24 +393,23 @@ impl FilesClient {
                 destination: Some(destination.into().into_proto()),
             })),
         };
-        self.apply_one(drive_rid, change).await
+        self.apply_one(change).await
     }
 
     /// Soft-delete a file, identified by its current head revision. Fails if
     /// `revision_rid` is not the file's current head.
-    pub async fn remove(&self, drive_rid: &str, revision_rid: &str) -> Result<LogicalFile> {
+    pub async fn remove(&self, revision_rid: &str) -> Result<LogicalFile> {
         let change = proto::FileChange {
             change: Some(proto::file_change::Change::Remove(proto::RemoveFile {
                 revision_rid: revision_rid.to_string(),
             })),
         };
-        self.apply_one(drive_rid, change).await
+        self.apply_one(change).await
     }
 
     /// Reinstate a past revision at a destination path or by replacing an existing revision.
     pub async fn restore(
         &self,
-        drive_rid: &str,
         restore_revision_rid: &str,
         destination: impl Into<FileOperationDestination>,
     ) -> Result<LogicalFile> {
@@ -424,14 +419,14 @@ impl FilesClient {
                 destination: Some(destination.into().into_proto()),
             })),
         };
-        self.apply_one(drive_rid, change).await
+        self.apply_one(change).await
     }
 
     /// Apply a single file change and unwrap its result, surfacing a
     /// server-reported failure (e.g. path already exists) as an [`Error`].
-    async fn apply_one(&self, drive_rid: &str, change: proto::FileChange) -> Result<LogicalFile> {
+    async fn apply_one(&self, change: proto::FileChange) -> Result<LogicalFile> {
         let request = proto::ApplyFileChangesRequest {
-            drive_rid: drive_rid.to_string(),
+            drive_rid: self.drive_rid.clone(),
             changes: vec![change],
         };
         let response = self
