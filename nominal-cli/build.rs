@@ -26,12 +26,20 @@ fn main() {
 
 fn find_api_crate_root(crate_name: &str, definitions_marker: &str) -> PathBuf {
     if let Ok(meta) = cargo_metadata::MetadataCommand::new().exec() {
-        if let Some(package) = meta.packages.iter().find(|p| p.name == crate_name) {
+        if let Some(package) = meta
+            .packages
+            .iter()
+            .filter(|p| p.name == crate_name)
+            .filter(|p| {
+                p.manifest_path
+                    .parent()
+                    .is_some_and(|root| root.as_std_path().join(definitions_marker).exists())
+            })
+            .max_by_key(|p| p.version.clone())
+        {
             if let Some(root) = package.manifest_path.parent() {
                 let root = root.as_std_path().to_path_buf();
-                if root.join(definitions_marker).exists() {
-                    return root;
-                }
+                return root;
             }
         }
     }
