@@ -260,7 +260,7 @@ impl DriveFilesClient {
 
     /// Upload a local file and place it at `destination_path` in the drive,
     /// creating the file. Fails if a file already exists at that path.
-    pub async fn push(
+    pub async fn put(
         &self,
         local_path: impl AsRef<Path>,
         destination_path: &str,
@@ -284,7 +284,7 @@ impl DriveFilesClient {
             options,
         )
         .await?;
-        self.put(destination_path, upload.object_key, size_bytes)
+        self.put_uploaded_object(destination_path, upload.object_key, size_bytes)
             .await
     }
 
@@ -355,9 +355,7 @@ impl DriveFilesClient {
         Ok(revisions)
     }
 
-    /// Place a freshly-uploaded object at `path` in the drive, creating the
-    /// file. Fails if a file already exists at that path.
-    pub async fn put(
+    async fn put_uploaded_object(
         &self,
         path: &str,
         object_key: String,

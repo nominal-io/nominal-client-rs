@@ -22,8 +22,8 @@ pub enum FsCommands {
         #[arg(long)]
         include_removed: bool,
     },
-    /// Upload a local file to a drive
-    Push {
+    /// Put a local file in a drive
+    Put {
         /// Drive ID or RID
         #[arg(long)]
         drive: String,
@@ -124,7 +124,7 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
             print_listing(&entries, include_removed);
             Ok(())
         }
-        FsCommands::Push {
+        FsCommands::Put {
             drive,
             local_path,
             destination_path,
@@ -132,7 +132,7 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
             let drive_rid = resolve_drive_rid(&client.drives(), &drive).await?;
             let file = client
                 .files(drive_rid)
-                .push(
+                .put(
                     &local_path,
                     &destination_path,
                     nominal::core::UploadOptions::new(),
@@ -140,7 +140,7 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
                 .await
                 .with_context(|| {
                     format!(
-                        "Failed to push '{}' to '{destination_path}' in drive '{drive}'",
+                        "Failed to put '{}' at '{destination_path}' in drive '{drive}'",
                         local_path.display()
                     )
                 })?;
