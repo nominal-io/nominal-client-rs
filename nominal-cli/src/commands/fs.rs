@@ -33,8 +33,8 @@ pub enum FsCommands {
         /// Drive-qualified source path, formatted as DRIVE:/PATH.
         #[arg(value_name = "DRIVE:/SOURCE_PATH")]
         source_path: String,
-        /// Drive-qualified destination path, formatted as DRIVE:/PATH.
-        #[arg(value_name = "DRIVE:/DESTINATION_PATH")]
+        /// Destination path within the source drive.
+        #[arg(value_name = "DESTINATION_PATH")]
         destination_path: String,
     },
     /// Remove a file from a drive.
@@ -145,8 +145,8 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
             source_path,
             destination_path,
         } => {
-            let (drive, source_path, destination_path) =
-                parse_move_paths(source_path, destination_path)?;
+            let (drive, source_path) = parse_qualified_path(&source_path)?;
+            let destination_path = parse_relative_path(&destination_path)?;
             let drive_rid = drive_rid_for_id(&client.drives(), &drive).await?;
             let files = client.files(drive_rid);
             let source = files
@@ -306,16 +306,11 @@ async fn drive_rid_for_id(drives: &DrivesClient, id: &str) -> anyhow::Result<Str
     Ok(get_drive_by_id(drives, id).await?.rid().to_string())
 }
 
-fn parse_move_paths(
-    source_path: String,
-    destination_path: String,
-) -> anyhow::Result<(String, String, String)> {
-    let (source_drive, source_path) = parse_qualified_path(&source_path)?;
-    let (destination_drive, destination_path) = parse_qualified_path(&destination_path)?;
-    if source_drive != destination_drive {
-        anyhow::bail!("cross-drive moves are not supported");
+fn parse_relative_path(path: &str) -> anyhow::Result<String> {
+    if path.contains(':') {
+        anyhow::bail!("destination path must be relative to the source drive");
     }
-    Ok((source_drive, source_path, destination_path))
+    Ok(path.trim_start_matches('/').to_string())
 }
 
 fn parse_qualified_path(path: &str) -> anyhow::Result<(String, String)> {
@@ -409,26 +404,12 @@ mod tests {
     }
 
     #[test]
-    fn move_paths_must_reference_the_same_drive() {
+    fn move_destination_is_relative_to_the_source_drive() {
         assert_eq!(
-            parse_move_paths(
-                "eng:/telemetry/flight-042.mcap".to_string(),
-                "eng:/archived/flight-042.mcap".to_string(),
-            )
-            .unwrap(),
-            (
-                "eng".to_string(),
-                "telemetry/flight-042.mcap".to_string(),
-                "archived/flight-042.mcap".to_string(),
-            )
+            parse_relative_path("/archived/flight-042.mcap").unwrap(),
+            "archived/flight-042.mcap"
         );
-        assert!(
-            parse_move_paths(
-                "eng:/telemetry/flight-042.mcap".to_string(),
-                "ops:/archived/flight-042.mcap".to_string(),
-            )
-            .is_err()
-        );
+        assert!(parse_relative_path("ops:/archived/flight-042.mcap").is_err());
     }
 }
 
