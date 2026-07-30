@@ -12,7 +12,7 @@ pub enum FsCommands {
     },
     /// List files and directories at a path in a drive
     Ls {
-        /// Drive ID or RID
+        /// Drive ID
         #[arg(long)]
         drive: String,
         /// Drive-relative path to list. Defaults to the drive root
@@ -24,7 +24,7 @@ pub enum FsCommands {
     },
     /// Put a local file in a drive
     Put {
-        /// Drive ID or RID
+        /// Drive ID
         #[arg(long)]
         drive: String,
         /// Path to the local file to upload
@@ -34,7 +34,7 @@ pub enum FsCommands {
     },
     /// Move a file to a new path in a drive
     Mv {
-        /// Drive ID or RID
+        /// Drive ID
         #[arg(long)]
         drive: String,
         /// Current drive-relative path of the file
@@ -44,7 +44,7 @@ pub enum FsCommands {
     },
     /// Remove a file from a drive
     Rm {
-        /// Drive ID or RID
+        /// Drive ID
         #[arg(long)]
         drive: String,
         /// Drive-relative path of the file to remove
@@ -52,7 +52,7 @@ pub enum FsCommands {
     },
     /// List the revision history of a file in a drive
     Revisions {
-        /// Drive ID or RID
+        /// Drive ID
         #[arg(long)]
         drive: String,
         /// Drive-relative path of the file
@@ -60,7 +60,7 @@ pub enum FsCommands {
     },
     /// Restore a past revision of a file in a drive
     Restore {
-        /// Drive ID or RID
+        /// Drive ID
         #[arg(long)]
         drive: String,
         /// Revision RID to restore (see `nomctl fs revisions`)
@@ -83,26 +83,31 @@ pub enum DriveCommands {
         /// The drive ID
         id: String,
     },
-    /// Get a drive by ID or RID
+    /// Get a drive by ID
     Get {
-        /// Drive ID or RID
-        drive: String,
+        /// Drive ID
+        id: String,
+    },
+    /// Get a drive by RID
+    GetByRid {
+        /// Drive RID
+        rid: String,
     },
     /// Change a drive's ID
     Rename {
-        /// Drive ID or RID
+        /// Drive ID
         drive: String,
         /// The new drive ID
         new_id: String,
     },
     /// Archive a drive. Archived drives are hidden from the UI but not deleted
     Archive {
-        /// Drive ID or RID
+        /// Drive ID
         drive: String,
     },
     /// Unarchive a drive, restoring its visibility in the UI
     Unarchive {
-        /// Drive ID or RID
+        /// Drive ID
         drive: String,
     },
 }
@@ -115,7 +120,7 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
             path,
             include_removed,
         } => {
-            let drive_rid = resolve_drive_rid(&client.drives(), &drive).await?;
+            let drive_rid = drive_rid_for_id(&client.drives(), &drive).await?;
             let entries = client
                 .files(drive_rid)
                 .list(&path, include_removed)
@@ -129,7 +134,7 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
             local_path,
             destination_path,
         } => {
-            let drive_rid = resolve_drive_rid(&client.drives(), &drive).await?;
+            let drive_rid = drive_rid_for_id(&client.drives(), &drive).await?;
             let file = client
                 .files(drive_rid)
                 .put(
@@ -152,7 +157,7 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
             source_path,
             destination_path,
         } => {
-            let drive_rid = resolve_drive_rid(&client.drives(), &drive).await?;
+            let drive_rid = drive_rid_for_id(&client.drives(), &drive).await?;
             let files = client.files(drive_rid);
             let source = files
                 .get(&source_path)
@@ -171,7 +176,7 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
             Ok(())
         }
         FsCommands::Rm { drive, path } => {
-            let drive_rid = resolve_drive_rid(&client.drives(), &drive).await?;
+            let drive_rid = drive_rid_for_id(&client.drives(), &drive).await?;
             let files = client.files(drive_rid);
             let file = files
                 .get(&path)
@@ -186,7 +191,7 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
             Ok(())
         }
         FsCommands::Revisions { drive, path } => {
-            let drive_rid = resolve_drive_rid(&client.drives(), &drive).await?;
+            let drive_rid = drive_rid_for_id(&client.drives(), &drive).await?;
             let files = client.files(drive_rid);
             let file = files
                 .get(&path)
@@ -216,7 +221,7 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
             revision_rid,
             destination_path,
         } => {
-            let drive_rid = resolve_drive_rid(&client.drives(), &drive).await?;
+            let drive_rid = drive_rid_for_id(&client.drives(), &drive).await?;
             let files = client.files(drive_rid);
             let file = files
                 .restore(&revision_rid, destination_path.as_str())
@@ -255,12 +260,22 @@ async fn handle_drive(cmd: DriveCommands, client: NominalClient) -> anyhow::Resu
                 .with_context(|| format!("Failed to create drive '{id}'"))?;
             print_drive(&drive);
         }
-        DriveCommands::Get { drive } => {
-            let drive = resolve_drive(&drives, &drive).await?;
+        DriveCommands::Get { id } => {
+            let drive = drives
+                .get_by_id(&id)
+                .await
+                .with_context(|| format!("Failed to get drive '{id}'"))?;
+            print_drive(&drive);
+        }
+        DriveCommands::GetByRid { rid } => {
+            let drive = drives
+                .get(&rid)
+                .await
+                .with_context(|| format!("Failed to get drive '{rid}'"))?;
             print_drive(&drive);
         }
         DriveCommands::Rename { drive, new_id } => {
-            let resolved = resolve_drive(&drives, &drive).await?;
+            let resolved = get_drive_by_id(&drives, &drive).await?;
             let drive = drives
                 .rename(resolved.rid(), &new_id)
                 .await
@@ -268,7 +283,7 @@ async fn handle_drive(cmd: DriveCommands, client: NominalClient) -> anyhow::Resu
             print_drive(&drive);
         }
         DriveCommands::Archive { drive } => {
-            let resolved = resolve_drive(&drives, &drive).await?;
+            let resolved = get_drive_by_id(&drives, &drive).await?;
             let drive = drives
                 .archive(resolved.rid())
                 .await
@@ -276,7 +291,7 @@ async fn handle_drive(cmd: DriveCommands, client: NominalClient) -> anyhow::Resu
             print_drive(&drive);
         }
         DriveCommands::Unarchive { drive } => {
-            let resolved = resolve_drive(&drives, &drive).await?;
+            let resolved = get_drive_by_id(&drives, &drive).await?;
             let drive = drives
                 .unarchive(resolved.rid())
                 .await
@@ -288,23 +303,15 @@ async fn handle_drive(cmd: DriveCommands, client: NominalClient) -> anyhow::Resu
     Ok(())
 }
 
-/// Accept either a drive RID or a drive ID, and resolve it to a drive.
-async fn resolve_drive(drives: &DrivesClient, id_or_rid: &str) -> anyhow::Result<Drive> {
-    if id_or_rid.starts_with("ri.") {
-        drives.get(id_or_rid).await
-    } else {
-        drives.get_by_id(id_or_rid).await
-    }
-    .with_context(|| format!("Failed to resolve drive '{id_or_rid}'"))
+async fn get_drive_by_id(drives: &DrivesClient, id: &str) -> anyhow::Result<Drive> {
+    drives
+        .get_by_id(id)
+        .await
+        .with_context(|| format!("Failed to get drive '{id}'"))
 }
 
-/// Accept either a drive RID or a drive ID, and resolve it to just the RID,
-/// for use by file-op commands that only need to address the drive.
-async fn resolve_drive_rid(drives: &DrivesClient, id_or_rid: &str) -> anyhow::Result<String> {
-    if id_or_rid.starts_with("ri.") {
-        return Ok(id_or_rid.to_string());
-    }
-    Ok(resolve_drive(drives, id_or_rid).await?.rid().to_string())
+async fn drive_rid_for_id(drives: &DrivesClient, id: &str) -> anyhow::Result<String> {
+    Ok(get_drive_by_id(drives, id).await?.rid().to_string())
 }
 
 /// A file's current revision RID, or an error if the file has no managed
