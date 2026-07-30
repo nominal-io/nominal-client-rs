@@ -4,9 +4,7 @@ pub(crate) mod client;
 pub(crate) mod datasource;
 pub(crate) mod datetime;
 #[cfg(feature = "drives")]
-pub(crate) mod file_store;
-#[cfg(feature = "drives")]
-pub(crate) mod files;
+pub(crate) mod fs;
 #[cfg(feature = "drives")]
 pub(crate) mod grpc;
 pub(crate) mod ingest;
@@ -27,11 +25,9 @@ pub use catalog::{
 pub use client::{NominalClient, NominalClientBuilder};
 pub use datasource::DataSource;
 #[cfg(feature = "drives")]
-pub use file_store::{Drive, DriveKind, DriveMutability, DriveSource, DriveState, DrivesClient};
-#[cfg(feature = "drives")]
-pub use files::{
-    Directory, FileEntry, FileOperationDestination, FileRevision, FileState, FilesClient,
-    LogicalFile,
+pub use fs::{
+    Directory, Drive, DriveKind, DriveMutability, DriveSource, DriveState, DrivesClient, FileEntry,
+    FileOperationDestination, FileRevision, FileState, FilesClient, LogicalFile,
 };
 pub use ingest::{
     AvroStreamIngest, CsvIngest, DataflashIngest, DatasetTarget, FileType, IngestClient, IngestJob,
