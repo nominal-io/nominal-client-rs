@@ -5,8 +5,9 @@ use nominal_api::tonic::nominal::file_store::v1::{
 use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
 
+use super::RequiredField;
 use crate::core::grpc::{AuthInterceptor, GrpcConnection};
-use crate::{Error, FileStoreError, Result};
+use crate::{Error, Result};
 
 type DrivesService = DrivesServiceClient<InterceptedService<Channel, AuthInterceptor>>;
 
@@ -221,9 +222,7 @@ fn attribution_parts(
 }
 
 fn required_drive(drive: Option<proto::Drive>) -> Result<Drive> {
-    drive
-        .map(Drive::from_proto)
-        .ok_or(FileStoreError::MissingResponseField { field: "drive" }.into())
+    Ok(Drive::from_proto(drive.required("GetDriveResponse.drive")?))
 }
 
 /// Client for drive operations in the Nominal file store.

@@ -12,6 +12,7 @@ use nominal_api::tonic::nominal::file_store::v1::{
 use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
 
+use super::RequiredField;
 use crate::core::grpc::{AuthInterceptor, GrpcConnection};
 use crate::core::ingest::UploadOptions;
 use crate::core::ingest::multipart;
@@ -95,19 +96,16 @@ impl LogicalFile {
     }
 
     fn from_proto(file: proto::LogicalFile) -> Result<Self> {
-        let file_rid = match file.identity.and_then(|i| i.identity) {
-            Some(proto::logical_file_identity::Identity::Managed(m)) => m.file_rid,
-            _ => {
-                return Err(FileStoreError::MissingResponseField {
-                    field: "identity.managed",
+        let file_rid = file
+            .identity
+            .and_then(|identity| match identity.identity {
+                Some(proto::logical_file_identity::Identity::Managed(managed)) => {
+                    Some(managed.file_rid)
                 }
-                .into());
-            }
-        };
-        let path = file
-            .path
-            .ok_or(FileStoreError::MissingResponseField { field: "path" })?
-            .path;
+                _ => None,
+            })
+            .required("LogicalFile.identity.managed")?;
+        let path = file.path.required("LogicalFile.path")?.path;
         let (created_at, created_by) = attribution_parts(file.created);
         let current_revision_rid = file.current_revision.and_then(|r| match r.reference {
             Some(proto::file_revision_ref::Reference::Managed(m)) => Some(m.file_revision_rid),
@@ -146,15 +144,11 @@ pub enum FileEntry {
 
 impl FileEntry {
     fn from_proto(entry: proto::FileEntry) -> Result<Self> {
-        match entry.entry {
-            Some(proto::file_entry::Entry::File(f)) => Ok(Self::File(LogicalFile::from_proto(f)?)),
-            Some(proto::file_entry::Entry::Directory(d)) => Ok(Self::Directory(Directory {
-                path: d
-                    .path
-                    .ok_or(FileStoreError::MissingResponseField { field: "path" })?
-                    .path,
+        match entry.entry.required("FileEntry.entry")? {
+            proto::file_entry::Entry::File(file) => Ok(Self::File(LogicalFile::from_proto(file)?)),
+            proto::file_entry::Entry::Directory(directory) => Ok(Self::Directory(Directory {
+                path: directory.path.required("FileEntry.Directory.path")?.path,
             })),
-            None => Err(FileStoreError::MissingResponseField { field: "entry" }.into()),
         }
     }
 }
@@ -200,10 +194,7 @@ impl TryFrom<proto::ManagedFileRevision> for FileRevision {
     type Error = crate::Error;
 
     fn try_from(revision: proto::ManagedFileRevision) -> Result<Self> {
-        let path = revision
-            .path
-            .ok_or(FileStoreError::MissingResponseField { field: "path" })?
-            .path;
+        let path = revision.path.required("ManagedFileRevision.path")?.path;
         let (created_at, created_by) = attribution_parts(revision.created);
         Ok(Self {
             file_revision_rid: revision.file_revision_rid,
@@ -334,11 +325,7 @@ impl DriveFilesClient {
             include_removed: false,
         };
         let response = self.service().get_file(request).await?.into_inner();
-        LogicalFile::from_proto(
-            response
-                .file
-                .ok_or(FileStoreError::MissingResponseField { field: "file" })?,
-        )
+        LogicalFile::from_proto(response.file.required("GetFileResponse.file")?)
     }
 
     /// List revisions for a managed file, oldest first. Collects all pages eagerly.
@@ -439,14 +426,12 @@ impl DriveFilesClient {
             .results
             .into_iter()
             .next()
-            .ok_or(FileStoreError::MissingResponseField { field: "results" })?;
-        match result.result {
-            Some(proto::file_change_result::Result::Success(success)) => LogicalFile::from_proto(
-                success
-                    .file
-                    .ok_or(FileStoreError::MissingResponseField { field: "file" })?,
-            ),
-            Some(proto::file_change_result::Result::Failure(failure)) => {
+            .required("ApplyFileChangesResponse.results")?;
+        match result.result.required("FileChangeResult.result")? {
+            proto::file_change_result::Result::Success(success) => {
+                LogicalFile::from_proto(success.file.required("FileChangeResult.Success.file")?)
+            }
+            proto::file_change_result::Result::Failure(failure) => {
                 Err(FileStoreError::ChangeFailed {
                     code: proto::FileStoreError::try_from(failure.code)
                         .map(|c| c.as_str_name().to_string())
@@ -455,7 +440,6 @@ impl DriveFilesClient {
                 }
                 .into())
             }
-            None => Err(FileStoreError::MissingResponseField { field: "result" }.into()),
         }
     }
 }

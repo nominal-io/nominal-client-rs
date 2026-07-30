@@ -48,9 +48,6 @@ impl UnexpectedError {
 #[cfg(feature = "drives")]
 #[derive(Debug, Error)]
 pub enum FileStoreError {
-    #[error("server response missing required field: {field}")]
-    MissingResponseField { field: &'static str },
-
     #[error("file store operation failed ({code}): {message}")]
     ChangeFailed { code: String, message: String },
 }
@@ -125,6 +122,9 @@ pub enum Error {
 
     #[error("ingest error: {details}")]
     Ingest { details: String },
+
+    #[error("unexpected API response: missing required field '{field}'")]
+    UnexpectedResponse { field: &'static str },
 
     #[cfg(feature = "drives")]
     #[error(transparent)]
