@@ -13,9 +13,9 @@ use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
 
 use crate::core::grpc::{AuthInterceptor, GrpcConnection};
-use crate::core::ingest::multipart;
 use crate::core::ingest::UploadOptions;
-use crate::{Error, Result};
+use crate::core::ingest::multipart;
+use crate::{FileStoreError, Result};
 
 type FilesService = FilesServiceClient<InterceptedService<Channel, AuthInterceptor>>;
 
@@ -98,14 +98,15 @@ impl LogicalFile {
         let file_rid = match file.identity.and_then(|i| i.identity) {
             Some(proto::logical_file_identity::Identity::Managed(m)) => m.file_rid,
             _ => {
-                return Err(Error::MissingResponseField {
+                return Err(FileStoreError::MissingResponseField {
                     field: "identity.managed",
-                });
+                }
+                .into());
             }
         };
         let path = file
             .path
-            .ok_or(Error::MissingResponseField { field: "path" })?
+            .ok_or(FileStoreError::MissingResponseField { field: "path" })?
             .path;
         let (created_at, created_by) = attribution_parts(file.created);
         let current_revision_rid = file.current_revision.and_then(|r| match r.reference {
@@ -146,16 +147,14 @@ pub enum FileEntry {
 impl FileEntry {
     fn from_proto(entry: proto::FileEntry) -> Result<Self> {
         match entry.entry {
-            Some(proto::file_entry::Entry::File(f)) => {
-                Ok(Self::File(LogicalFile::from_proto(f)?))
-            }
+            Some(proto::file_entry::Entry::File(f)) => Ok(Self::File(LogicalFile::from_proto(f)?)),
             Some(proto::file_entry::Entry::Directory(d)) => Ok(Self::Directory(Directory {
                 path: d
                     .path
-                    .ok_or(Error::MissingResponseField { field: "path" })?
+                    .ok_or(FileStoreError::MissingResponseField { field: "path" })?
                     .path,
             })),
-            None => Err(Error::MissingResponseField { field: "entry" }),
+            None => Err(FileStoreError::MissingResponseField { field: "entry" }.into()),
         }
     }
 }
@@ -195,11 +194,15 @@ impl FileRevision {
     pub fn created_by(&self) -> Option<&str> {
         self.created_by.as_deref()
     }
+}
 
-    fn from_proto(revision: proto::ManagedFileRevision) -> Result<Self> {
+impl TryFrom<proto::ManagedFileRevision> for FileRevision {
+    type Error = crate::Error;
+
+    fn try_from(revision: proto::ManagedFileRevision) -> Result<Self> {
         let path = revision
             .path
-            .ok_or(Error::MissingResponseField { field: "path" })?
+            .ok_or(FileStoreError::MissingResponseField { field: "path" })?
             .path;
         let (created_at, created_by) = attribution_parts(revision.created);
         Ok(Self {
@@ -332,12 +335,16 @@ impl FilesClient {
         LogicalFile::from_proto(
             response
                 .file
-                .ok_or(Error::MissingResponseField { field: "file" })?,
+                .ok_or(FileStoreError::MissingResponseField { field: "file" })?,
         )
     }
 
     /// List revisions for a managed file, oldest first. Collects all pages eagerly.
-    pub async fn list_revisions(&self, drive_rid: &str, file_rid: &str) -> Result<Vec<FileRevision>> {
+    pub async fn list_revisions(
+        &self,
+        drive_rid: &str,
+        file_rid: &str,
+    ) -> Result<Vec<FileRevision>> {
         let mut revisions = Vec::new();
         let mut page_token: Option<String> = None;
         loop {
@@ -353,7 +360,7 @@ impl FilesClient {
                 .await?
                 .into_inner();
             for revision in response.file_revisions {
-                revisions.push(FileRevision::from_proto(revision)?);
+                revisions.push(FileRevision::try_from(revision)?);
             }
             match response.next_page_token {
                 Some(token) if !token.is_empty() => page_token = Some(token),
@@ -376,19 +383,18 @@ impl FilesClient {
             .await
     }
 
-    /// Move a file, identified by its current head revision, to a new path.
-    /// Fails if `source_revision_rid` is not the file's current head, or if
-    /// a file already exists at the destination path.
+    /// Move a file, identified by its current head revision, to a destination.
+    /// Fails if `source_revision_rid` is not the file's current head.
     pub async fn move_file(
         &self,
         drive_rid: &str,
         source_revision_rid: &str,
-        destination_path: &str,
+        destination: impl Into<FileOperationDestination>,
     ) -> Result<LogicalFile> {
         let change = proto::FileChange {
             change: Some(proto::file_change::Change::Move(proto::MoveFile {
                 source_revision_rid: source_revision_rid.to_string(),
-                destination: Some(path_destination(destination_path)),
+                destination: Some(destination.into().into_proto()),
             })),
         };
         self.apply_one(drive_rid, change).await
@@ -405,17 +411,17 @@ impl FilesClient {
         self.apply_one(drive_rid, change).await
     }
 
-    /// Reinstate a past revision of a file at `destination_path`.
+    /// Reinstate a past revision at a destination path or by replacing an existing revision.
     pub async fn restore(
         &self,
         drive_rid: &str,
         restore_revision_rid: &str,
-        destination_path: &str,
+        destination: impl Into<FileOperationDestination>,
     ) -> Result<LogicalFile> {
         let change = proto::FileChange {
             change: Some(proto::file_change::Change::Restore(proto::RestoreFile {
                 restore_revision_rid: restore_revision_rid.to_string(),
-                destination: Some(path_destination(destination_path)),
+                destination: Some(destination.into().into_proto()),
             })),
         };
         self.apply_one(drive_rid, change).await
@@ -433,37 +439,74 @@ impl FilesClient {
             .apply_file_changes(request)
             .await?
             .into_inner();
+        debug_assert!(response.results.len() <= 1);
         let result = response
             .results
             .into_iter()
             .next()
-            .ok_or(Error::MissingResponseField { field: "results" })?;
+            .ok_or(FileStoreError::MissingResponseField { field: "results" })?;
         match result.result {
             Some(proto::file_change_result::Result::Success(success)) => LogicalFile::from_proto(
                 success
                     .file
-                    .ok_or(Error::MissingResponseField { field: "file" })?,
+                    .ok_or(FileStoreError::MissingResponseField { field: "file" })?,
             ),
             Some(proto::file_change_result::Result::Failure(failure)) => {
-                Err(Error::FileStoreChangeFailed {
+                Err(FileStoreError::ChangeFailed {
                     code: proto::FileStoreError::try_from(failure.code)
                         .map(|c| c.as_str_name().to_string())
                         .unwrap_or_else(|_| failure.code.to_string()),
                     message: failure.message,
-                })
+                }
+                .into())
             }
-            None => Err(Error::MissingResponseField { field: "result" }),
+            None => Err(FileStoreError::MissingResponseField { field: "result" }.into()),
         }
     }
 }
 
-fn path_destination(path: &str) -> proto::Destination {
-    proto::Destination {
-        target: Some(proto::destination::Target::Path(proto::PathTarget {
-            path: Some(proto::LogicalPath {
-                path: path.to_string(),
+/// A target for a file-store operation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileOperationDestination {
+    /// Place the result at this logical path. The operation fails if the path exists.
+    Path(String),
+    /// Replace the file currently associated with this managed revision.
+    FileRevisionRid(String),
+}
+
+impl FileOperationDestination {
+    pub fn path(path: impl Into<String>) -> Self {
+        Self::Path(path.into())
+    }
+
+    pub fn file_revision_rid(file_revision_rid: impl Into<String>) -> Self {
+        Self::FileRevisionRid(file_revision_rid.into())
+    }
+
+    fn into_proto(self) -> proto::Destination {
+        let target = match self {
+            Self::Path(path) => proto::destination::Target::Path(proto::PathTarget {
+                path: Some(proto::LogicalPath { path }),
             }),
-        })),
+            Self::FileRevisionRid(file_revision_rid) => {
+                proto::destination::Target::FileRevisionRid(file_revision_rid)
+            }
+        };
+        proto::Destination {
+            target: Some(target),
+        }
+    }
+}
+
+impl From<String> for FileOperationDestination {
+    fn from(path: String) -> Self {
+        Self::path(path)
+    }
+}
+
+impl From<&str> for FileOperationDestination {
+    fn from(path: &str) -> Self {
+        Self::path(path)
     }
 }
 
@@ -472,7 +515,7 @@ fn put_change(path: &str, object_key: String, size_bytes: u64) -> proto::FileCha
         change: Some(proto::file_change::Change::Put(proto::PutFile {
             object: Some(proto::UploadedObjectRef { object_key }),
             size_bytes,
-            destination: Some(path_destination(path)),
+            destination: Some(FileOperationDestination::path(path).into_proto()),
         })),
     }
 }
@@ -490,5 +533,16 @@ mod tests {
             panic!("expected put change");
         };
         assert_eq!(put.object.unwrap().object_key, object_key);
+    }
+
+    #[test]
+    fn file_revision_destination_replaces_an_existing_file() {
+        let destination =
+            FileOperationDestination::file_revision_rid("ri.file-revision.123").into_proto();
+
+        assert!(matches!(
+            destination.target,
+            Some(proto::destination::Target::FileRevisionRid(rid)) if rid == "ri.file-revision.123"
+        ));
     }
 }

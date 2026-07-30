@@ -4,6 +4,57 @@ use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+#[cfg(feature = "unstable")]
+#[derive(Debug, Error)]
+#[error("transport error")]
+pub struct TransportError(#[source] Box<dyn std::error::Error + Send + Sync + 'static>);
+
+#[cfg(feature = "unstable")]
+impl TransportError {
+    pub(crate) fn new(error: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self(Box::new(error))
+    }
+}
+
+#[cfg(feature = "unstable")]
+impl TryFrom<tonic::Status> for TransportError {
+    type Error = tonic::Status;
+
+    fn try_from(status: tonic::Status) -> std::result::Result<Self, Self::Error> {
+        match status.code() {
+            tonic::Code::Cancelled
+            | tonic::Code::Unknown
+            | tonic::Code::DeadlineExceeded
+            | tonic::Code::Internal
+            | tonic::Code::Unavailable
+            | tonic::Code::DataLoss => Ok(Self::new(status)),
+            _ => Err(status),
+        }
+    }
+}
+
+#[cfg(feature = "unstable")]
+#[derive(Debug, Error)]
+#[error("unexpected error")]
+pub struct UnexpectedError(#[source] Box<dyn std::error::Error + Send + Sync + 'static>);
+
+#[cfg(feature = "unstable")]
+impl UnexpectedError {
+    fn new(error: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self(Box::new(error))
+    }
+}
+
+#[cfg(feature = "unstable")]
+#[derive(Debug, Error)]
+pub enum FileStoreError {
+    #[error("server response missing required field: {field}")]
+    MissingResponseField { field: &'static str },
+
+    #[error("file store operation failed ({code}): {message}")]
+    ChangeFailed { code: String, message: String },
+}
+
 #[non_exhaustive]
 #[derive(Debug, Error)]
 pub enum Error {
@@ -76,16 +127,12 @@ pub enum Error {
     Ingest { details: String },
 
     #[cfg(feature = "unstable")]
-    #[error("gRPC error ({code:?}): {message}")]
-    Grpc { code: tonic::Code, message: String },
+    #[error(transparent)]
+    Transport(#[from] TransportError),
 
     #[cfg(feature = "unstable")]
-    #[error("gRPC transport error: {details}")]
-    GrpcTransport { details: String },
-
-    #[cfg(feature = "unstable")]
-    #[error("server response missing required field: {field}")]
-    MissingResponseField { field: &'static str },
+    #[error(transparent)]
+    Unexpected(UnexpectedError),
 
     #[cfg(feature = "unstable")]
     #[error(
@@ -94,16 +141,16 @@ pub enum Error {
     WorkspaceRequired,
 
     #[cfg(feature = "unstable")]
-    #[error("file store operation failed ({code}): {message}")]
-    FileStoreChangeFailed { code: String, message: String },
+    #[error(transparent)]
+    FileStore(#[from] FileStoreError),
 }
 
 #[cfg(feature = "unstable")]
 impl From<tonic::Status> for Error {
-    fn from(value: tonic::Status) -> Self {
-        Self::Grpc {
-            code: value.code(),
-            message: value.message().to_string(),
+    fn from(status: tonic::Status) -> Self {
+        match TransportError::try_from(status) {
+            Ok(error) => Self::Transport(error),
+            Err(status) => Self::Unexpected(UnexpectedError::new(status)),
         }
     }
 }
@@ -148,5 +195,26 @@ impl Error {
             Self::Conjure { status, .. } => *status,
             _ => None,
         }
+    }
+}
+
+#[cfg(all(test, feature = "unstable"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classifies_transient_grpc_statuses_as_transport_errors() {
+        assert!(matches!(
+            Error::from(tonic::Status::unavailable("network unavailable")),
+            Error::Transport(_)
+        ));
+    }
+
+    #[test]
+    fn classifies_non_transport_grpc_statuses_as_unexpected_errors() {
+        assert!(matches!(
+            Error::from(tonic::Status::not_found("missing")),
+            Error::Unexpected(_)
+        ));
     }
 }

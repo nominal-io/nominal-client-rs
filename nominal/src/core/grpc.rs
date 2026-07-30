@@ -3,7 +3,7 @@ use tonic::metadata::{Ascii, MetadataValue};
 use tonic::service::Interceptor;
 use tonic::transport::{Channel, ClientTlsConfig};
 
-use crate::{Error, Result};
+use crate::{Error, Result, TransportError};
 
 /// Adds `authorization: Bearer <token>` to every outgoing gRPC request.
 #[derive(Clone)]
@@ -16,9 +16,11 @@ impl Interceptor for AuthInterceptor {
         &mut self,
         mut request: tonic::Request<()>,
     ) -> std::result::Result<tonic::Request<()>, tonic::Status> {
-        request
-            .metadata_mut()
-            .insert("authorization", self.header.clone());
+        if !request.metadata().contains_key("authorization") {
+            request
+                .metadata_mut()
+                .insert("authorization", self.header.clone());
+        }
         Ok(request)
     }
 }
@@ -43,9 +45,7 @@ impl GrpcConnection {
         if url.starts_with("https://") {
             endpoint = endpoint
                 .tls_config(ClientTlsConfig::new().with_native_roots())
-                .map_err(|e| Error::GrpcTransport {
-                    details: e.to_string(),
-                })?;
+                .map_err(TransportError::new)?;
         }
         let header = format!("Bearer {}", token.as_str())
             .parse::<MetadataValue<Ascii>>()
@@ -106,5 +106,23 @@ mod tests {
     #[test]
     fn grpc_root_url_rejects_invalid() {
         assert!(grpc_root_url("not a url").is_err());
+    }
+
+    #[test]
+    fn auth_interceptor_preserves_an_existing_authorization_header() {
+        let mut interceptor = AuthInterceptor {
+            header: "Bearer default".parse().unwrap(),
+        };
+        let mut request = tonic::Request::new(());
+        request
+            .metadata_mut()
+            .insert("authorization", "Bearer override".parse().unwrap());
+
+        let request = interceptor.call(request).unwrap();
+
+        assert_eq!(
+            request.metadata().get("authorization").unwrap(),
+            "Bearer override"
+        );
     }
 }

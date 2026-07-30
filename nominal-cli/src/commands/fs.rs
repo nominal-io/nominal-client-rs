@@ -161,7 +161,7 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
                 .with_context(|| format!("Failed to resolve '{source_path}' in drive '{drive}'"))?;
             let revision_rid = current_revision_rid(&source, &source_path)?;
             let file = files
-                .move_file(&drive_rid, revision_rid, &destination_path)
+                .move_file(&drive_rid, revision_rid, destination_path.as_str())
                 .await
                 .with_context(|| {
                     format!("Failed to move '{source_path}' to '{destination_path}' in drive '{drive}'")
@@ -216,7 +216,7 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
             let files = client.files();
             let drive_rid = resolve_drive_rid(&client.drives(), &drive).await?;
             let file = files
-                .restore(&drive_rid, &revision_rid, &destination_path)
+                .restore(&drive_rid, &revision_rid, destination_path.as_str())
                 .await
                 .with_context(|| {
                     format!("Failed to restore revision '{revision_rid}' in drive '{drive}'")

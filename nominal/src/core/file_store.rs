@@ -6,7 +6,7 @@ use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
 
 use crate::core::grpc::{AuthInterceptor, GrpcConnection};
-use crate::{Error, Result};
+use crate::{Error, FileStoreError, Result};
 
 type DrivesService = DrivesServiceClient<InterceptedService<Channel, AuthInterceptor>>;
 
@@ -223,7 +223,7 @@ fn attribution_parts(
 fn required_drive(drive: Option<proto::Drive>) -> Result<Drive> {
     drive
         .map(Drive::from_proto)
-        .ok_or(Error::MissingResponseField { field: "drive" })
+        .ok_or(FileStoreError::MissingResponseField { field: "drive" }.into())
 }
 
 /// Client for drive operations in the Nominal file store.
