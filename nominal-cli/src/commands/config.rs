@@ -1,13 +1,17 @@
 use anyhow::{Context, bail};
 use clap::{ArgAction, Subcommand};
-use inquire::Text;
-use nominal::{Config, Profile, default_config_path};
+use inquire::{Confirm, Select, Text};
+use nominal::{Config, NominalClient, Profile, User, Workspace, default_config_path};
 
 use crate::context::display_config_path;
-use crate::output::{print_profile_added_success, print_validation_error};
-use crate::validate::{AUTH_DOCS_LINK, ValidationError, validate_profile};
+use crate::output::{
+    print_no_workspaces_found, print_profile_added_success, print_validation_error,
+    print_workspace_fetch_warning,
+};
+use crate::validate::{AUTH_DOCS_LINK, ValidationError, is_api_unreachable, validate_profile};
 
 const DEFAULT_BASE_URL: &str = "https://api.gov.nominal.io/api";
+const MANUAL_WORKSPACE_OPTION: &str = "Enter a workspace RID manually";
 
 #[derive(Subcommand)]
 pub enum ConfigCommands {
@@ -79,6 +83,17 @@ async fn add_profile(
         None
     };
 
+    save_profile(name, url, token, workspace_rid, user.as_ref())
+}
+
+/// Persist a profile to the config file and print the success message.
+fn save_profile(
+    name: &str,
+    url: &str,
+    token: &str,
+    workspace_rid: Option<&str>,
+    user: Option<&User>,
+) -> anyhow::Result<()> {
     let mut config = Config::load_or_default().context("Failed to load config")?;
     config.add_profile(
         name.to_string(),
@@ -91,7 +106,7 @@ async fn add_profile(
     config.save().context("Failed to save config")?;
 
     let config_path = display_config_path(&default_config_path()?);
-    print_profile_added_success(name, user.as_ref(), &config_path);
+    print_profile_added_success(name, user, &config_path);
     Ok(())
 }
 
@@ -188,6 +203,78 @@ async fn handle_init() -> anyhow::Result<()> {
         );
     }
 
+    let workspace_rid = select_workspace(&url, &token).await?;
+
+    // Validate against the API, but stay usable when the API is unreachable:
+    // offer to save without validation rather than blocking setup entirely.
+    match validate_profile(&url, &token, Some(&workspace_rid)).await {
+        Ok(user) => save_profile(&name, &url, &token, Some(&workspace_rid), Some(&user)),
+        Err(err) if is_api_unreachable(&err) => {
+            eprintln!("{err}");
+            let proceed = Confirm::new("Save this profile anyway, without validation?")
+                .with_default(false)
+                .prompt()
+                .context("Failed to read confirmation")?;
+            if proceed {
+                save_profile(&name, &url, &token, Some(&workspace_rid), None)
+            } else {
+                bail!("Aborted. Re-run `nomctl config init` once the API is reachable.");
+            }
+        }
+        Err(err) => Err(map_validation_error(err)),
+    }
+}
+
+/// Prompt for a workspace, fetching the user's accessible workspaces so they can
+/// pick from a list. Always falls back to manual RID entry when the list can't
+/// be fetched (network outage, invalid token) or the user prefers to type it.
+async fn select_workspace(url: &str, token: &str) -> anyhow::Result<String> {
+    match fetch_workspaces(url, token).await {
+        Ok(workspaces) if !workspaces.is_empty() => {
+            let mut options: Vec<String> = workspaces
+                .iter()
+                .map(|w| workspace_label(w.display_name(), w.rid()))
+                .collect();
+            options.push(MANUAL_WORKSPACE_OPTION.to_string());
+
+            let selection = Select::new("Select a workspace:", options)
+                .raw_prompt()
+                .context("Failed to read workspace selection")?;
+
+            if selection.index == workspaces.len() {
+                prompt_workspace_rid()
+            } else {
+                Ok(workspaces[selection.index].rid().to_string())
+            }
+        }
+        Ok(_) => {
+            print_no_workspaces_found();
+            prompt_workspace_rid()
+        }
+        Err(err) => {
+            print_workspace_fetch_warning(&err);
+            prompt_workspace_rid()
+        }
+    }
+}
+
+/// Display label for a workspace in the picker, e.g. `"Flight Test (ri...)"`,
+/// falling back to just the RID when the workspace has no display name.
+fn workspace_label(display_name: Option<&str>, rid: &str) -> String {
+    match display_name {
+        Some(name) => format!("{name} ({rid})"),
+        None => rid.to_string(),
+    }
+}
+
+/// List the workspaces reachable with the given credentials.
+async fn fetch_workspaces(url: &str, token: &str) -> Result<Vec<Workspace>, nominal::Error> {
+    let client = NominalClient::builder(token).base_url(url).build()?;
+    client.workspaces().list_workspaces().await
+}
+
+/// Free-text workspace RID prompt with an empty-input guard.
+fn prompt_workspace_rid() -> anyhow::Result<String> {
     let workspace_rid = Text::new("Workspace RID:")
         .with_help_message("Find this in the Nominal app under Settings > Workspaces")
         .prompt()
@@ -200,7 +287,7 @@ async fn handle_init() -> anyhow::Result<()> {
         );
     }
 
-    add_profile(&name, &url, &token, Some(&workspace_rid), true).await
+    Ok(workspace_rid)
 }
 
 fn map_config_error(err: nominal::Error) -> anyhow::Error {
@@ -225,5 +312,17 @@ mod tests {
     fn validation_error_maps_to_anyhow() {
         let err = map_validation_error(ValidationError::InvalidToken);
         assert!(err.to_string().contains("authorization token"));
+    }
+
+    #[test]
+    fn workspace_label_formats_with_and_without_display_name() {
+        assert_eq!(
+            workspace_label(Some("Flight Test"), "ri.security.x.workspace.abc"),
+            "Flight Test (ri.security.x.workspace.abc)"
+        );
+        assert_eq!(
+            workspace_label(None, "ri.security.x.workspace.abc"),
+            "ri.security.x.workspace.abc"
+        );
     }
 }

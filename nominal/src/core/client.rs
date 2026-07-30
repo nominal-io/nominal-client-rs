@@ -3,8 +3,10 @@ use std::sync::Arc;
 use conjure_http::client::ConjureRuntime;
 use conjure_object::BearerToken;
 use conjure_runtime::{Agent, Client, UserAgent};
+use nominal_api::objects::api::rids::WorkspaceRid;
 
 use crate::config::{Config, Profile};
+use crate::core::rid::parse_rid;
 use crate::core::{
     asset::AssetsClient, catalog::CatalogClient, ingest::IngestClient, run::RunsClient,
     template::TemplatesClient, user::UsersClient, utils::api_base_url_to_app_base_url,
@@ -21,7 +23,7 @@ pub struct NominalClient {
     client: Client,
     runtime: Arc<ConjureRuntime>,
     token: BearerToken,
-    workspace_rid: Option<String>,
+    workspace_rid: Option<WorkspaceRid>,
     base_url: String,
     #[cfg(feature = "drives")]
     grpc: crate::core::grpc::GrpcConnection,
@@ -69,7 +71,7 @@ impl NominalClient {
     }
 
     pub fn workspace_rid(&self) -> Option<&str> {
-        self.workspace_rid.as_deref()
+        self.workspace_rid.as_ref().map(|w| w.0.as_str())
     }
 
     /// Access run operations.
@@ -216,11 +218,16 @@ impl NominalClientBuilder {
         let client = create_client(&self.base_url, self.user_agent)?;
         #[cfg(feature = "drives")]
         let grpc = crate::core::grpc::GrpcConnection::connect_lazy(&self.base_url, &bearer_token)?;
+        let workspace_rid = self
+            .workspace_rid
+            .as_deref()
+            .map(parse_rid::<WorkspaceRid>)
+            .transpose()?;
         Ok(NominalClient {
             client,
             runtime: Arc::new(ConjureRuntime::default()),
             token: bearer_token,
-            workspace_rid: self.workspace_rid,
+            workspace_rid,
             base_url: self.base_url,
             #[cfg(feature = "drives")]
             grpc,

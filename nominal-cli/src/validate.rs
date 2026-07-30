@@ -29,15 +29,22 @@ pub async fn validate_profile(
 fn map_auth_error(err: Error) -> ValidationError {
     match err.http_status() {
         Some(status) => auth_error_for_status(status),
-        None => ValidationError::Unexpected(err.to_string()),
+        None => ValidationError::ApiUnreachable(err.to_string()),
     }
 }
 
 fn map_workspace_error(err: Error) -> ValidationError {
     match err.http_status() {
         Some(status) => workspace_error_for_status(status),
-        None => ValidationError::Unexpected(err.to_string()),
+        None => ValidationError::ApiUnreachable(err.to_string()),
     }
+}
+
+/// Whether the failure means the API could not be reached (transport/network
+/// error), as opposed to a definitive auth or workspace misconfiguration. Used
+/// to decide whether to offer saving a profile without validation.
+pub fn is_api_unreachable(err: &ValidationError) -> bool {
+    matches!(err, ValidationError::ApiUnreachable(_))
 }
 
 fn auth_error_for_status(status: u16) -> ValidationError {
@@ -76,6 +83,11 @@ pub enum ValidationError {
     NoDefaultWorkspace,
 
     #[error(
+        "Could not reach the API. Check your network connection and that the base_url is correct. ({0})"
+    )]
+    ApiUnreachable(String),
+
+    #[error(
         "There is likely a misconfiguration; received status={status}. Contact support for help."
     )]
     WorkspaceMisconfiguration { status: u16 },
@@ -111,5 +123,17 @@ mod tests {
             workspace_error_for_status(403),
             ValidationError::WorkspaceMisconfiguration { status: 403 }
         );
+    }
+
+    #[test]
+    fn only_unreachable_errors_offer_skip() {
+        assert!(is_api_unreachable(&ValidationError::ApiUnreachable(
+            "connection refused".to_string()
+        )));
+        assert!(!is_api_unreachable(&ValidationError::InvalidToken));
+        assert!(!is_api_unreachable(&ValidationError::IncorrectBaseUrl));
+        assert!(!is_api_unreachable(
+            &ValidationError::AuthMisconfiguration { status: 500 }
+        ));
     }
 }

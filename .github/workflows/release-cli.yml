@@ -65,28 +65,33 @@ jobs:
           set -euo pipefail
           tag="${{ github.event.release.tag_name }}"
           version="${tag#nominal-}"
-          name="nom-$version-${{ matrix.target }}"
+          name="nomctl-$version-${{ matrix.target }}"
           mkdir -p "dist/$name"
-          cp "target/${{ matrix.target }}/release/nom" "dist/$name/"
+          cp "target/${{ matrix.target }}/release/nomctl" "dist/$name/"
           cp README.md "dist/$name/" 2>/dev/null || true
           tar -czf "dist/$name.tar.gz" -C dist "$name"
+          ( cd dist && shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256" )
           echo "ASSET=dist/$name.tar.gz" >> $GITHUB_ENV
+          echo "CHECKSUM=dist/$name.tar.gz.sha256" >> $GITHUB_ENV
 
       - name: Package (windows)
         if: matrix.archive == 'zip'
         shell: pwsh
         run: |
           $version = "${{ github.event.release.tag_name }}" -replace '^nominal-', ''
-          $name = "nom-$version-${{ matrix.target }}"
+          $name = "nomctl-$version-${{ matrix.target }}"
           New-Item -ItemType Directory -Force -Path "dist/$name" | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/nom.exe" "dist/$name/"
+          Copy-Item "target/${{ matrix.target }}/release/nomctl.exe" "dist/$name/"
           if (Test-Path README.md) { Copy-Item README.md "dist/$name/" }
           Compress-Archive -Path "dist/$name/*" -DestinationPath "dist/$name.zip"
+          $hash = (Get-FileHash -Algorithm SHA256 "dist/$name.zip").Hash.ToLower()
+          "$hash  $name.zip" | Out-File -Encoding ascii "dist/$name.zip.sha256"
           "ASSET=dist/$name.zip" | Out-File -Encoding ascii -Append $env:GITHUB_ENV
+          "CHECKSUM=dist/$name.zip.sha256" | Out-File -Encoding ascii -Append $env:GITHUB_ENV
 
       - name: Upload to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          gh release upload "${{ github.event.release.tag_name }}" "$ASSET" --clobber
+          gh release upload "${{ github.event.release.tag_name }}" "$ASSET" "$CHECKSUM" --clobber

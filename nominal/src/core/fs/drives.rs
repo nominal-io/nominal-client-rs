@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use nominal_api::objects::api::rids::WorkspaceRid;
 use nominal_api::tonic::nominal::file_store::v1::{
     self as proto, drives_service_client::DrivesServiceClient,
 };
@@ -228,11 +229,11 @@ fn required_drive(drive: Option<proto::Drive>) -> Result<Drive> {
 /// Client for drive operations in the Nominal file store.
 pub struct DrivesClient {
     service: DrivesService,
-    workspace_rid: Option<String>,
+    workspace_rid: Option<WorkspaceRid>,
 }
 
 impl DrivesClient {
-    pub(crate) fn new(connection: &GrpcConnection, workspace_rid: Option<String>) -> Self {
+    pub(crate) fn new(connection: &GrpcConnection, workspace_rid: Option<WorkspaceRid>) -> Self {
         Self {
             service: DrivesServiceClient::with_interceptor(
                 connection.channel(),
@@ -249,7 +250,10 @@ impl DrivesClient {
     }
 
     fn workspace_rid(&self) -> Result<String> {
-        self.workspace_rid.clone().ok_or(Error::WorkspaceRequired)
+        self.workspace_rid
+            .as_ref()
+            .map(ToString::to_string)
+            .ok_or(Error::WorkspaceRequired)
     }
 
     /// Create a managed drive in the workspace.
