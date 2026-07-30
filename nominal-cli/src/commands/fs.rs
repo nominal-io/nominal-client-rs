@@ -10,103 +10,51 @@ pub enum FsCommands {
         #[command(subcommand)]
         drive_command: DriveCommands,
     },
-    /// List files and directories in a Nom drive.
-    #[command(
-        override_usage = "nomctl fs ls [OPTIONS] <DRIVE:PATH>\n  nomctl fs ls [OPTIONS] --drive <DRIVE> [<PATH>]",
-        after_help = "Examples:\n  nomctl fs ls eng:/\n  nomctl fs ls eng:/telemetry\n\n  nomctl fs ls --drive eng\n  nomctl fs ls --drive eng /telemetry"
-    )]
+    /// List files and directories in a Nominal Drive.
+    #[command(after_help = "Examples:\n  nomctl fs ls eng:/\n  nomctl fs ls eng:/telemetry")]
     Ls {
-        /// Select the drive for an unqualified PATH.
-        ///
-        /// Cannot be used with a DRIVE:PATH argument.
-        #[arg(long)]
-        drive: Option<String>,
         /// Drive-qualified path, formatted as DRIVE:/PATH.
-        ///
-        /// With --drive, this is the path within the selected drive. Omit it to list the drive root.
-        #[arg(value_name = "DRIVE:PATH", required_unless_present = "drive")]
-        path: Option<String>,
+        #[arg(value_name = "DRIVE:/PATH")]
+        path: String,
         /// Include removed (soft-deleted) files
         #[arg(long)]
         include_removed: bool,
     },
     /// Put a local file in a drive.
-    #[command(
-        override_usage = "nomctl fs put [OPTIONS] <LOCAL_PATH> <DRIVE:PATH>\n  nomctl fs put [OPTIONS] --drive <DRIVE> <LOCAL_PATH> <PATH>"
-    )]
     Put {
-        /// Drive ID
-        #[arg(long)]
-        drive: Option<String>,
         /// Path to the local file to upload
         local_path: std::path::PathBuf,
         /// Drive-qualified destination path, formatted as DRIVE:/PATH.
-        ///
-        /// With --drive, this is the destination path within the selected drive.
-        #[arg(value_name = "DRIVE:PATH")]
+        #[arg(value_name = "DRIVE:/PATH")]
         destination_path: String,
     },
     /// Move a file to a new path in a drive.
-    #[command(
-        override_usage = "nomctl fs mv [OPTIONS] <DRIVE:SOURCE_PATH> <DRIVE:DESTINATION_PATH>\n  nomctl fs mv [OPTIONS] --drive <DRIVE> <SOURCE_PATH> <DESTINATION_PATH>"
-    )]
     Mv {
-        /// Drive ID
-        #[arg(long)]
-        drive: Option<String>,
         /// Drive-qualified source path, formatted as DRIVE:/PATH.
-        ///
-        /// With --drive, this is the source path within the selected drive.
-        #[arg(value_name = "DRIVE:SOURCE_PATH")]
+        #[arg(value_name = "DRIVE:/SOURCE_PATH")]
         source_path: String,
         /// Drive-qualified destination path, formatted as DRIVE:/PATH.
-        ///
-        /// With --drive, this is the destination path within the selected drive.
-        #[arg(value_name = "DRIVE:DESTINATION_PATH")]
+        #[arg(value_name = "DRIVE:/DESTINATION_PATH")]
         destination_path: String,
     },
     /// Remove a file from a drive.
-    #[command(
-        override_usage = "nomctl fs rm [OPTIONS] <DRIVE:PATH>\n  nomctl fs rm [OPTIONS] --drive <DRIVE> <PATH>"
-    )]
     Rm {
-        /// Drive ID
-        #[arg(long)]
-        drive: Option<String>,
         /// Drive-qualified path, formatted as DRIVE:/PATH.
-        ///
-        /// With --drive, this is the path within the selected drive.
-        #[arg(value_name = "DRIVE:PATH")]
+        #[arg(value_name = "DRIVE:/PATH")]
         path: String,
     },
     /// List the revision history of a file in a drive.
-    #[command(
-        override_usage = "nomctl fs revisions [OPTIONS] <DRIVE:PATH>\n  nomctl fs revisions [OPTIONS] --drive <DRIVE> <PATH>"
-    )]
     Revisions {
-        /// Drive ID
-        #[arg(long)]
-        drive: Option<String>,
         /// Drive-qualified path, formatted as DRIVE:/PATH.
-        ///
-        /// With --drive, this is the path within the selected drive.
-        #[arg(value_name = "DRIVE:PATH")]
+        #[arg(value_name = "DRIVE:/PATH")]
         path: String,
     },
     /// Restore a past revision of a file in a drive.
-    #[command(
-        override_usage = "nomctl fs restore [OPTIONS] <REVISION_RID> <DRIVE:PATH>\n  nomctl fs restore [OPTIONS] --drive <DRIVE> <REVISION_RID> <PATH>"
-    )]
     Restore {
-        /// Drive ID
-        #[arg(long)]
-        drive: Option<String>,
         /// Revision RID to restore (see `nomctl fs revisions`)
         revision_rid: String,
         /// Drive-qualified destination path, formatted as DRIVE:/PATH.
-        ///
-        /// With --drive, this is the destination path within the selected drive.
-        #[arg(value_name = "DRIVE:PATH")]
+        #[arg(value_name = "DRIVE:/PATH")]
         destination_path: String,
     },
 }
@@ -157,11 +105,10 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
     match cmd {
         FsCommands::Drive { drive_command } => handle_drive(drive_command, client).await,
         FsCommands::Ls {
-            drive,
             path,
             include_removed,
         } => {
-            let (drive, path) = parse_ls_target(drive, path)?;
+            let (drive, path) = parse_qualified_path(&path)?;
             let drive_rid = drive_rid_for_id(&client.drives(), &drive).await?;
             let entries = client
                 .files(drive_rid)
@@ -172,11 +119,10 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
             Ok(())
         }
         FsCommands::Put {
-            drive,
             local_path,
             destination_path,
         } => {
-            let (drive, destination_path) = parse_path_for_drive(drive, destination_path)?;
+            let (drive, destination_path) = parse_qualified_path(&destination_path)?;
             let drive_rid = drive_rid_for_id(&client.drives(), &drive).await?;
             let file = client
                 .files(drive_rid)
@@ -196,12 +142,11 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
             Ok(())
         }
         FsCommands::Mv {
-            drive,
             source_path,
             destination_path,
         } => {
             let (drive, source_path, destination_path) =
-                parse_move_paths(drive, source_path, destination_path)?;
+                parse_move_paths(source_path, destination_path)?;
             let drive_rid = drive_rid_for_id(&client.drives(), &drive).await?;
             let files = client.files(drive_rid);
             let source = files
@@ -220,8 +165,8 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
             print_file(&file);
             Ok(())
         }
-        FsCommands::Rm { drive, path } => {
-            let (drive, path) = parse_path_for_drive(drive, path)?;
+        FsCommands::Rm { path } => {
+            let (drive, path) = parse_qualified_path(&path)?;
             let drive_rid = drive_rid_for_id(&client.drives(), &drive).await?;
             let files = client.files(drive_rid);
             let file = files
@@ -236,8 +181,8 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
             print_file(&file);
             Ok(())
         }
-        FsCommands::Revisions { drive, path } => {
-            let (drive, path) = parse_path_for_drive(drive, path)?;
+        FsCommands::Revisions { path } => {
+            let (drive, path) = parse_qualified_path(&path)?;
             let drive_rid = drive_rid_for_id(&client.drives(), &drive).await?;
             let files = client.files(drive_rid);
             let file = files
@@ -264,11 +209,10 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
             Ok(())
         }
         FsCommands::Restore {
-            drive,
             revision_rid,
             destination_path,
         } => {
-            let (drive, destination_path) = parse_path_for_drive(drive, destination_path)?;
+            let (drive, destination_path) = parse_qualified_path(&destination_path)?;
             let drive_rid = drive_rid_for_id(&client.drives(), &drive).await?;
             let files = client.files(drive_rid);
             let file = files
@@ -362,36 +306,12 @@ async fn drive_rid_for_id(drives: &DrivesClient, id: &str) -> anyhow::Result<Str
     Ok(get_drive_by_id(drives, id).await?.rid().to_string())
 }
 
-fn parse_ls_target(
-    drive: Option<String>,
-    path: Option<String>,
-) -> anyhow::Result<(String, String)> {
-    match (drive, path) {
-        (Some(drive), None) => Ok((drive, String::new())),
-        (drive, Some(path)) => parse_path_for_drive(drive, path),
-        (None, None) => anyhow::bail!("provide DRIVE:PATH or select a drive with --drive"),
-    }
-}
-
-fn parse_path_for_drive(drive: Option<String>, path: String) -> anyhow::Result<(String, String)> {
-    match drive {
-        Some(drive) => {
-            if path.contains(':') {
-                anyhow::bail!("cannot combine --drive with a DRIVE:PATH argument");
-            }
-            Ok((drive, path.trim_start_matches('/').to_string()))
-        }
-        None => parse_qualified_path(&path),
-    }
-}
-
 fn parse_move_paths(
-    drive: Option<String>,
     source_path: String,
     destination_path: String,
 ) -> anyhow::Result<(String, String, String)> {
-    let (source_drive, source_path) = parse_path_for_drive(drive.clone(), source_path)?;
-    let (destination_drive, destination_path) = parse_path_for_drive(drive, destination_path)?;
+    let (source_drive, source_path) = parse_qualified_path(&source_path)?;
+    let (destination_drive, destination_path) = parse_qualified_path(&destination_path)?;
     if source_drive != destination_drive {
         anyhow::bail!("cross-drive moves are not supported");
     }
@@ -476,38 +396,22 @@ mod tests {
     }
 
     #[test]
-    fn list_target_accepts_a_drive_qualified_path() {
+    fn qualified_path_parses_a_drive_and_relative_path() {
         assert_eq!(
-            parse_ls_target(None, Some("eng:/telemetry".to_string())).unwrap(),
+            parse_qualified_path("eng:/telemetry").unwrap(),
             ("eng".to_string(), "telemetry".to_string())
         );
     }
 
     #[test]
-    fn list_target_accepts_a_drive_flag_with_an_optional_path() {
-        assert_eq!(
-            parse_ls_target(Some("eng".to_string()), None).unwrap(),
-            ("eng".to_string(), String::new())
-        );
-        assert_eq!(
-            parse_ls_target(Some("eng".to_string()), Some("/telemetry".to_string())).unwrap(),
-            ("eng".to_string(), "telemetry".to_string())
-        );
-    }
-
-    #[test]
-    fn list_target_rejects_ambiguous_or_unqualified_paths() {
-        assert!(parse_ls_target(None, Some("telemetry".to_string())).is_err());
-        assert!(
-            parse_ls_target(Some("eng".to_string()), Some("ops:/telemetry".to_string())).is_err()
-        );
+    fn qualified_path_rejects_an_unqualified_path() {
+        assert!(parse_qualified_path("telemetry").is_err());
     }
 
     #[test]
     fn move_paths_must_reference_the_same_drive() {
         assert_eq!(
             parse_move_paths(
-                None,
                 "eng:/telemetry/flight-042.mcap".to_string(),
                 "eng:/archived/flight-042.mcap".to_string(),
             )
@@ -520,7 +424,6 @@ mod tests {
         );
         assert!(
             parse_move_paths(
-                None,
                 "eng:/telemetry/flight-042.mcap".to_string(),
                 "ops:/archived/flight-042.mcap".to_string(),
             )
