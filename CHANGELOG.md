@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.5.3...nominal-v0.6.0) - 2026-07-31
+
+### Added
+
+- add unstable `nomctl fs` subcommand ([#102](https://github.com/nominal-io/nominal-client-rs/pull/102))
+
 ## [0.5.3](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.5.2...nominal-v0.5.3) - 2026-07-17
 
 ### Fixed
