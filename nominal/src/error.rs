@@ -23,9 +23,7 @@ impl TryFrom<tonic::Status> for TransportError {
     fn try_from(status: tonic::Status) -> std::result::Result<Self, Self::Error> {
         match status.code() {
             tonic::Code::Cancelled
-            | tonic::Code::Unknown
             | tonic::Code::DeadlineExceeded
-            | tonic::Code::Internal
             | tonic::Code::Unavailable
             | tonic::Code::DataLoss => Ok(Self::new(status)),
             _ => Err(status),
@@ -212,9 +210,12 @@ mod tests {
 
     #[test]
     fn classifies_non_transport_grpc_statuses_as_unexpected_errors() {
-        assert!(matches!(
-            Error::from(tonic::Status::not_found("missing")),
-            Error::Unexpected(_)
-        ));
+        for status in [
+            tonic::Status::not_found("missing"),
+            tonic::Status::unknown("unknown"),
+            tonic::Status::internal("internal"),
+        ] {
+            assert!(matches!(Error::from(status), Error::Unexpected(_)));
+        }
     }
 }
