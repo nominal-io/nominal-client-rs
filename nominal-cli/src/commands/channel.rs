@@ -175,6 +175,7 @@ fn data_type_str(t: &ChannelDataType) -> String {
         ChannelDataType::StringArray => "StringArray".into(),
         ChannelDataType::Struct => "Struct".into(),
         ChannelDataType::Video => "Video".into(),
+        ChannelDataType::Spatial => "Spatial".into(),
         ChannelDataType::Unknown(s) => format!("Unknown({s})"),
     }
 }

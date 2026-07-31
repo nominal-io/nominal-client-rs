@@ -4,6 +4,52 @@ use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+#[cfg(feature = "drives")]
+#[derive(Debug, Error)]
+#[error("transport error")]
+pub struct TransportError(#[source] Box<dyn std::error::Error + Send + Sync + 'static>);
+
+#[cfg(feature = "drives")]
+impl TransportError {
+    pub(crate) fn new(error: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self(Box::new(error))
+    }
+}
+
+#[cfg(feature = "drives")]
+impl TryFrom<tonic::Status> for TransportError {
+    type Error = tonic::Status;
+
+    fn try_from(status: tonic::Status) -> std::result::Result<Self, Self::Error> {
+        match status.code() {
+            tonic::Code::Cancelled
+            | tonic::Code::DeadlineExceeded
+            | tonic::Code::Unavailable
+            | tonic::Code::DataLoss => Ok(Self::new(status)),
+            _ => Err(status),
+        }
+    }
+}
+
+#[cfg(feature = "drives")]
+#[derive(Debug, Error)]
+#[error("unexpected error")]
+pub struct UnexpectedError(#[source] Box<dyn std::error::Error + Send + Sync + 'static>);
+
+#[cfg(feature = "drives")]
+impl UnexpectedError {
+    fn new(error: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self(Box::new(error))
+    }
+}
+
+#[cfg(feature = "drives")]
+#[derive(Debug, Error)]
+pub enum FileStoreError {
+    #[error("file store operation failed ({code}): {message}")]
+    ChangeFailed { code: String, message: String },
+}
+
 #[non_exhaustive]
 #[derive(Debug, Error)]
 pub enum Error {
@@ -74,6 +120,37 @@ pub enum Error {
 
     #[error("ingest error: {details}")]
     Ingest { details: String },
+
+    #[error("unexpected API response: missing required field '{field}'")]
+    UnexpectedResponse { field: &'static str },
+
+    #[cfg(feature = "drives")]
+    #[error(transparent)]
+    Transport(#[from] TransportError),
+
+    #[cfg(feature = "drives")]
+    #[error(transparent)]
+    Unexpected(UnexpectedError),
+
+    #[cfg(feature = "drives")]
+    #[error(
+        "workspace RID required for this operation: set workspace_rid on the profile or client builder"
+    )]
+    WorkspaceRequired,
+
+    #[cfg(feature = "drives")]
+    #[error(transparent)]
+    FileStore(#[from] FileStoreError),
+}
+
+#[cfg(feature = "drives")]
+impl From<tonic::Status> for Error {
+    fn from(status: tonic::Status) -> Self {
+        match TransportError::try_from(status) {
+            Ok(error) => Self::Transport(error),
+            Err(status) => Self::Unexpected(UnexpectedError::new(status)),
+        }
+    }
 }
 
 impl From<RidConversionError> for Error {
@@ -115,6 +192,30 @@ impl Error {
         match self {
             Self::Conjure { status, .. } => *status,
             _ => None,
+        }
+    }
+}
+
+#[cfg(all(test, feature = "drives"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classifies_transient_grpc_statuses_as_transport_errors() {
+        assert!(matches!(
+            Error::from(tonic::Status::unavailable("network unavailable")),
+            Error::Transport(_)
+        ));
+    }
+
+    #[test]
+    fn classifies_non_transport_grpc_statuses_as_unexpected_errors() {
+        for status in [
+            tonic::Status::not_found("missing"),
+            tonic::Status::unknown("unknown"),
+            tonic::Status::internal("internal"),
+        ] {
+            assert!(matches!(Error::from(status), Error::Unexpected(_)));
         }
     }
 }

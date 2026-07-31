@@ -7,6 +7,11 @@ license = "Apache-2.0"
 description = "Automate Nominal workflows in Rust"
 homepage = "https://nominal.io"
 
+[features]
+default = []
+drives = ["dep:tonic"]
+unstable = ["drives"]
+
 [dependencies]
 bytes = "1"
 chrono = { version = "0.4", features = ["clock", "std"] }
@@ -16,14 +21,15 @@ conjure-http = "5.10"
 conjure-object = "5.10"
 conjure-runtime = { package = "conjure-runtime-rustls-platform-verifier", version = "0.2" }
 dirs = "5"
-nominal-api = "0.1218"
-nominal-streaming = "0.9.1"
+nominal-api = "0.1349.0"
+nominal-streaming = "0.9.3"
 regex = "1.12"
-reqwest = { version = "0.12", default-features = false, features = ["http2", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["http2", "rustls-tls-native-roots"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9.34"
 thiserror = "2"
+tonic = { version = "0.13", features = ["tls-ring", "tls-native-roots"], optional = true }
 tokio = { version = "1", features = [
     "fs",
     "io-util",

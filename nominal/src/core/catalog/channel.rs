@@ -110,6 +110,7 @@ pub enum ChannelDataType {
     StringArray,
     Struct,
     Video,
+    Spatial,
     /// A data type this client does not recognize.
     Unknown(String),
 }
@@ -126,6 +127,7 @@ impl From<&ApiSeriesDataType> for ChannelDataType {
             ApiSeriesDataType::StringArray => Self::StringArray,
             ApiSeriesDataType::Struct => Self::Struct,
             ApiSeriesDataType::Video => Self::Video,
+            ApiSeriesDataType::Spatial => Self::Spatial,
             ApiSeriesDataType::Unknown(u) => Self::Unknown(u.to_string()),
         }
     }
@@ -145,6 +147,7 @@ impl ChannelDataType {
             Self::StringArray => ApiSeriesDataType::StringArray,
             Self::Struct => ApiSeriesDataType::Struct,
             Self::Video => ApiSeriesDataType::Video,
+            Self::Spatial => ApiSeriesDataType::Spatial,
             Self::Unknown(_) => return None,
         })
     }
@@ -160,6 +163,7 @@ impl ChannelDataType {
             Self::StringArray => NominalDataType::StringArray,
             Self::Struct => NominalDataType::Struct,
             Self::Video => NominalDataType::Video,
+            Self::Spatial => NominalDataType::Spatial,
             Self::Unknown(data_type) => {
                 return Err(Error::UnsupportedChannelDataType { data_type });
             }

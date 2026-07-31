@@ -42,6 +42,10 @@ impl DataSource {
                 tracing::debug!(rid = %rid, "ignoring deprecated log-set data source");
                 None
             }
+            ConjureDataSource::Spatial(rid) => {
+                tracing::debug!(rid = %rid, "ignoring unsupported spatial data source");
+                None
+            }
             ConjureDataSource::Unknown(u) => {
                 tracing::warn!(type_ = ?u, "ignoring unknown data source variant");
                 None

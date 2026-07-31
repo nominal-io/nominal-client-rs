@@ -8,11 +8,13 @@ use std::{
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-    let crate_root = find_nominal_api_root();
-
-    let conjure_json = crate_root.join("definitions/conjure/scout-service-api.conjure.json");
-    let protos_dir = crate_root.join("definitions/protos");
-    let includes_dir = crate_root.join("definitions/proto-includes");
+    // The API definitions ship with the split binding crates: conjure IR with
+    // `nominal-api-conjure`, protos with `nominal-api-proto`.
+    let conjure_json = find_api_crate_root("nominal-api-conjure", "definitions/conjure")
+        .join("definitions/conjure/scout-service-api.conjure.json");
+    let proto_root = find_api_crate_root("nominal-api-proto", "definitions/protos");
+    let protos_dir = proto_root.join("definitions/protos");
+    let includes_dir = proto_root.join("definitions/proto-includes");
 
     println!("cargo:rerun-if-changed={}", conjure_json.display());
     println!("cargo:rerun-if-changed={}", protos_dir.display());
@@ -22,11 +24,22 @@ fn main() {
     generate_proto_descriptor(protos_dir.as_path(), includes_dir.as_path(), &out_dir);
 }
 
-fn find_nominal_api_root() -> PathBuf {
+fn find_api_crate_root(crate_name: &str, definitions_marker: &str) -> PathBuf {
     if let Ok(meta) = cargo_metadata::MetadataCommand::new().exec() {
-        if let Some(nominal_api) = meta.packages.iter().find(|p| p.name == "nominal-api") {
-            if let Some(root) = nominal_api.manifest_path.parent() {
-                return root.as_std_path().to_path_buf();
+        if let Some(package) = meta
+            .packages
+            .iter()
+            .filter(|p| p.name == crate_name)
+            .filter(|p| {
+                p.manifest_path
+                    .parent()
+                    .is_some_and(|root| root.as_std_path().join(definitions_marker).exists())
+            })
+            .max_by_key(|p| p.version.clone())
+        {
+            if let Some(root) = package.manifest_path.parent() {
+                let root = root.as_std_path().to_path_buf();
+                return root;
             }
         }
     }
@@ -37,7 +50,7 @@ fn find_nominal_api_root() -> PathBuf {
         .expect("neither CARGO_HOME nor HOME is set");
 
     let registry_src = cargo_home.join("registry/src");
-    let nominal_api_version = locked_nominal_api_version();
+    let version = locked_crate_version(crate_name);
     let mut candidates = Vec::new();
 
     for registry in fs::read_dir(&registry_src).unwrap_or_else(|e| {
@@ -64,10 +77,8 @@ fn find_nominal_api_root() -> PathBuf {
                 continue;
             };
 
-            if name == format!("nominal-api-{nominal_api_version}")
-                && package_path
-                    .join("definitions/conjure/scout-service-api.conjure.json")
-                    .is_file()
+            if name == format!("{crate_name}-{version}")
+                && package_path.join(definitions_marker).exists()
             {
                 candidates.push(package_path);
             }
@@ -77,10 +88,10 @@ fn find_nominal_api_root() -> PathBuf {
     candidates.sort();
     candidates
         .pop()
-        .expect("nominal-api crate source not found in cargo registry")
+        .unwrap_or_else(|| panic!("{crate_name} crate source not found in cargo registry"))
 }
 
-fn locked_nominal_api_version() -> String {
+fn locked_crate_version(crate_name: &str) -> String {
     let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let lockfile = [
         manifest_dir.join("Cargo.lock"),
@@ -92,18 +103,18 @@ fn locked_nominal_api_version() -> String {
     let raw = fs::read_to_string(&lockfile)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", lockfile.display()));
 
-    let mut in_nominal_api = false;
+    let mut in_package = false;
     for line in raw.lines() {
         let line = line.trim();
         if line == "[[package]]" {
-            in_nominal_api = false;
+            in_package = false;
             continue;
         }
-        if line == "name = \"nominal-api\"" {
-            in_nominal_api = true;
+        if line == format!("name = \"{crate_name}\"") {
+            in_package = true;
             continue;
         }
-        if in_nominal_api {
+        if in_package {
             if let Some(version) = line
                 .strip_prefix("version = \"")
                 .and_then(|rest| rest.strip_suffix('"'))
@@ -113,7 +124,7 @@ fn locked_nominal_api_version() -> String {
         }
     }
 
-    panic!("nominal-api package not found in {}", lockfile.display());
+    panic!("{crate_name} package not found in {}", lockfile.display());
 }
 
 fn generate_conjure_endpoints(json_path: &Path, out_dir: &Path) {

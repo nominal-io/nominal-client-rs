@@ -57,7 +57,7 @@ impl WorkspacesClient {
     pub async fn list_workspaces(&self) -> Result<Vec<Workspace>> {
         let workspaces = self
             .service
-            .get_workspaces(&self.token)
+            .get_workspaces(&self.token, None, None)
             .await
             .map_err(Error::from)?;
 
