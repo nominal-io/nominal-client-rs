@@ -52,6 +52,10 @@ pub enum AssetCommands {
         name: String,
         /// The RID of the dataset to attach
         dataset_rid: String,
+
+        /// Filter the scope to series whose tags match KEY VALUE: --series-tag KEY VALUE. Repeatable
+        #[arg(long = "series-tag", value_names = ["KEY", "VALUE"], num_args = 2, action = clap::ArgAction::Append)]
+        series_tags: Vec<String>,
     },
     /// Attach a video to an asset under a scope name
     AddVideo {
@@ -179,12 +183,21 @@ pub async fn handle(cmd: AssetCommands, client: NominalClient) -> anyhow::Result
             rid,
             name,
             dataset_rid,
+            series_tags,
         } => {
-            let asset = client
-                .assets()
-                .add_dataset(&rid, &name, &dataset_rid)
-                .await
-                .with_context(|| format!("Failed to attach dataset to asset '{rid}'"))?;
+            let asset = if series_tags.is_empty() {
+                client.assets().add_dataset(&rid, &name, &dataset_rid).await
+            } else {
+                let tags: Vec<(String, String)> = series_tags
+                    .chunks(2)
+                    .map(|pair| (pair[0].clone(), pair[1].clone()))
+                    .collect();
+                client
+                    .assets()
+                    .add_dataset_with_tags(&rid, &name, &dataset_rid, tags)
+                    .await
+            }
+            .with_context(|| format!("Failed to attach dataset to asset '{rid}'"))?;
             print_asset(&asset);
         }
         AssetCommands::AddVideo {
