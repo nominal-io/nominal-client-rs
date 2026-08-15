@@ -29,6 +29,7 @@ pub enum FsCommands {
         destination_path: String,
     },
     /// Download a file from a drive to a local file.
+    #[command(alias = "dl")]
     Download {
         /// Drive-qualified source path, formatted as DRIVE:/PATH.
         #[arg(value_name = "DRIVE:/PATH")]
