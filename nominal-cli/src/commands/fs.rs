@@ -183,7 +183,7 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
             tokio::io::copy(&mut reader, &mut file)
                 .await
                 .with_context(|| {
-                    format!("Failed to write download to '{}'", local_path.display())
+                    format!("Failed to download to '{}'", local_path.display())
                 })?;
             Ok(())
         }
