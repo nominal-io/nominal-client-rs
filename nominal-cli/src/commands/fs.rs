@@ -404,6 +404,23 @@ fn print_file(file: &nominal::core::LogicalFile) {
     println!("{}\t{}\t{}", file.path(), file.size_bytes(), file.state());
 }
 
+fn print_drive(drive: &Drive) {
+    println!("RID: {}", drive.rid());
+    println!("ID: {}", drive.id());
+    println!("Source: {}", drive.source());
+    println!("Content mutability: {}", drive.content_mutability());
+    println!("State: {}", drive.state());
+    if let Some(created_at) = drive.created_at() {
+        println!(
+            "Created: {}",
+            created_at.to_rfc3339_opts(SecondsFormat::Nanos, true)
+        );
+    }
+    if let Some(created_by) = drive.created_by() {
+        println!("Created by: {created_by}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -449,22 +466,5 @@ mod tests {
         );
         assert!(parse_relative_path("archived/flight-042.mcap").is_err());
         assert!(parse_relative_path("ops:/archived/flight-042.mcap").is_err());
-    }
-}
-
-fn print_drive(drive: &Drive) {
-    println!("RID: {}", drive.rid());
-    println!("ID: {}", drive.id());
-    println!("Source: {}", drive.source());
-    println!("Content mutability: {}", drive.content_mutability());
-    println!("State: {}", drive.state());
-    if let Some(created_at) = drive.created_at() {
-        println!(
-            "Created: {}",
-            created_at.to_rfc3339_opts(SecondsFormat::Nanos, true)
-        );
-    }
-    if let Some(created_by) = drive.created_by() {
-        println!("Created by: {created_by}");
     }
 }
