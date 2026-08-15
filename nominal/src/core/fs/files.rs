@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use conjure_http::client::ConjureRuntime;
 use conjure_object::BearerToken;
 use conjure_runtime::Client;
+use futures::StreamExt;
 use nominal_api::objects::ingest::api::UploadDestination;
 use nominal_api::tonic::nominal::file_store::v1::{
     self as proto, files_service_client::FilesServiceClient,
@@ -326,6 +327,49 @@ impl DriveFilesClient {
         };
         let response = self.service().get_file(request).await?.into_inner();
         LogicalFile::from_proto(response.file.required("GetFileResponse.file")?)
+    }
+
+    /// Download the current content of the file at `path` to `local_path`.
+    ///
+    /// The file's current managed revision is resolved first, then its
+    /// short-lived presigned URL is streamed to the local destination.
+    pub async fn download(&self, path: &str, local_path: impl AsRef<Path>) -> Result<()> {
+        let file = self.get(path).await?;
+        let revision_rid = file
+            .current_revision_rid()
+            .ok_or_else(|| crate::Error::Download {
+                details: format!("'{path}' has no managed revision to download (read-only drive?)"),
+            })?;
+
+        let response = self
+            .service()
+            .get_download_url(proto::GetDownloadUrlRequest {
+                file_revision_rid: revision_rid.to_string(),
+            })
+            .await?
+            .into_inner();
+        let response = reqwest::Client::new()
+            .get(response.url)
+            .send()
+            .await
+            .map_err(|error| crate::Error::Download {
+                details: format!("failed to fetch presigned URL: {error}"),
+            })?
+            .error_for_status()
+            .map_err(|error| crate::Error::Download {
+                details: format!("download request returned an error: {error}"),
+            })?;
+
+        let mut file = tokio::fs::File::create(local_path).await?;
+        let mut body = response.bytes_stream();
+        while let Some(chunk) = body.next().await {
+            let chunk = chunk.map_err(|error| crate::Error::Download {
+                details: format!("failed while reading download: {error}"),
+            })?;
+            tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await?;
+        }
+        tokio::io::AsyncWriteExt::flush(&mut file).await?;
+        Ok(())
     }
 
     /// List revisions for a managed file, oldest first. Collects all pages eagerly.

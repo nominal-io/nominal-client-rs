@@ -28,6 +28,14 @@ pub enum FsCommands {
         #[arg(value_name = "DRIVE:/PATH")]
         destination_path: String,
     },
+    /// Download a file from a drive to a local file.
+    Download {
+        /// Drive-qualified source path, formatted as DRIVE:/PATH.
+        #[arg(value_name = "DRIVE:/PATH")]
+        source_path: String,
+        /// Local file to create or replace. Defaults to the source path relative to the current directory.
+        local_path: Option<std::path::PathBuf>,
+    },
     /// Move a file to a new path in a drive.
     Mv {
         /// Drive-qualified source path, formatted as DRIVE:/PATH.
@@ -139,6 +147,33 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
                     )
                 })?;
             print_file(&file);
+            Ok(())
+        }
+        FsCommands::Download {
+            source_path,
+            local_path,
+        } => {
+            let (drive, source_path) = parse_qualified_path(&source_path)?;
+            let local_path = local_path.unwrap_or_else(|| std::path::PathBuf::from(&source_path));
+            if let Some(parent) = local_path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+            {
+                tokio::fs::create_dir_all(parent).await.with_context(|| {
+                    format!("Failed to create local directory '{}'", parent.display())
+                })?;
+            }
+            let drive_rid = drive_rid_for_id(&client.drives(), &drive).await?;
+            client
+                .files(drive_rid)
+                .download(&source_path, &local_path)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Failed to download '{source_path}' from drive '{drive}' to '{}'",
+                        local_path.display()
+                    )
+                })?;
             Ok(())
         }
         FsCommands::Mv {

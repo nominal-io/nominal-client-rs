@@ -118,6 +118,9 @@ pub enum Error {
     #[error("multipart upload failed: {details}")]
     Upload { details: String },
 
+    #[error("file download failed: {details}")]
+    Download { details: String },
+
     #[error("ingest error: {details}")]
     Ingest { details: String },
 
