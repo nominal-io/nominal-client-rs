@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.6.0...nominal-v0.7.0) - 2026-08-15
+
+### Added
+
+- *(drives)* add file download, remove drives ff ([#144](https://github.com/nominal-io/nominal-client-rs/pull/144))
+
 ## [0.6.0](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.5.3...nominal-v0.6.0) - 2026-07-31
 
 ### Added
