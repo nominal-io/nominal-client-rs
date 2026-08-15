@@ -12,9 +12,7 @@ name = "nomctl"
 path = "src/main.rs"
 
 [features]
-default = []
-drives = ["nominal/drives"]
-unstable = ["drives"]
+unstable = []
 
 [dependencies]
 nominal = { version = "0.6.0", path = "../nominal" }

@@ -5,7 +5,6 @@ pub mod config;
 pub mod connection;
 pub mod dataset;
 pub mod endpoint;
-#[cfg(feature = "drives")]
 pub mod fs;
 pub mod grpc;
 pub mod ingest;

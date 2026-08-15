@@ -28,6 +28,15 @@ pub enum FsCommands {
         #[arg(value_name = "DRIVE:/PATH")]
         destination_path: String,
     },
+    /// Download a file from a drive to a local file.
+    #[command(alias = "dl")]
+    Download {
+        /// Drive-qualified source path, formatted as DRIVE:/PATH.
+        #[arg(value_name = "DRIVE:/PATH")]
+        source_path: String,
+        /// Local file to create or replace. Defaults to the source path relative to the current directory.
+        local_path: Option<std::path::PathBuf>,
+    },
     /// Move a file to a new path in a drive.
     Mv {
         /// Drive-qualified source path, formatted as DRIVE:/PATH.
@@ -139,6 +148,43 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
                     )
                 })?;
             print_file(&file);
+            Ok(())
+        }
+        FsCommands::Download {
+            source_path,
+            local_path,
+        } => {
+            let (drive, source_path) = parse_qualified_path(&source_path)?;
+            let local_path = local_path.unwrap_or_else(|| std::path::PathBuf::from(&source_path));
+            if let Some(parent) = local_path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+            {
+                tokio::fs::create_dir_all(parent).await.with_context(|| {
+                    format!("Failed to create local directory '{}'", parent.display())
+                })?;
+            }
+            let drive_rid = drive_rid_for_id(&client.drives(), &drive).await?;
+            let mut reader = client
+                .files(drive_rid)
+                .download(&source_path)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Failed to download '{source_path}' from drive '{drive}' to '{}'",
+                        local_path.display()
+                    )
+                })?;
+            let mut file = tokio::fs::File::create(&local_path)
+                .await
+                .with_context(|| {
+                    format!("Failed to create local file '{}'", local_path.display())
+                })?;
+            tokio::io::copy(&mut reader, &mut file)
+                .await
+                .with_context(|| {
+                    format!("Failed to download to '{}'", local_path.display())
+                })?;
             Ok(())
         }
         FsCommands::Mv {
@@ -368,6 +414,23 @@ fn print_file(file: &nominal::core::LogicalFile) {
     println!("{}\t{}\t{}", file.path(), file.size_bytes(), file.state());
 }
 
+fn print_drive(drive: &Drive) {
+    println!("RID: {}", drive.rid());
+    println!("ID: {}", drive.id());
+    println!("Source: {}", drive.source());
+    println!("Content mutability: {}", drive.content_mutability());
+    println!("State: {}", drive.state());
+    if let Some(created_at) = drive.created_at() {
+        println!(
+            "Created: {}",
+            created_at.to_rfc3339_opts(SecondsFormat::Nanos, true)
+        );
+    }
+    if let Some(created_by) = drive.created_by() {
+        println!("Created by: {created_by}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -413,22 +476,5 @@ mod tests {
         );
         assert!(parse_relative_path("archived/flight-042.mcap").is_err());
         assert!(parse_relative_path("ops:/archived/flight-042.mcap").is_err());
-    }
-}
-
-fn print_drive(drive: &Drive) {
-    println!("RID: {}", drive.rid());
-    println!("ID: {}", drive.id());
-    println!("Source: {}", drive.source());
-    println!("Content mutability: {}", drive.content_mutability());
-    println!("State: {}", drive.state());
-    if let Some(created_at) = drive.created_at() {
-        println!(
-            "Created: {}",
-            created_at.to_rfc3339_opts(SecondsFormat::Nanos, true)
-        );
-    }
-    if let Some(created_by) = drive.created_by() {
-        println!("Created by: {created_by}");
     }
 }

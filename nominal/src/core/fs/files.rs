@@ -5,10 +5,13 @@ use chrono::{DateTime, Utc};
 use conjure_http::client::ConjureRuntime;
 use conjure_object::BearerToken;
 use conjure_runtime::Client;
+use futures::TryStreamExt;
 use nominal_api::objects::ingest::api::UploadDestination;
 use nominal_api::tonic::nominal::file_store::v1::{
     self as proto, files_service_client::FilesServiceClient,
 };
+use tokio::io::AsyncRead;
+use tokio_util::io::StreamReader;
 use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
 
@@ -326,6 +329,44 @@ impl DriveFilesClient {
         };
         let response = self.service().get_file(request).await?.into_inner();
         LogicalFile::from_proto(response.file.required("GetFileResponse.file")?)
+    }
+
+    /// Open the current content of the file at `path` for streaming download.
+    ///
+    /// The file's current managed revision is resolved first, then its
+    /// short-lived presigned URL is opened. The returned reader owns the HTTP
+    /// response and should be consumed promptly because the URL is short-lived.
+    pub async fn download(&self, path: &str) -> Result<impl AsyncRead + Unpin + use<>> {
+        let file = self.get(path).await?;
+        let revision_rid = file
+            .current_revision_rid()
+            .ok_or_else(|| crate::Error::Download {
+                details: format!("'{path}' has no managed revision to download (read-only drive?)"),
+            })?;
+
+        let response = self
+            .service()
+            .get_download_url(proto::GetDownloadUrlRequest {
+                file_revision_rid: revision_rid.to_string(),
+            })
+            .await?
+            .into_inner();
+        let response = reqwest::Client::new()
+            .get(response.url)
+            .send()
+            .await
+            .map_err(|error| crate::Error::Download {
+                details: format!("failed to fetch presigned URL: {error}"),
+            })?
+            .error_for_status()
+            .map_err(|error| crate::Error::Download {
+                details: format!("download request returned an error: {error}"),
+            })?;
+
+        let body = response.bytes_stream().map_err(|error| {
+            std::io::Error::other(format!("failed while reading download: {error}"))
+        });
+        Ok(StreamReader::new(body))
     }
 
     /// List revisions for a managed file, oldest first. Collects all pages eagerly.
