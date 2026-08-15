@@ -11,7 +11,6 @@ use commands::config::ConfigCommands;
 use commands::connection::ConnectionCommands;
 use commands::dataset::DatasetCommands;
 use commands::endpoint::EndpointCommands;
-#[cfg(feature = "drives")]
 use commands::fs::FsCommands;
 use commands::ingest::IngestCommands;
 use commands::run::RunCommands;
@@ -63,7 +62,6 @@ enum Commands {
         endpoint_command: EndpointCommands,
     },
     /// File Store commands
-    #[cfg(feature = "drives")]
     Fs {
         #[command(subcommand)]
         fs_command: FsCommands,
@@ -152,7 +150,6 @@ async fn run() -> anyhow::Result<()> {
             commands::dataset::handle(dataset_command, client).await
         }
         Commands::Endpoint { endpoint_command } => commands::endpoint::handle(endpoint_command),
-        #[cfg(feature = "drives")]
         Commands::Fs { fs_command } => {
             let client = commands::load_client(cli.profile.as_deref())?;
             commands::fs::handle(fs_command, client).await

@@ -3,9 +3,7 @@ pub(crate) mod catalog;
 pub(crate) mod client;
 pub(crate) mod datasource;
 pub(crate) mod datetime;
-#[cfg(feature = "drives")]
 pub(crate) mod fs;
-#[cfg(feature = "drives")]
 pub(crate) mod grpc;
 pub(crate) mod ingest;
 pub(crate) mod rid;
@@ -24,7 +22,6 @@ pub use catalog::{
 };
 pub use client::{NominalClient, NominalClientBuilder};
 pub use datasource::DataSource;
-#[cfg(feature = "drives")]
 pub use fs::{
     Directory, Drive, DriveFilesClient, DriveKind, DriveMutability, DriveSource, DriveState,
     DrivesClient, FileEntry, FileOperationDestination, FileRevision, FileState, LogicalFile,

@@ -25,7 +25,6 @@ pub struct NominalClient {
     token: BearerToken,
     workspace_rid: Option<WorkspaceRid>,
     base_url: String,
-    #[cfg(feature = "drives")]
     grpc: crate::core::grpc::GrpcConnection,
 }
 
@@ -139,13 +138,11 @@ impl NominalClient {
     }
 
     /// Access drive operations in the Nominal file store.
-    #[cfg(feature = "drives")]
     pub fn drives(&self) -> crate::core::fs::DrivesClient {
         crate::core::fs::DrivesClient::new(&self.grpc, self.workspace_rid.clone())
     }
 
     /// Access file operations scoped to `drive_rid` in the Nominal file store.
-    #[cfg(feature = "drives")]
     pub fn files(&self, drive_rid: impl Into<String>) -> crate::core::fs::DriveFilesClient {
         crate::core::fs::DriveFilesClient::new(
             &self.grpc,
@@ -216,7 +213,6 @@ impl NominalClientBuilder {
     pub fn build(self) -> Result<NominalClient> {
         let bearer_token = create_bearer_token(&self.token)?;
         let client = create_client(&self.base_url, self.user_agent)?;
-        #[cfg(feature = "drives")]
         let grpc = crate::core::grpc::GrpcConnection::connect_lazy(&self.base_url, &bearer_token)?;
         let workspace_rid = self
             .workspace_rid
@@ -229,7 +225,6 @@ impl NominalClientBuilder {
             token: bearer_token,
             workspace_rid,
             base_url: self.base_url,
-            #[cfg(feature = "drives")]
             grpc,
         })
     }
