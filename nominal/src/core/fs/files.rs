@@ -5,11 +5,13 @@ use chrono::{DateTime, Utc};
 use conjure_http::client::ConjureRuntime;
 use conjure_object::BearerToken;
 use conjure_runtime::Client;
-use futures::StreamExt;
+use futures::TryStreamExt;
 use nominal_api::objects::ingest::api::UploadDestination;
 use nominal_api::tonic::nominal::file_store::v1::{
     self as proto, files_service_client::FilesServiceClient,
 };
+use tokio::io::AsyncRead;
+use tokio_util::io::StreamReader;
 use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
 
@@ -329,11 +331,12 @@ impl DriveFilesClient {
         LogicalFile::from_proto(response.file.required("GetFileResponse.file")?)
     }
 
-    /// Download the current content of the file at `path` to `local_path`.
+    /// Open the current content of the file at `path` for streaming download.
     ///
     /// The file's current managed revision is resolved first, then its
-    /// short-lived presigned URL is streamed to the local destination.
-    pub async fn download(&self, path: &str, local_path: impl AsRef<Path>) -> Result<()> {
+    /// short-lived presigned URL is opened. The returned reader owns the HTTP
+    /// response and should be consumed promptly because the URL is short-lived.
+    pub async fn download(&self, path: &str) -> Result<impl AsyncRead + Unpin + use<>> {
         let file = self.get(path).await?;
         let revision_rid = file
             .current_revision_rid()
@@ -360,16 +363,10 @@ impl DriveFilesClient {
                 details: format!("download request returned an error: {error}"),
             })?;
 
-        let mut file = tokio::fs::File::create(local_path).await?;
-        let mut body = response.bytes_stream();
-        while let Some(chunk) = body.next().await {
-            let chunk = chunk.map_err(|error| crate::Error::Download {
-                details: format!("failed while reading download: {error}"),
-            })?;
-            tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await?;
-        }
-        tokio::io::AsyncWriteExt::flush(&mut file).await?;
-        Ok(())
+        let body = response.bytes_stream().map_err(|error| {
+            std::io::Error::other(format!("failed while reading download: {error}"))
+        });
+        Ok(StreamReader::new(body))
     }
 
     /// List revisions for a managed file, oldest first. Collects all pages eagerly.

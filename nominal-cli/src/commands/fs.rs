@@ -165,15 +165,25 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
                 })?;
             }
             let drive_rid = drive_rid_for_id(&client.drives(), &drive).await?;
-            client
+            let mut reader = client
                 .files(drive_rid)
-                .download(&source_path, &local_path)
+                .download(&source_path)
                 .await
                 .with_context(|| {
                     format!(
                         "Failed to download '{source_path}' from drive '{drive}' to '{}'",
                         local_path.display()
                     )
+                })?;
+            let mut file = tokio::fs::File::create(&local_path)
+                .await
+                .with_context(|| {
+                    format!("Failed to create local file '{}'", local_path.display())
+                })?;
+            tokio::io::copy(&mut reader, &mut file)
+                .await
+                .with_context(|| {
+                    format!("Failed to write download to '{}'", local_path.display())
                 })?;
             Ok(())
         }

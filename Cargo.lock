@@ -1800,6 +1800,7 @@ dependencies = [
  "serde_yaml",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "tonic",
  "tracing",
 ]
