@@ -6,8 +6,8 @@ use std::{
 };
 
 fn main() {
-    let protoc = protoc_bin_vendored::protoc_bin_path()
-        .expect("failed to locate the bundled protoc binary");
+    let protoc =
+        protoc_bin_vendored::protoc_bin_path().expect("failed to locate the bundled protoc binary");
     // The descriptor set is generated at build time for `nomctl api grpc`.
     // Use the bundled compiler so `cargo install nominal-cli` does not require
     // a system-wide protoc installation.
