@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.1](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.7.0...nominal-v0.7.1) - 2026-08-20
+
+### Fixed
+
+- decode grpc error details ([#146](https://github.com/nominal-io/nominal-client-rs/pull/146))
+- drive file listing with prefix and virtual drives ([#145](https://github.com/nominal-io/nominal-client-rs/pull/145))
+
 ## [0.7.0](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.6.0...nominal-v0.7.0) - 2026-08-15
 
 ### Added
