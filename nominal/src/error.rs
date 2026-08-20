@@ -29,12 +29,18 @@ impl TryFrom<tonic::Status> for TransportError {
 }
 
 #[derive(Debug, Error)]
-#[error("unexpected error")]
-pub struct UnexpectedError(#[source] Box<dyn std::error::Error + Send + Sync + 'static>);
+#[error("unexpected API error ({code:?}): {message}")]
+pub struct UnexpectedError {
+    code: tonic::Code,
+    message: String,
+}
 
 impl UnexpectedError {
-    fn new(error: impl std::error::Error + Send + Sync + 'static) -> Self {
-        Self(Box::new(error))
+    fn from_status(status: tonic::Status) -> Self {
+        Self {
+            code: status.code(),
+            message: status.message().to_string(),
+        }
     }
 }
 
@@ -140,7 +146,7 @@ impl From<tonic::Status> for Error {
     fn from(status: tonic::Status) -> Self {
         match TransportError::try_from(status) {
             Ok(error) => Self::Transport(error),
-            Err(status) => Self::Unexpected(UnexpectedError::new(status)),
+            Err(status) => Self::Unexpected(UnexpectedError::from_status(status)),
         }
     }
 }
