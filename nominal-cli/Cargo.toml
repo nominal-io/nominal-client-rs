@@ -39,5 +39,6 @@ dirs = "5"
 
 [build-dependencies]
 cargo_metadata = "0.23"
+protoc-bin-vendored = "3.2"
 serde_json = "1"
 tonic-prost-build = "0.14"

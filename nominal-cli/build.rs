@@ -6,6 +6,15 @@ use std::{
 };
 
 fn main() {
+    let protoc = protoc_bin_vendored::protoc_bin_path()
+        .expect("failed to locate the bundled protoc binary");
+    // The descriptor set is generated at build time for `nomctl api grpc`.
+    // Use the bundled compiler so `cargo install nominal-cli` does not require
+    // a system-wide protoc installation.
+    unsafe {
+        env::set_var("PROTOC", protoc);
+    }
+
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     // The API definitions ship with the split binding crates: conjure IR with
