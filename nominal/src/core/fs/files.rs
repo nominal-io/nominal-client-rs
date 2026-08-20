@@ -55,7 +55,7 @@ impl std::fmt::Display for FileState {
 /// A file at a path in a drive, along with its current revision.
 #[derive(Debug, Clone)]
 pub struct LogicalFile {
-    file_rid: String,
+    managed_file_rid: Option<String>,
     path: String,
     state: FileState,
     size_bytes: u64,
@@ -65,9 +65,12 @@ pub struct LogicalFile {
 }
 
 impl LogicalFile {
-    /// RID identifying this logical file, stable across revisions and moves.
-    pub fn file_rid(&self) -> &str {
-        &self.file_rid
+    /// RID identifying this managed logical file, stable across revisions and moves.
+    ///
+    /// Virtual-drive files have provider-specific identities rather than Nominal
+    /// file RIDs, so this is `None` for them.
+    pub fn managed_file_rid(&self) -> Option<&str> {
+        self.managed_file_rid.as_deref()
     }
 
     /// Drive-relative path.
@@ -99,15 +102,14 @@ impl LogicalFile {
     }
 
     fn from_proto(file: proto::LogicalFile) -> Result<Self> {
-        let file_rid = file
+        let identity = file.identity.required("LogicalFile.identity")?;
+        let managed_file_rid = match identity
             .identity
-            .and_then(|identity| match identity.identity {
-                Some(proto::logical_file_identity::Identity::Managed(managed)) => {
-                    Some(managed.file_rid)
-                }
-                _ => None,
-            })
-            .required("LogicalFile.identity.managed")?;
+            .required("LogicalFile.identity.identity")?
+        {
+            proto::logical_file_identity::Identity::Managed(managed) => Some(managed.file_rid),
+            proto::logical_file_identity::Identity::Virtual(_) => None,
+        };
         let path = file.path.required("LogicalFile.path")?.path;
         let (created_at, created_by) = attribution_parts(file.created);
         let current_revision_rid = file.current_revision.and_then(|r| match r.reference {
@@ -115,7 +117,7 @@ impl LogicalFile {
             _ => None,
         });
         Ok(Self {
-            file_rid,
+            managed_file_rid,
             path,
             state: FileState::from_proto(file.state),
             size_bytes: file.size_bytes,
@@ -562,5 +564,40 @@ mod tests {
             destination.target,
             Some(proto::destination::Target::FileRevisionRid(rid)) if rid == "ri.file-revision.123"
         ));
+    }
+
+    #[test]
+    fn logical_file_from_proto_accepts_virtual_identity() {
+        let file = proto::LogicalFile {
+            identity: Some(proto::LogicalFileIdentity {
+                identity: Some(proto::logical_file_identity::Identity::Virtual(
+                    proto::VirtualFileIdentity {
+                        kind: Some(proto::virtual_file_identity::Kind::S3(
+                            proto::S3FileIdentity {
+                                drive_rid: "ri.drive.virtual".to_string(),
+                                path: "telemetry/flight.csv".to_string(),
+                            },
+                        )),
+                    },
+                )),
+            }),
+            path: Some(proto::LogicalPath {
+                path: "telemetry/flight.csv".to_string(),
+            }),
+            state: proto::FileState::Active as i32,
+            created: None,
+            size_bytes: 42,
+            observed: None,
+            current_revision: None,
+        };
+
+        let entry = proto::FileEntry {
+            entry: Some(proto::file_entry::Entry::File(file)),
+        };
+        let FileEntry::File(file) = FileEntry::from_proto(entry).unwrap() else {
+            panic!("expected file entry");
+        };
+        assert_eq!(file.path(), "telemetry/flight.csv");
+        assert_eq!(file.managed_file_rid(), None);
     }
 }
