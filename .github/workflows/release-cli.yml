@@ -68,7 +68,7 @@ jobs:
           name="nomctl-$version-${{ matrix.target }}"
           mkdir -p "dist/$name"
           cp "target/${{ matrix.target }}/release/nomctl" "dist/$name/"
-          cp README.md "dist/$name/" 2>/dev/null || true
+          cp nominal-cli/README.md "dist/$name/README.md"
           tar -czf "dist/$name.tar.gz" -C dist "$name"
           echo "ASSET=dist/$name.tar.gz" >> $GITHUB_ENV
 
@@ -80,7 +80,7 @@ jobs:
           $name = "nomctl-$version-${{ matrix.target }}"
           New-Item -ItemType Directory -Force -Path "dist/$name" | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/nomctl.exe" "dist/$name/"
-          if (Test-Path README.md) { Copy-Item README.md "dist/$name/" }
+          Copy-Item nominal-cli/README.md "dist/$name/README.md"
           Compress-Archive -Path "dist/$name/*" -DestinationPath "dist/$name.zip"
           "ASSET=dist/$name.zip" | Out-File -Encoding ascii -Append $env:GITHUB_ENV
 
