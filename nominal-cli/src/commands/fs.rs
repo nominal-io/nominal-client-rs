@@ -233,12 +233,12 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
                 .get(&path)
                 .await
                 .with_context(|| format!("Failed to resolve '{path}' in drive '{drive}'"))?;
-            let revisions = files
-                .list_revisions(file.file_rid())
-                .await
-                .with_context(|| {
-                    format!("Failed to list revisions for '{path}' in drive '{drive}'")
-                })?;
+            let file_rid = file.managed_file_rid().ok_or_else(|| {
+                anyhow::anyhow!("'{path}' has no managed file identity (read-only drive?)")
+            })?;
+            let revisions = files.list_revisions(file_rid).await.with_context(|| {
+                format!("Failed to list revisions for '{path}' in drive '{drive}'")
+            })?;
             for revision in revisions {
                 println!(
                     "{}\t{}\t{}",
@@ -369,7 +369,7 @@ fn parse_qualified_path(path: &str) -> anyhow::Result<(String, String)> {
     if drive.is_empty() {
         anyhow::bail!("expected a drive-qualified path formatted as DRIVE:/PATH");
     }
-    Ok((drive.to_string(), path.to_string()))
+    Ok((drive.to_string(), path.trim_end_matches('/').to_string()))
 }
 
 /// A file's current revision RID, or an error if the file has no managed
@@ -458,6 +458,18 @@ mod tests {
         assert_eq!(
             parse_qualified_path("eng:/telemetry").unwrap(),
             ("eng".to_string(), "telemetry".to_string())
+        );
+    }
+
+    #[test]
+    fn qualified_path_strips_trailing_slashes_from_a_non_root_path() {
+        assert_eq!(
+            parse_qualified_path("eng:/telemetry/").unwrap(),
+            ("eng".to_string(), "telemetry".to_string())
+        );
+        assert_eq!(
+            parse_qualified_path("eng:/").unwrap(),
+            ("eng".to_string(), String::new())
         );
     }
 
