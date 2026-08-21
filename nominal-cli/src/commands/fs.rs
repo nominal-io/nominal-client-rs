@@ -1,6 +1,7 @@
 use anyhow::Context;
 use chrono::SecondsFormat;
 use clap::Subcommand;
+use inquire::Confirm;
 use nominal::core::{Drive, DrivesClient, FileEntry, FileState, NominalClient};
 
 #[derive(Subcommand)]
@@ -51,6 +52,15 @@ pub enum FsCommands {
         /// Drive-qualified path, formatted as DRIVE:/PATH.
         #[arg(value_name = "DRIVE:/PATH")]
         path: String,
+    },
+    /// Permanently delete a file's current revision and backing object.
+    Purge {
+        /// Drive-qualified path, formatted as DRIVE:/PATH.
+        #[arg(value_name = "DRIVE:/PATH")]
+        path: String,
+        /// Skip the interactive confirmation prompt.
+        #[arg(long)]
+        confirm: bool,
     },
     /// List the revision history of a file in a drive.
     Revisions {
@@ -223,6 +233,34 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
                 .await
                 .with_context(|| format!("Failed to remove '{path}' in drive '{drive}'"))?;
             print_file(&file);
+            Ok(())
+        }
+        FsCommands::Purge { path, confirm } => {
+            let (drive, path) = parse_qualified_path(&path)?;
+            let drive_rid = drive_rid_for_id(&client.drives(), &drive).await?;
+            let files = client.files(drive_rid);
+            let file = files
+                .get_including_removed(&path)
+                .await
+                .with_context(|| format!("Failed to resolve '{path}' in drive '{drive}'"))?;
+            let revision_rid = current_revision_rid(&file, &path)?;
+            if !confirm {
+                let approved = Confirm::new(&format!(
+                    "Permanently purge '{path}' from drive '{drive}'? This cannot be undone."
+                ))
+                .with_default(false)
+                .prompt()
+                .context("Failed to read purge confirmation")?;
+                if !approved {
+                    println!("Purge cancelled.");
+                    return Ok(());
+                }
+            }
+            files
+                .purge(revision_rid)
+                .await
+                .with_context(|| format!("Failed to purge '{path}' in drive '{drive}'"))?;
+            println!("Purged '{path}' from drive '{drive}'.");
             Ok(())
         }
         FsCommands::Revisions { path } => {

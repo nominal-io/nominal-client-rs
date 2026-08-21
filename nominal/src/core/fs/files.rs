@@ -320,14 +320,25 @@ impl DriveFilesClient {
         Ok(entries)
     }
 
-    /// Get a file by its drive-relative path.
+    /// Get an active file by its drive-relative path.
+    ///
+    /// This rejects files that are not at the head (active) state.
     pub async fn get(&self, path: &str) -> Result<LogicalFile> {
+        self.get_with_removed(path, false).await
+    }
+
+    /// Get a file by its drive-relative path, including soft-deleted files.
+    pub async fn get_including_removed(&self, path: &str) -> Result<LogicalFile> {
+        self.get_with_removed(path, true).await
+    }
+
+    async fn get_with_removed(&self, path: &str, include_removed: bool) -> Result<LogicalFile> {
         let request = proto::GetFileRequest {
             drive_rid: self.drive_rid.clone(),
             path: Some(proto::LogicalPath {
                 path: path.to_string(),
             }),
-            include_removed: false,
+            include_removed,
         };
         let response = self.service().get_file(request).await?.into_inner();
         LogicalFile::from_proto(response.file.required("GetFileResponse.file")?)
@@ -433,6 +444,15 @@ impl DriveFilesClient {
             })),
         };
         self.apply_one(change).await
+    }
+
+    /// Permanently delete a managed file revision and its backing object.
+    pub async fn purge(&self, revision_rid: &str) -> Result<()> {
+        let request = proto::PurgeFileRequest {
+            file_revision_rid: revision_rid.to_string(),
+        };
+        self.service().purge_file(request).await?;
+        Ok(())
     }
 
     /// Reinstate a past revision at a destination path or by replacing an existing revision.
