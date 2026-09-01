@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.2](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.7.1...nominal-v0.7.2) - 2026-09-01
+
+### Added
+
+- align grpc retries with python client ([#154](https://github.com/nominal-io/nominal-client-rs/pull/154))
+
 ## [0.7.1](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.7.0...nominal-v0.7.1) - 2026-08-20
 
 ### Fixed
