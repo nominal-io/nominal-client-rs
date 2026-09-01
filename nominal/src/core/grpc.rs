@@ -19,7 +19,6 @@ use crate::{Error, Result, TransportError};
 const MAX_RETRIES: u32 = 4;
 const INITIAL_BACKOFF: Duration = Duration::from_millis(250);
 const MAX_BACKOFF: Duration = Duration::from_secs(120);
-type DynError = Box<dyn std::error::Error + Send + Sync>;
 
 /// A gRPC-aware Tower layer which retries replayable unary requests before generated clients decode them.
 #[derive(Clone, Debug, Default)]
@@ -42,17 +41,16 @@ impl<S> Service<Request<Body>> for RetryService<S>
 where
     S: Service<Request<Body>, Response = Response<Body>> + Clone + Send + 'static,
     S::Future: Send,
-    S::Error: Into<DynError> + Send,
+    S::Error: std::fmt::Display + Send,
 {
     type Response = Response<Body>;
     type Error = Status;
     type Future = Pin<Box<dyn Future<Output = std::result::Result<Self::Response, Status>> + Send>>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<std::result::Result<(), Self::Error>> {
-        self.service.poll_ready(cx).map_err(|error| {
-            let error: DynError = error.into();
-            Status::unknown(error.to_string())
-        })
+        self.service
+            .poll_ready(cx)
+            .map_err(|error| Status::unknown(error.to_string()))
     }
 
     fn call(&mut self, request: Request<Body>) -> Self::Future {
@@ -78,19 +76,13 @@ where
                     .map_err(|error| Status::internal(error.to_string()))?;
                 poll_fn(|cx| service.poll_ready(cx))
                     .await
-                    .map_err(|error| {
-                        let error: DynError = error.into();
-                        Status::unknown(error.to_string())
-                    })?;
+                    .map_err(|error| Status::unknown(error.to_string()))?;
                 match service.call(request).await {
                     Ok(response) if retryable_response(&response) && attempt < MAX_RETRIES => {
                         tokio::time::sleep(jittered_backoff(attempt)).await;
                     }
                     Ok(response) => return Ok(response),
-                    Err(error) => {
-                        let error: DynError = error.into();
-                        return Err(Status::unknown(error.to_string()));
-                    }
+                    Err(error) => return Err(Status::unknown(error.to_string())),
                 }
             }
             unreachable!()
