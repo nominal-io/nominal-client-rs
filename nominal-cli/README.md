@@ -65,9 +65,15 @@ nomctl config profile show production
 # List drives and their contents
 nomctl fs drive list
 nomctl fs ls my-drive:/
+nomctl fs tui                 # interactive Drive browser
+nomctl fs tui my-drive        # open a specific Drive
 
 # Generate shell completions
 nomctl completions zsh
 ```
+
+The Drive TUI uses the arrow keys (or `j`/`k`) to navigate. Press Enter to
+open a directory, Backspace to go up, `u` to upload, `d` to download, `m` to
+move, `x` to soft-delete, `r` to refresh, and `q` to quit.
 
 Use `nomctl help-all` to print detailed help for every command.
