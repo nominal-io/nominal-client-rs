@@ -14,6 +14,8 @@ unstable = []
 bytes = "1"
 chrono = { version = "0.4", features = ["clock", "std"] }
 futures = "0.3"
+http = "1"
+http-body-util = "0.1"
 conjure-error = "5.10"
 conjure-http = "5.10"
 conjure-object = "5.10"
@@ -23,11 +25,13 @@ nominal-api = "0.1349.0"
 nominal-streaming = "0.9.3"
 regex = "1.12"
 reqwest = { version = "0.12", default-features = false, features = ["http2", "rustls-tls-native-roots", "stream"] }
+rand = "0.9"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9.34"
 thiserror = "2"
 tonic = { version = "0.13", features = ["tls-ring", "tls-native-roots"] }
+tower = "0.5"
 tokio = { version = "1", features = [
     "fs",
     "io-util",
