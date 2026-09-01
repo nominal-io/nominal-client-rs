@@ -1,16 +1,13 @@
+use super::RequiredField;
+use crate::core::grpc::{GrpcConnection, GrpcTransport};
+use crate::{Error, Result};
 use chrono::{DateTime, Utc};
 use nominal_api::objects::api::rids::WorkspaceRid;
 use nominal_api::tonic::nominal::file_store::v1::{
     self as proto, drives_service_client::DrivesServiceClient,
 };
-use tonic::service::interceptor::InterceptedService;
-use tonic::transport::Channel;
 
-use super::RequiredField;
-use crate::core::grpc::{AuthInterceptor, GrpcConnection};
-use crate::{Error, Result};
-
-type DrivesService = DrivesServiceClient<InterceptedService<Channel, AuthInterceptor>>;
+type DrivesService = DrivesServiceClient<GrpcTransport>;
 
 /// The lifecycle state of a drive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

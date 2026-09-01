@@ -1,6 +1,11 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use super::RequiredField;
+use crate::core::grpc::{GrpcConnection, GrpcTransport};
+use crate::core::ingest::UploadOptions;
+use crate::core::ingest::multipart;
+use crate::{FileStoreError, Result};
 use chrono::{DateTime, Utc};
 use conjure_http::client::ConjureRuntime;
 use conjure_object::BearerToken;
@@ -12,16 +17,8 @@ use nominal_api::tonic::nominal::file_store::v1::{
 };
 use tokio::io::AsyncRead;
 use tokio_util::io::StreamReader;
-use tonic::service::interceptor::InterceptedService;
-use tonic::transport::Channel;
 
-use super::RequiredField;
-use crate::core::grpc::{AuthInterceptor, GrpcConnection};
-use crate::core::ingest::UploadOptions;
-use crate::core::ingest::multipart;
-use crate::{FileStoreError, Result};
-
-type FilesService = FilesServiceClient<InterceptedService<Channel, AuthInterceptor>>;
+type FilesService = FilesServiceClient<GrpcTransport>;
 
 /// The lifecycle state of a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
