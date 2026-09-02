@@ -65,23 +65,9 @@ nomctl config profile show production
 # List drives and their contents
 nomctl fs drive list
 nomctl fs ls my-drive:/
-nomctl fs tui                 # interactive Drive browser
-nomctl fs tui my-drive        # open a specific Drive
 
 # Generate shell completions
 nomctl completions zsh
 ```
-
-The Drive TUI begins with a table of drives and opens folders in Finder-style
-columns, with details for the current selection in a right-hand panel. The
-active drive and path are shown in the outer frame. Use the
-arrow keys (or `h`/`j`/`k`/`l`) to navigate; Right or Enter opens the selected
-folder, and Left or Esc returns to the prior folder or drive table. Click rows
-to select them, or double-click to open a drive or folder. Upload, download,
-and removal
-use in-TUI dialogs (`u`, `d`, and `x`). To move a file, press `m`, optionally
-browse to a destination folder, then press `m` again to edit or confirm the
-full destination path (including a new folder). Press `r` to refresh or `q` to
-quit.
 
 Use `nomctl help-all` to print detailed help for every command.

@@ -20,7 +20,7 @@ use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Table
 
 const MAX_VISIBLE_COLUMNS: usize = 4;
 const MIN_COLUMN_WIDTH: u16 = 26;
-const INSPECTOR_WIDTH: u16 = 52;
+const INSPECTOR_WIDTH: u16 = 48;
 
 pub async fn run(client: NominalClient, requested_drive: Option<String>) -> Result<()> {
     let drives = client
@@ -110,7 +110,7 @@ async fn handle_key(key: KeyEvent, app: &mut App, client: &NominalClient) -> boo
         KeyEvent {
             code: KeyCode::Right | KeyCode::Char('l'),
             ..
-        } => app.open_selected_directory(client).await,
+        } if app.drive.is_some() => app.open_selected_directory(client).await,
         KeyEvent {
             code: KeyCode::Left | KeyCode::Char('h'),
             ..
@@ -131,7 +131,7 @@ async fn handle_key(key: KeyEvent, app: &mut App, client: &NominalClient) -> boo
             code: KeyCode::Backspace,
             ..
         } => {
-            app.back();
+            app.go_left();
             app.refresh_selected_history(client).await;
         }
         KeyEvent {
@@ -230,7 +230,7 @@ impl App {
             drive_index: selected_drive.unwrap_or(0),
             drive: None,
             columns: vec![],
-            status: "Select a drive with Enter or →".into(),
+            status: "Select a drive with Enter".into(),
             modal: None,
             pending_move: None,
             drive_area: Rect::default(),
@@ -327,8 +327,6 @@ impl App {
     fn go_left(&mut self) {
         if self.drive.is_some() && self.columns.len() > 1 {
             self.columns.pop();
-        } else if self.drive.is_some() {
-            self.back();
         }
     }
 
@@ -336,11 +334,24 @@ impl App {
         if self.pending_move.take().is_some() {
             self.status = "Move cancelled".into();
         } else if self.drive.is_some() {
-            self.drive = None;
-            self.columns.clear();
-            self.clear_history();
-            self.status = "Select a different drive with Enter or →".into();
+            self.show_drives();
         }
+    }
+
+    fn show_drives(&mut self) {
+        if let Some(active_drive) = &self.drive
+            && let Some(index) = self
+                .drives
+                .iter()
+                .position(|drive| drive.rid() == active_drive.rid())
+        {
+            self.drive_index = index;
+        }
+        self.drive = None;
+        self.columns.clear();
+        self.pending_move = None;
+        self.clear_history();
+        self.status = "Select a drive with Enter".into();
     }
 
     fn start_upload(&mut self) {
@@ -658,13 +669,7 @@ impl App {
         let layout =
             Layout::vertical([Constraint::Min(5), Constraint::Length(3)]).split(frame.area());
         if self.drive.is_some() {
-            let drive = self.drive.as_ref().expect("drive exists");
-            let shell = Block::default()
-                .title(format!(" {}:/{} ", drive.id(), self.current_path()))
-                .borders(Borders::ALL);
-            let inner = shell.inner(layout[0]);
-            frame.render_widget(shell, layout[0]);
-            self.draw_browser(frame, inner);
+            self.draw_browser(frame, layout[0]);
         } else {
             self.draw_drives(frame, layout[0]);
         }
@@ -675,8 +680,11 @@ impl App {
     }
 
     fn draw_drives(&mut self, frame: &mut ratatui::Frame, area: Rect) {
-        let panels = Layout::horizontal([Constraint::Percentage(68), Constraint::Percentage(32)])
-            .split(area);
+        let panels = Layout::horizontal([
+            Constraint::Min(MIN_COLUMN_WIDTH),
+            Constraint::Length(INSPECTOR_WIDTH),
+        ])
+        .split(area);
         self.drive_area = panels[0];
         self.column_areas.clear();
         let rows = self.drives.iter().map(|drive| {
@@ -716,13 +724,19 @@ impl App {
             Constraint::Length(INSPECTOR_WIDTH),
         ])
         .split(area);
+        let drive = self.drive.as_ref().expect("drive exists");
+        let browser = Block::default()
+            .title(format!(" FILES  {}:/{} ", drive.id(), self.current_path()))
+            .borders(Borders::ALL);
+        let browser_area = browser.inner(panels[0]);
+        frame.render_widget(browser, panels[0]);
         let start = self
             .columns
             .len()
-            .saturating_sub(column_capacity(panels[0].width));
+            .saturating_sub(column_capacity(browser_area.width));
         let visible = &self.columns[start..];
         let constraints = vec![Constraint::Ratio(1, visible.len().max(1) as u32); visible.len()];
-        let areas = Layout::horizontal(constraints).split(panels[0]);
+        let areas = Layout::horizontal(constraints).split(browser_area);
         self.column_areas = areas
             .iter()
             .enumerate()
@@ -759,11 +773,11 @@ impl App {
             detail_line("Type", &drive.kind().to_string()),
             detail_line("Source", &drive.source().to_string()),
             detail_line("State", &drive.state().to_string()),
-            detail_line("RID", drive.rid()),
         ];
         if let Some(created_at) = drive.created_at() {
             lines.push(detail_line("Created", &format_utc(created_at)));
         }
+        lines.push(detail_line("RID", &short_rid(drive.rid())));
         frame.render_widget(
             Paragraph::new(lines)
                 .block(Block::default().title(" DETAILS ").borders(Borders::ALL))
@@ -826,7 +840,7 @@ impl App {
         let help = if self.drive.is_some() {
             "←/→ or Enter: open folder  Esc: drives  u upload  d download  m move  x remove  r refresh  q quit"
         } else {
-            "↑/↓ or click: select  Enter/→: browse drive  r refresh  q quit"
+            "↑/↓ or click: select  Enter: files  r refresh  Esc/q: quit"
         };
         let move_status = self.pending_move.as_ref().map(|source| {
             format!(
