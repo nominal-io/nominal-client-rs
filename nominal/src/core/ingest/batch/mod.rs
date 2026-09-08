@@ -1,6 +1,8 @@
 mod encode;
 mod items;
 #[cfg(test)]
+mod rpc_tests;
+#[cfg(test)]
 mod tests;
 mod upload;
 use super::{ContainerizedIngest, FileType, IngestClient, IngestJobRef, UploadOptions, multipart};
@@ -80,14 +82,14 @@ pub struct BatchSubmission {
 /// An owned, single-use batch targeting an existing dataset.
 ///
 /// ```compile_fail
-/// # async fn example(batch: nominal::core::IngestBatch<'_>) {
+/// # async fn example(batch: nominal::core::IngestBatch) {
 /// use nominal::core::BatchOptions;
 /// batch.submit(BatchOptions::default()).await;
 /// batch.submit(BatchOptions::default()).await;
 /// # }
 /// ```
-pub struct IngestBatch<'a> {
-    client: &'a IngestClient,
+pub struct IngestBatch {
+    client: IngestClient,
     dataset_rid: String,
     tags: BTreeMap<String, String>,
     items: Vec<PendingItem>,
@@ -95,9 +97,9 @@ pub struct IngestBatch<'a> {
     sidecars: Vec<tempfile::NamedTempFile>,
 }
 impl IngestClient {
-    pub fn batch(&self, dataset_rid: impl Into<String>) -> IngestBatch<'_> {
+    pub fn batch(&self, dataset_rid: impl Into<String>) -> IngestBatch {
         IngestBatch {
-            client: self,
+            client: self.clone(),
             dataset_rid: dataset_rid.into(),
             tags: BTreeMap::new(),
             items: vec![],
@@ -106,7 +108,7 @@ impl IngestClient {
         }
     }
 }
-impl IngestBatch<'_> {
+impl IngestBatch {
     fn upload(
         &mut self,
         path: PathBuf,
@@ -271,6 +273,7 @@ impl IngestBatch<'_> {
         let _: nominal_api::objects::api::rids::DatasetRid =
             crate::core::rid::parse_rid(&self.dataset_rid)?;
         let upload_workspace = Some(self.client.resolved_workspace_rid().await?);
+        let client = &self.client;
         let report = upload::upload_all(
             &self.items,
             options.max_uploads.get(),
@@ -285,9 +288,9 @@ impl IngestBatch<'_> {
                         .unwrap_or("input")
                         .to_owned();
                     multipart::upload_file(
-                        self.client.conjure_client.clone(),
-                        &self.client.runtime,
-                        self.client.token.clone(),
+                        client.conjure_client.clone(),
+                        &client.runtime,
+                        client.token.clone(),
                         upload_workspace,
                         &path,
                         filename,
@@ -299,6 +302,14 @@ impl IngestBatch<'_> {
             },
         )
         .await;
+        self.submit_completed(options, report).await
+    }
+
+    async fn submit_completed(
+        self,
+        options: BatchOptions,
+        report: upload::UploadReport,
+    ) -> Result<BatchSubmission> {
         let Some(items) = upload::completed_items(&self.items, &report, options.failure_policy)
         else {
             return Err(BatchUploadError {

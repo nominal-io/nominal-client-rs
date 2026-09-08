@@ -183,3 +183,83 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod pagination_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    #[tokio::test]
+    async fn job_search_paginates_without_hydrating_results() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            for page in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+                    .unwrap();
+                let mut bytes = Vec::new();
+                let mut buffer = [0; 4096];
+                let body_start = loop {
+                    let n = stream.read(&mut buffer).unwrap();
+                    assert_ne!(n, 0);
+                    bytes.extend_from_slice(&buffer[..n]);
+                    if let Some(end) = bytes.windows(4).position(|x| x == b"\r\n\r\n") {
+                        let header = String::from_utf8_lossy(&bytes[..end]);
+                        let length = header
+                            .lines()
+                            .find_map(|line| {
+                                line.to_ascii_lowercase()
+                                    .strip_prefix("content-length:")
+                                    .map(|v| v.trim().parse::<usize>().unwrap())
+                            })
+                            .unwrap_or(0);
+                        if bytes.len() >= end + 4 + length {
+                            break end + 4;
+                        }
+                    }
+                };
+                let request: serde_json::Value =
+                    serde_json::from_slice(&bytes[body_start..]).unwrap();
+                assert_eq!(
+                    request["filter"]["and"][0]["statuses"],
+                    serde_json::json!(["COMPLETED"])
+                );
+                assert_eq!(request["filter"]["and"].as_array().unwrap().len(), 1);
+                if page == 0 {
+                    assert!(request.get("nextPageToken").is_none());
+                } else {
+                    assert_eq!(request["nextPageToken"], "next");
+                }
+                let job = serde_json::json!({"ingestJobRid":format!("ri.ingest.main.job.page{page}"),"status":"COMPLETED","ingestType":"MULTI","createdBy":"00000000-0000-0000-0000-000000000000","orgUuid":"00000000-0000-0000-0000-000000000000"});
+                let mut response = serde_json::json!({"ingestJobs":[job]});
+                if page == 0 {
+                    response["nextPageToken"] = "next".into();
+                }
+                let body = response.to_string();
+                write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
+            }
+        });
+        let client = crate::core::NominalClient::builder("token")
+            .base_url(format!("http://{address}/api"))
+            .build()
+            .unwrap();
+        let jobs = client
+            .ingest()
+            .search_ingest_jobs(
+                IngestJobQuery::default()
+                    .workspace(WorkspaceSelection::All)
+                    .status(IngestJobStatus::Completed),
+            )
+            .await
+            .unwrap();
+        assert_eq!(jobs.len(), 2);
+        assert_eq!(jobs[1].rid(), "ri.ingest.main.job.page1");
+        assert!(
+            jobs[0]
+                .nominal_url()
+                .ends_with("/ingestion/ri.ingest.main.job.page0")
+        );
+        server.join().unwrap();
+    }
+}

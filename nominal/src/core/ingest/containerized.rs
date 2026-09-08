@@ -58,6 +58,21 @@ impl ContainerizedIngest {
             timestamp: None,
         }
     }
+    pub fn extractor_rid(&self) -> &str {
+        &self.extractor_rid
+    }
+    pub fn sources(&self) -> &BTreeMap<String, PathBuf> {
+        &self.sources
+    }
+    pub fn arguments(&self) -> &BTreeMap<String, String> {
+        &self.arguments
+    }
+    pub fn tags(&self) -> &BTreeMap<String, String> {
+        &self.tags
+    }
+    pub fn timestamp_metadata(&self) -> Option<&Timestamp> {
+        self.timestamp.as_ref()
+    }
     pub fn source(mut self, env: impl Into<String>, path: impl Into<PathBuf>) -> Self {
         self.sources.insert(env.into(), path.into());
         self

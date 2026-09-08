@@ -43,6 +43,7 @@ use crate::{Error, Result};
 const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Client for uploading files and managing ingest jobs.
+#[derive(Clone)]
 pub struct IngestClient {
     ingest_service: AsyncIngestServiceClient<Client>,
     ingest_job_service: AsyncIngestJobServiceClient<Client>,
