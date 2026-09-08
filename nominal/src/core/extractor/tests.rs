@@ -354,7 +354,7 @@ async fn mismatch_rejects_before_any_request() {
 }
 #[tokio::test]
 async fn waiting_failed_or_timed_out_never_activates() {
-    for status in [3, 1, 78] {
+    for status in [3, 1] {
         let fixture = Fixture::new(vec![("GetImage", image_reply(status), 0)]).await;
         let error = fixture
             .client
@@ -484,4 +484,26 @@ fn registration_encodes_completed_upload_and_complete_contract() {
     assert_eq!(request.inputs, vec![input.into_proto()]);
     assert_eq!(request.parameters, vec![parameter.into_proto()]);
     assert!(request.source_image_rid.is_none());
+}
+
+#[tokio::test]
+async fn waiting_unknown_status_rejects_promptly_without_deadline_or_activation() {
+    let fixture = Fixture::new(vec![("GetImage", image_reply(78), 0)]).await;
+    let extractors = fixture.client.extractors();
+    let extractor = extractor();
+    let image = image(2);
+    let operation =
+        extractors.activate(&extractor, &image, Activation::Wait(WaitOptions::default()));
+    let error = tokio::time::timeout(std::time::Duration::from_millis(200), operation)
+        .await
+        .expect("unknown readiness must fail without waiting")
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        crate::Error::Extractor(ExtractorError::NotReady {
+            status: ContainerImageStatus::Unknown(78),
+            ..
+        })
+    ));
+    assert_eq!(fixture.mock.requests.lock().unwrap().len(), 1);
 }

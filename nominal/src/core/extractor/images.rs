@@ -175,7 +175,16 @@ impl ContainerImagesClient {
                         }
                         .into());
                     }
-                    _ => tokio::time::sleep(options.poll_interval()).await,
+                    ContainerImageStatus::Pending => {
+                        tokio::time::sleep(options.poll_interval()).await
+                    }
+                    status @ ContainerImageStatus::Unknown(_) => {
+                        return Err(ExtractorError::NotReady {
+                            rid: current.rid().into(),
+                            status,
+                        }
+                        .into());
+                    }
                 }
             }
         };
