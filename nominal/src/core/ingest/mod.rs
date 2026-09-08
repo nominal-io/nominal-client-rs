@@ -1,3 +1,10 @@
+pub(crate) mod batch;
+mod containerized;
+mod job_files;
+mod job_query;
+pub use batch::*;
+pub use containerized::{ContainerizedIngest, ContainerizedSubmission, IngestJobRef};
+pub use job_query::{IngestJobQuery, WorkspaceSelection};
 mod filetype;
 mod job;
 pub(crate) mod multipart;
@@ -43,6 +50,10 @@ pub struct IngestClient {
     runtime: Arc<ConjureRuntime>,
     token: BearerToken,
     workspace_rid: Option<WorkspaceRid>,
+    grpc: crate::core::grpc::GrpcConnection,
+    extractors: crate::core::extractor::ExtractorsClient,
+    app_base_url: String,
+    mutation_client: Client,
 }
 
 impl IngestClient {
@@ -51,6 +62,10 @@ impl IngestClient {
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
         workspace_rid: Option<WorkspaceRid>,
+        grpc: crate::core::grpc::GrpcConnection,
+        extractors: crate::core::extractor::ExtractorsClient,
+        app_base_url: String,
+        mutation_client: Client,
     ) -> Self {
         Self {
             ingest_service: AsyncIngestServiceClient::new(client.clone(), runtime),
@@ -59,6 +74,10 @@ impl IngestClient {
             runtime: runtime.clone(),
             token,
             workspace_rid,
+            grpc,
+            extractors,
+            app_base_url,
+            mutation_client,
         }
     }
 
@@ -353,7 +372,7 @@ impl IngestClient {
             .get_ingest_job(&self.token, &job_rid)
             .await
             .map_err(Error::from)?;
-        Ok(IngestJob::from_conjure(job))
+        Ok(IngestJob::from_conjure(job).with_app_base_url(&self.app_base_url))
     }
 
     /// Poll an ingest job until it reaches a terminal state.

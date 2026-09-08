@@ -1,3 +1,5 @@
+mod dataset_file;
+pub use dataset_file::{DatasetFile, DatasetFileStatus};
 mod channel;
 mod connection;
 mod dataset;
