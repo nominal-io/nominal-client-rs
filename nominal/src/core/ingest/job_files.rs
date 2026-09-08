@@ -32,6 +32,7 @@ impl IngestClient {
         options: WaitOptions,
     ) -> Result<Vec<DatasetFile>> {
         options.validate()?;
+        let started = tokio::time::Instant::now();
         let operation = async {
             loop {
                 let job = self.get_ingest_job(rid).await?;
@@ -45,25 +46,48 @@ impl IngestClient {
                     _ => tokio::time::sleep(options.poll_interval()).await,
                 }
             }
-            let files = self.dataset_files(rid).await?;
-            let catalog = CatalogClient::new(
-                self.conjure_client.clone(),
-                &self.runtime,
-                self.token.clone(),
-                self.workspace_rid.clone(),
-                self.app_base_url.clone(),
-            );
-            catalog.wait_for_dataset_files(files, options.clone()).await
+            self.dataset_files(rid).await
         };
-        if let Some(timeout) = options.timeout_duration() {
+        let files = if let Some(timeout) = options.timeout_duration() {
             tokio::time::timeout(timeout, operation)
                 .await
                 .map_err(|_| Error::Ingest {
-                    details: format!("timed out waiting for job {rid} and its files"),
-                })?
+                    details: format!(
+                        "timed out waiting for job {rid} before its file snapshot was available"
+                    ),
+                })??
         } else {
-            operation.await
-        }
+            operation.await?
+        };
+        let file_options = if let Some(timeout) = options.timeout_duration() {
+            let remaining = timeout.saturating_sub(started.elapsed());
+            if remaining.is_zero() && !files.is_empty() {
+                return Err(Error::Ingest {
+                    details: format!(
+                        "timed out waiting for dataset files {}",
+                        files
+                            .iter()
+                            .map(DatasetFile::rid)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                });
+            }
+            if files.is_empty() {
+                return Ok(files);
+            }
+            options.timeout(remaining)
+        } else {
+            options
+        };
+        let catalog = CatalogClient::new(
+            self.conjure_client.clone(),
+            &self.runtime,
+            self.token.clone(),
+            self.workspace_rid.clone(),
+            self.app_base_url.clone(),
+        );
+        catalog.wait_for_dataset_files(files, file_options).await
     }
 }
 
@@ -75,6 +99,32 @@ mod tests {
         serde_json::json!({"id":id,"datasetRid":"ri.catalog.main.dataset.test","name":"output",
             "handle":{"type":"future","future":{}},"uploadedAt":"2026-01-01T00:00:00Z",
             "ingestStatus":{"type":status,status:{}}})
+    }
+    #[tokio::test]
+    async fn dataset_file_rpc_timeout_reports_the_file_identity() {
+        let id = "00000000-0000-0000-0000-000000000003";
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            drop(stream);
+        });
+        let client = crate::core::NominalClient::builder("token")
+            .base_url(format!("http://{address}/api"))
+            .build()
+            .unwrap();
+        let file =
+            DatasetFile::from_conjure(serde_json::from_value(file(id, "inProgress")).unwrap());
+        let result = client
+            .catalog()
+            .wait_for_dataset_files(
+                vec![file],
+                WaitOptions::default().timeout(std::time::Duration::from_millis(10)),
+            )
+            .await;
+        assert!(result.unwrap_err().to_string().contains(id));
+        server.join().unwrap();
     }
     #[tokio::test]
     async fn job_files_pages_then_waits_independent_fixed_snapshot() {
