@@ -1,0 +1,224 @@
+use super::*;
+#[tokio::test]
+async fn batch_uploads_keep_repeated_path_identities() {
+    let items: Vec<_> = (0..3)
+        .map(|id| PendingItem::Dataflash {
+            file: PendingUpload {
+                id,
+                name: "file".into(),
+                path: "same.bin".into(),
+            },
+            options: BatchDataflash::default(),
+        })
+        .collect();
+    let report = upload::upload_all(&items, 2, FailurePolicy::AllowPartial, |_| async {
+        Ok("s3://location".into())
+    })
+    .await;
+    assert_eq!(report.locations.len(), 3);
+    assert!(report.failures.is_empty());
+}
+#[tokio::test]
+async fn batch_failed_sibling_omits_whole_item() {
+    let items = vec![PendingItem::Containerized {
+        sources: vec![
+            PendingUpload {
+                id: 0,
+                name: "good".into(),
+                path: "good".into(),
+            },
+            PendingUpload {
+                id: 1,
+                name: "bad".into(),
+                path: "bad".into(),
+            },
+        ],
+        options: ContainerizedIngest::new("extractor"),
+    }];
+    let report = upload::upload_all(&items, 2, FailurePolicy::AllowPartial, |path| async move {
+        if path == PathBuf::from("bad") {
+            Err(invalid("failed"))
+        } else {
+            Ok("s3://good".into())
+        }
+    })
+    .await;
+    assert_eq!(report.failures.len(), 1);
+    assert_eq!(
+        report.failures[0].uploaded_sources,
+        vec![PathBuf::from("good")]
+    );
+    assert_eq!(report.failures[0].failed_sources[0].name, "bad");
+}
+#[tokio::test]
+async fn batch_upload_concurrency_is_bounded_and_fail_fast_stops_scheduling() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    let items: Vec<_> = (0..8)
+        .map(|id| PendingItem::Dataflash {
+            file: PendingUpload {
+                id,
+                name: "file".into(),
+                path: format!("{id}.bin").into(),
+            },
+            options: BatchDataflash::default(),
+        })
+        .collect();
+    let active = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let report = upload::upload_all(&items, 2, FailurePolicy::FailFast, |_| {
+        let (active, peak, calls) = (active.clone(), peak.clone(), calls.clone());
+        async move {
+            calls.fetch_add(1, Ordering::SeqCst);
+            let n = active.fetch_add(1, Ordering::SeqCst) + 1;
+            peak.fetch_max(n, Ordering::SeqCst);
+            tokio::task::yield_now().await;
+            active.fetch_sub(1, Ordering::SeqCst);
+            Err(invalid("failure"))
+        }
+    })
+    .await;
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert!(peak.load(Ordering::SeqCst) <= 2);
+    assert_eq!(active.load(Ordering::SeqCst), 0);
+    assert_eq!(report.failures.len(), 8);
+}
+#[tokio::test]
+async fn batch_builder_validation_and_sidecar_cleanup() {
+    let client = crate::core::NominalClient::builder("token")
+        .base_url("http://localhost:9999/api")
+        .build()
+        .unwrap();
+    let ingest = client.ingest();
+    assert!(
+        ingest
+            .batch("dataset")
+            .add_containerized(ContainerizedIngest::new("extractor"))
+            .is_err()
+    );
+    assert!(
+        ingest
+            .batch("dataset")
+            .add_journal_json(
+                "a.jsonl",
+                BatchJournalJson::default().timestamp(super::super::Timestamp::iso8601("t"))
+            )
+            .is_err()
+    );
+    assert!(
+        ingest
+            .batch("dataset")
+            .add_video("a.mp4", "video", BatchVideoTiming::FrameTimestamps(vec![]))
+            .is_err()
+    );
+    let batch = ingest
+        .batch("dataset")
+        .add_video(
+            "a.mp4",
+            "video",
+            BatchVideoTiming::FrameTimestamps(vec![1, 2]),
+        )
+        .unwrap();
+    let path = batch.sidecars[0].path().to_owned();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "[1,2]");
+    drop(batch);
+    assert!(!path.exists());
+}
+#[tokio::test]
+async fn batch_all_formats_encode_complete_options() {
+    use super::super::{TimeUnit, Timestamp};
+    use nominal_api::tonic::nominal::ingest::v2::{file_ingest_options::Ingest, ingest_item::Item};
+    let client = crate::core::NominalClient::builder("token")
+        .base_url("http://localhost:9999/api")
+        .build()
+        .unwrap();
+    let ingest = client.ingest();
+    let batch = ingest
+        .batch("dataset")
+        .add_tabular(
+            "a.parquet.tar.gz",
+            BatchTabular::new(Timestamp::epoch("t", TimeUnit::Seconds))
+                .tag_column("sensor", "column")
+                .unit("a", "m")
+                .channel_prefix("pre")
+                .channel_name_override("a", "b")
+                .tag("kind", "tabular"),
+        )
+        .unwrap()
+        .add_avro_stream(
+            "a.avro",
+            BatchAvroStream::default()
+                .unit("a", "s")
+                .channel_prefix("avro"),
+        )
+        .unwrap()
+        .add_mcap(
+            "a.mcap",
+            BatchMcap::default()
+                .topics(Topics::Exclude(vec!["bad".into()]))
+                .ignore_invalid_topics(true),
+        )
+        .unwrap()
+        .add_journal_json(
+            "a.jsonl",
+            BatchJournalJson::default()
+                .channel("log")
+                .timestamp(Timestamp::epoch("time", TimeUnit::Microseconds)),
+        )
+        .unwrap()
+        .add_dataflash("a.bin", BatchDataflash::default())
+        .unwrap()
+        .add_containerized(
+            ContainerizedIngest::new("extractor")
+                .source("INPUT", "a.dat")
+                .argument("MODE", "fast"),
+        )
+        .unwrap()
+        .add_video(
+            "a.mp4",
+            "video",
+            BatchVideoTiming::Start(chrono::DateTime::from_timestamp(-1, 999_999_999).unwrap()),
+        )
+        .unwrap();
+    let locations = batch
+        .items
+        .iter()
+        .flat_map(|i| i.uploads())
+        .map(|u| (u.id, format!("s3://{}", u.id)))
+        .collect();
+    let encoded: Vec<_> = batch
+        .items
+        .iter()
+        .map(|i| encode::encode(i, &locations))
+        .collect();
+    let Some(Item::File(file)) = &encoded[0].item else {
+        panic!()
+    };
+    let opts = file.ingest.as_ref().unwrap();
+    assert_eq!(opts.units["a"], "m");
+    assert_eq!(opts.channel_name_overrides["a"], "b");
+    assert!(matches!(opts.ingest,Some(Ingest::Parquet(ref p)) if p.is_archive));
+    let Some(Item::File(file)) = &encoded[1].item else {
+        panic!()
+    };
+    assert_eq!(
+        file.ingest
+            .as_ref()
+            .unwrap()
+            .timestamp_metadata
+            .as_ref()
+            .unwrap()
+            .column,
+        "timestamps"
+    );
+    assert!(matches!(encoded[2].item,Some(Item::Mcap(ref m)) if m.ignore_invalid_topics));
+    assert!(matches!(encoded[3].item,Some(Item::Log(ref l)) if l.channel.as_deref()==Some("log")));
+    assert!(matches!(encoded[4].item, Some(Item::Dataflash(_))));
+    assert!(
+        matches!(encoded[5].item,Some(Item::Containerized(ref c)) if c.arguments["MODE"]=="fast" && c.sources.contains_key("INPUT"))
+    );
+    assert!(matches!(encoded[6].item, Some(Item::Video(_))));
+}
