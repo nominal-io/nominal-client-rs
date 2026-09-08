@@ -54,6 +54,8 @@ pub enum FileStoreError {
 #[derive(Debug, Error)]
 pub enum Error {
     #[error(transparent)]
+    BatchUpload(#[from] crate::core::ingest::batch::BatchUploadError),
+    #[error(transparent)]
     Extractor(#[from] crate::core::ExtractorError),
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),

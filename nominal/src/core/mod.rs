@@ -22,6 +22,7 @@ pub use catalog::{
     ConnectionUpdate, Dataset, DatasetCreate, DatasetQuery, DatasetUpdate, Video, VideoCreate,
     VideoQuery, VideoUpdate,
 };
+pub use catalog::{DatasetFile, DatasetFileStatus};
 pub use client::{NominalClient, NominalClientBuilder};
 pub use datasource::DataSource;
 pub use extractor::{
@@ -38,6 +39,12 @@ pub use ingest::{
     AvroStreamIngest, CsvIngest, DataflashIngest, DatasetTarget, FileType, IngestClient, IngestJob,
     IngestJobStatus, IngestType, JournalJsonIngest, McapIngest, ParquetIngest, ProgressCallback,
     TimeUnit, Timestamp, TimestampKind, UploadEvent, UploadOptions, VideoIngest, VideoTarget,
+};
+pub use ingest::{
+    BatchAvroStream, BatchDataflash, BatchItemFailure, BatchJournalJson, BatchMcap,
+    BatchNumericTimestamp, BatchOptions, BatchSourceFailure, BatchSubmission, BatchTabular,
+    BatchUploadError, BatchVideoTiming, ContainerizedIngest, ContainerizedSubmission,
+    FailurePolicy, IngestBatch, IngestJobQuery, IngestJobRef, Topics, WorkspaceSelection,
 };
 pub use run::{Run, RunCreate, RunQuery, RunUpdate, RunsClient};
 pub use template::{Template, TemplatesClient};

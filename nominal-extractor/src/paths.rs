@@ -23,17 +23,15 @@ impl OutputDirectory {
                 path.display()
             )));
         }
-        let relative = resolved
-            .strip_prefix(&self.root)
-            .map_err(|_| {
-                Error::InvalidOutput(format!("{} is outside output directory", path.display()))
-            })?
-            .to_string_lossy()
-            .replace('\\', "/");
+        let relative = resolved.strip_prefix(&self.root).map_err(|_| {
+            Error::InvalidOutput(format!("{} is outside output directory", path.display()))
+        })?;
+        let relative = wire_path(relative)?;
         if reserved && relative == "manifest.json" {
             return Err(Error::InvalidOutput("manifest.json is reserved".into()));
         }
-        Ok((resolved, relative))
+        // Validate the author's filename extension, but retain canonical wire identity.
+        Ok((path.to_path_buf(), relative))
     }
     pub fn account(&mut self, path: String) {
         self.accounted.insert(path);
@@ -49,13 +47,9 @@ impl OutputDirectory {
             if t.is_dir() {
                 self.walk(&p)?;
             } else if p.is_file() {
-                let rel = p
-                    .strip_prefix(&self.root)
-                    .expect("walk under root")
-                    .to_string_lossy()
-                    .replace('\\', "/");
-                if !self.accounted.contains(&rel) {
-                    tracing::warn!(path=%rel,"undeclared output file will not be ingested");
+                let relative = p.strip_prefix(&self.root).expect("walk under root");
+                if !wire_path(relative).is_ok_and(|rel| self.accounted.contains(&rel)) {
+                    tracing::warn!(path=%relative.display(),"undeclared output file will not be ingested");
                 }
             }
         }
@@ -69,6 +63,22 @@ impl OutputDirectory {
             .map_err(|e| e.error)?;
         Ok(())
     }
+}
+
+/// Convert separators between components, never characters inside a filename.
+fn wire_path(path: &Path) -> Result<String> {
+    path.components()
+        .map(|component| {
+            component
+                .as_os_str()
+                .to_str()
+                .map(str::to_owned)
+                .ok_or_else(|| {
+                    Error::InvalidOutput("output filename cannot be represented as UTF-8".into())
+                })
+        })
+        .collect::<Result<Vec<_>>>()
+        .map(|parts| parts.join("/"))
 }
 pub(crate) fn extension(path: &Path, allowed: &[&str]) -> Result<()> {
     let name = path
