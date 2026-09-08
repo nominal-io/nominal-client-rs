@@ -11,6 +11,7 @@ pub(crate) mod run;
 pub(crate) mod template;
 pub(crate) mod user;
 pub(crate) mod utils;
+pub(crate) mod wait;
 pub(crate) mod workbook;
 pub(crate) mod workspace;
 
@@ -34,5 +35,6 @@ pub use ingest::{
 pub use run::{Run, RunCreate, RunQuery, RunUpdate, RunsClient};
 pub use template::{Template, TemplatesClient};
 pub use user::{User, UsersClient};
+pub use wait::WaitOptions;
 pub use workbook::{Workbook, WorkbookCreate, WorkbookDataScope, WorkbookQuery, WorkbooksClient};
 pub use workspace::{Workspace, WorkspacesClient};

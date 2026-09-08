@@ -109,6 +109,7 @@ pub(crate) struct AuthInterceptor {
 }
 
 pub(crate) type GrpcTransport = InterceptedService<RetryService<Channel>, AuthInterceptor>;
+pub(crate) type GrpcMutationTransport = InterceptedService<Channel, AuthInterceptor>;
 
 impl Interceptor for AuthInterceptor {
     fn call(
@@ -129,6 +130,7 @@ impl Interceptor for AuthInterceptor {
 #[derive(Clone)]
 pub(crate) struct GrpcConnection {
     channel: RetryService<Channel>,
+    mutation_channel: Channel,
     auth: AuthInterceptor,
 }
 
@@ -151,14 +153,21 @@ impl GrpcConnection {
             .map_err(|e| Error::InvalidBearerToken {
                 reason: e.to_string(),
             })?;
+        let channel = endpoint.connect_lazy();
         Ok(Self {
-            channel: RetryLayer.layer(endpoint.connect_lazy()),
+            channel: RetryLayer.layer(channel.clone()),
+            mutation_channel: channel,
             auth: AuthInterceptor { header },
         })
     }
 
     pub(crate) fn channel(&self) -> RetryService<Channel> {
         self.channel.clone()
+    }
+
+    /// Mutations must not replay after an ambiguous service response.
+    pub(crate) fn mutation_channel(&self) -> Channel {
+        self.mutation_channel.clone()
     }
 
     pub(crate) fn interceptor(&self) -> AuthInterceptor {
@@ -185,6 +194,13 @@ fn grpc_root_url(base_url: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn mutation_channel_is_not_wrapped_in_retry_service() {
+        let token = "test".parse().unwrap();
+        let connection = GrpcConnection::connect_lazy("http://localhost:1/api", &token).unwrap();
+        let _: Channel = connection.mutation_channel();
+    }
 
     #[test]
     fn grpc_root_url_strips_api_path() {
