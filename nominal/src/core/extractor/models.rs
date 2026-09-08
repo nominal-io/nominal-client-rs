@@ -282,6 +282,15 @@ impl ContainerImage {
         self.timestamp.as_ref()
     }
     pub(crate) fn from_proto(v: proto::ContainerImage, workspace_rid: String) -> Result<Self> {
+        for (value, field) in [
+            (&v.rid, "image.rid"),
+            (&v.extractor_rid, "image.extractor_rid"),
+            (&workspace_rid, "image.workspace_rid"),
+        ] {
+            if value.is_empty() {
+                return Err(Error::UnexpectedResponse { field });
+            }
+        }
         Ok(Self {
             rid: v.rid,
             workspace_rid,
@@ -350,6 +359,14 @@ impl ContainerizedExtractor {
         self.active_image.as_ref()
     }
     pub(crate) fn from_proto(v: ingest_proto::ContainerizedExtractor) -> Result<Self> {
+        for (value, field) in [
+            (&v.rid, "extractor.rid"),
+            (&v.workspace_rid, "extractor.workspace_rid"),
+        ] {
+            if value.is_empty() {
+                return Err(Error::UnexpectedResponse { field });
+            }
+        }
         Ok(Self {
             rid: v.rid,
             active_image: v

@@ -1872,6 +1872,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nominal-extractor"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "nominal-streaming"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

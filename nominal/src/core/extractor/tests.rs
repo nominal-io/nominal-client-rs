@@ -1,5 +1,13 @@
 use super::*;
 #[test]
+fn response_identity_cannot_be_empty() {
+    assert!(ContainerImage::from_proto(proto::ContainerImage::default(), "w".into()).is_err());
+    assert!(
+        ContainerizedExtractor::from_proto(ingest_proto::ContainerizedExtractor::default())
+            .is_err()
+    );
+}
+#[test]
 fn extractor_update_preserves_unset_and_false() {
     let request = ExtractorUpdate::default()
         .archived(false)
@@ -12,6 +20,8 @@ fn extractor_update_preserves_unset_and_false() {
 fn image_unknown_values_and_absent_defaults_survive() {
     let image = ContainerImage::from_proto(
         proto::ContainerImage {
+            rid: "image".into(),
+            extractor_rid: "extractor".into(),
             status: 999,
             file_output_format: 888,
             ..Default::default()
