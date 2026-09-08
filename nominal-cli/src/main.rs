@@ -29,6 +29,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Manage extractors and container images
+    Extractor {
+        #[command(subcommand)]
+        extractor_command: commands::extractor::ExtractorCommands,
+    },
     /// Send a request to a REST or gRPC endpoint
     Api(ApiArgs),
     /// Asset management commands
@@ -128,6 +133,11 @@ async fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Extractor { extractor_command } => {
+            extractor_command.validate()?;
+            let client = commands::load_client(cli.profile.as_deref())?;
+            commands::extractor::handle(extractor_command, client).await
+        }
         Commands::Api(args) => {
             let profile = commands::load_profile(cli.profile.as_deref())?;
             commands::api::handle(args, profile.base_url(), profile.token()).await
@@ -155,6 +165,7 @@ async fn run() -> anyhow::Result<()> {
             commands::fs::handle(fs_command, client).await
         }
         Commands::Ingest { ingest_command } => {
+            ingest_command.validate()?;
             let client = commands::load_client(cli.profile.as_deref())?;
             commands::ingest::handle(*ingest_command, client).await
         }
@@ -206,4 +217,163 @@ fn render_help_recursive<W: std::io::Write>(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod extractor_tests {
+    use super::*;
+    #[test]
+    fn extractor_command_contract() {
+        for args in [
+            vec!["nomctl", "extractor", "create", "test", "--json"],
+            vec![
+                "nomctl",
+                "extractor",
+                "image",
+                "wait",
+                "rid",
+                "--timeout",
+                "2",
+            ],
+            vec![
+                "nomctl",
+                "ingest",
+                "containerized",
+                "rid",
+                "--name",
+                "test",
+                "--source",
+                "INPUT",
+                "a b=c",
+                "--json",
+            ],
+            vec!["nomctl", "ingest", "batch", "request.json"],
+            vec!["nomctl", "ingest", "job", "files", "rid", "--wait"],
+        ] {
+            assert!(Cli::try_parse_from(args).is_ok());
+        }
+    }
+    #[test]
+    fn extractor_rejects_conflicting_arguments() {
+        for args in [
+            vec![
+                "nomctl",
+                "ingest",
+                "containerized",
+                "rid",
+                "--name",
+                "n",
+                "--dataset",
+                "d",
+            ],
+            vec![
+                "nomctl",
+                "ingest",
+                "containerized",
+                "rid",
+                "--name",
+                "n",
+                "--timestamp-column",
+                "ts",
+            ],
+            vec![
+                "nomctl",
+                "extractor",
+                "activate",
+                "r",
+                "i",
+                "--no-wait",
+                "--timeout",
+                "1",
+            ],
+            vec!["nomctl", "ingest", "batch", "x", "--timeout", "0"],
+        ] {
+            assert!(Cli::try_parse_from(args).is_err());
+        }
+    }
+}
+
+#[cfg(test)]
+mod extractor_extra_tests {
+    use super::*;
+    #[test]
+    fn extractor_timestamp_conflicts_and_optional_sources() {
+        assert!(
+            Cli::try_parse_from([
+                "nomctl",
+                "ingest",
+                "containerized",
+                "extractor",
+                "--name",
+                "new"
+            ])
+            .is_ok()
+        );
+        for tail in [
+            vec![
+                "--timestamp-json",
+                "t.json",
+                "--timestamp-column",
+                "ts",
+                "--timestamp-type",
+                "seconds",
+            ],
+            vec!["--relative-to", "2026-09-08T00:00:00Z"],
+            vec!["--no-wait", "--timeout", "1"],
+        ] {
+            let mut args = vec![
+                "nomctl",
+                "ingest",
+                "containerized",
+                "extractor",
+                "--name",
+                "new",
+            ];
+            args.extend(tail);
+            assert!(Cli::try_parse_from(args).is_err());
+        }
+        assert!(
+            Cli::try_parse_from([
+                "nomctl",
+                "ingest",
+                "job",
+                "search",
+                "--workspace",
+                "w",
+                "--all-workspaces"
+            ])
+            .is_err()
+        );
+        assert!(
+            Cli::try_parse_from(["nomctl", "ingest", "batch", "x", "--max-uploads", "0"]).is_err()
+        );
+    }
+    #[test]
+    fn extractor_validation_precedes_client_loading() {
+        let cli = Cli::try_parse_from([
+            "nomctl",
+            "ingest",
+            "containerized",
+            "extractor",
+            "--name",
+            "new",
+            "--source",
+            "INPUT",
+            "a",
+            "--source",
+            "INPUT",
+            "b",
+        ])
+        .unwrap();
+        let Commands::Ingest { ingest_command } = cli.command else {
+            panic!()
+        };
+        assert!(
+            ingest_command
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("duplicate source")
+        );
+    }
 }

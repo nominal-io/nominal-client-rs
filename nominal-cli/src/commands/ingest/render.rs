@@ -1,0 +1,259 @@
+use crate::commands::extractor::{args::WaitArgs, render::emit};
+use anyhow::Context;
+use nominal::core::*;
+use serde::Serialize;
+use std::path::PathBuf;
+fn status(v: &IngestJobStatus) -> String {
+    match v {
+        IngestJobStatus::Submitted => "submitted".into(),
+        IngestJobStatus::Queued => "queued".into(),
+        IngestJobStatus::InProgress => "in_progress".into(),
+        IngestJobStatus::Completed => "completed".into(),
+        IngestJobStatus::Failed => "failed".into(),
+        IngestJobStatus::Cancelled => "cancelled".into(),
+        IngestJobStatus::Unknown(s) => format!("unknown({s})"),
+    }
+}
+#[derive(Serialize)]
+pub struct JobView<'a> {
+    rid: &'a str,
+    dataset_rid: Option<&'a str>,
+    status: String,
+    origin_files: &'a [String],
+    ingest_type: String,
+    produced_file_count: Option<i32>,
+    created_by_rid: Option<&'a str>,
+    created_at: Option<String>,
+    start_time: Option<String>,
+    end_time: Option<String>,
+    url: String,
+}
+impl<'a> From<&'a IngestJob> for JobView<'a> {
+    fn from(v: &'a IngestJob) -> Self {
+        Self {
+            rid: v.rid(),
+            dataset_rid: v.dataset_rid(),
+            status: status(v.status()),
+            origin_files: v.origin_files(),
+            ingest_type: match v.ingest_type() {
+                IngestType::Tabular => "tabular".into(),
+                IngestType::Mcap => "mcap".into(),
+                IngestType::Dataflash => "dataflash".into(),
+                IngestType::JournalJson => "journal_json".into(),
+                IngestType::Containerized => "containerized".into(),
+                IngestType::Video => "video".into(),
+                IngestType::AvroStream => "avro_stream".into(),
+                IngestType::PointCloud => "point_cloud".into(),
+                IngestType::Multi => "multi".into(),
+                IngestType::Unknown(s) => format!("unknown({s})"),
+            },
+            produced_file_count: v.produced_file_count(),
+            created_by_rid: v.created_by_rid(),
+            created_at: v.created_at().map(|v| v.to_rfc3339()),
+            start_time: v.start_time().map(|v| v.to_rfc3339()),
+            end_time: v.end_time().map(|v| v.to_rfc3339()),
+            url: v.nominal_url(),
+        }
+    }
+}
+#[derive(Serialize)]
+pub struct FileView<'a> {
+    rid: &'a str,
+    dataset_rid: &'a str,
+    name: &'a str,
+    ingest_status: String,
+    uploaded_at: String,
+    ingested_at: Option<String>,
+    deleted_at: Option<String>,
+    ingest_error: Option<&'a str>,
+    timestamp_channel: Option<&'a str>,
+    file_tags: Option<std::collections::BTreeMap<String, String>>,
+    tag_columns: Option<std::collections::BTreeMap<String, String>>,
+}
+impl<'a> From<&'a DatasetFile> for FileView<'a> {
+    fn from(v: &'a DatasetFile) -> Self {
+        Self {
+            rid: v.rid(),
+            dataset_rid: v.dataset_rid(),
+            name: v.name(),
+            ingest_status: match v.ingest_status() {
+                DatasetFileStatus::Success => "success".into(),
+                DatasetFileStatus::InProgress => "in_progress".into(),
+                DatasetFileStatus::Failed => "failed".into(),
+                DatasetFileStatus::DeletionInProgress => "deletion_in_progress".into(),
+                DatasetFileStatus::Deleted => "deleted".into(),
+                DatasetFileStatus::Queued => "queued".into(),
+                DatasetFileStatus::Parsing => "parsing".into(),
+                DatasetFileStatus::Ingesting => "ingesting".into(),
+                DatasetFileStatus::Unknown(s) => format!("unknown({s})"),
+            },
+            uploaded_at: v.uploaded_at().to_rfc3339(),
+            ingested_at: v.ingested_at().map(|v| v.to_rfc3339()),
+            deleted_at: v.deleted_at().map(|v| v.to_rfc3339()),
+            ingest_error: v.ingest_error(),
+            timestamp_channel: v.timestamp_channel(),
+            file_tags: v.file_tags(),
+            tag_columns: v.tag_columns(),
+        }
+    }
+}
+#[derive(Serialize)]
+pub struct Omitted {
+    item_index: usize,
+    failed_sources: Vec<SourceFailure>,
+    uploaded_sources: Vec<PathBuf>,
+}
+#[derive(Serialize)]
+struct SourceFailure {
+    name: String,
+    path: PathBuf,
+    message: String,
+}
+impl From<BatchItemFailure> for Omitted {
+    fn from(v: BatchItemFailure) -> Self {
+        Self {
+            item_index: v.item_index,
+            failed_sources: v
+                .failed_sources
+                .into_iter()
+                .map(|s| SourceFailure {
+                    name: s.name,
+                    path: s.path,
+                    message: s.error.to_string(),
+                })
+                .collect(),
+            uploaded_sources: v.uploaded_sources,
+        }
+    }
+}
+#[derive(Serialize)]
+struct SubmissionView<'a> {
+    job_rid: &'a str,
+    dataset_rid: &'a str,
+    status: Option<String>,
+    omitted: Vec<Omitted>,
+}
+pub async fn wait_job(
+    ingest: &IngestClient,
+    rid: &str,
+    timeout: Option<u64>,
+) -> anyhow::Result<IngestJob> {
+    let future = ingest.wait_for_ingest_job(rid);
+    let job = match timeout {
+        Some(seconds) => tokio::time::timeout(std::time::Duration::from_secs(seconds), future)
+            .await
+            .with_context(|| format!("timed out waiting for job {rid}"))?,
+        None => future.await,
+    };
+    job.with_context(|| format!("waiting for acknowledged job {rid}"))
+}
+pub async fn submission(
+    ingest: &IngestClient,
+    rid: &str,
+    dataset: &str,
+    omitted: Vec<Omitted>,
+    wait: WaitArgs,
+    json: bool,
+) -> anyhow::Result<()> {
+    if !omitted.is_empty() {
+        eprintln!(
+            "warning: {} batch items omitted: {}",
+            omitted.len(),
+            serde_json::to_string(&omitted)?
+        );
+    }
+    let status = if wait.no_wait {
+        None
+    } else {
+        Some(status(wait_job(ingest, rid, wait.timeout).await?.status()))
+    };
+    emit(
+        &SubmissionView {
+            job_rid: rid,
+            dataset_rid: dataset,
+            status,
+            omitted,
+        },
+        json,
+    )
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn extractor_submission_is_one_document() {
+        let v = SubmissionView {
+            job_rid: "job",
+            dataset_rid: "dataset",
+            status: None,
+            omitted: vec![],
+        };
+        let s = serde_json::to_string(&v).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&s).unwrap();
+        assert!(value["status"].is_null());
+        assert_eq!(value["job_rid"], "job");
+    }
+}
+
+#[cfg(test)]
+mod partial_tests {
+    use super::*;
+    #[test]
+    fn extractor_partial_output_preserves_both_sibling_outcomes() {
+        let omitted = Omitted::from(BatchItemFailure {
+            item_index: 4,
+            failed_sources: vec![BatchSourceFailure {
+                name: "INPUT".into(),
+                path: "failed.flight".into(),
+                error: nominal::Error::Ingest {
+                    details: "upload failed".into(),
+                },
+            }],
+            uploaded_sources: vec!["uploaded.flight".into()],
+        });
+        let value = serde_json::to_value(SubmissionView {
+            job_rid: "job",
+            dataset_rid: "dataset",
+            status: None,
+            omitted: vec![omitted],
+        })
+        .unwrap();
+        assert_eq!(value["omitted"][0]["item_index"], 4);
+        assert_eq!(value["omitted"][0]["failed_sources"][0]["name"], "INPUT");
+        assert_eq!(
+            value["omitted"][0]["failed_sources"][0]["path"],
+            "failed.flight"
+        );
+        assert_eq!(
+            value["omitted"][0]["uploaded_sources"][0],
+            "uploaded.flight"
+        );
+    }
+    #[tokio::test]
+    async fn extractor_no_wait_submission_never_hydrates() {
+        let client = NominalClient::builder("token")
+            .base_url("http://127.0.0.1:1/api")
+            .build()
+            .unwrap();
+        submission(
+            &client.ingest(),
+            "acknowledged-job",
+            "dataset",
+            vec![],
+            WaitArgs {
+                timeout: None,
+                no_wait: true,
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    }
+    #[test]
+    fn extractor_unknown_status_is_explicit() {
+        assert_eq!(
+            status(&IngestJobStatus::Unknown("future".into())),
+            "unknown(future)"
+        );
+    }
+}

@@ -1,4 +1,9 @@
+mod batch;
+mod containerized;
+pub(crate) mod contract;
+mod jobs;
 mod native;
+mod render;
 
 use clap::Subcommand;
 use native::*;
@@ -6,6 +11,15 @@ use nominal::core::NominalClient;
 
 #[derive(Subcommand)]
 pub enum IngestCommands {
+    /// Run a containerized extractor with named input files.
+    Containerized(containerized::ContainerizedArgs),
+    /// Submit a version 1 JSON batch into an existing dataset.
+    Batch(batch::BatchArgs),
+    /// Inspect, wait for, and cancel ingest jobs.
+    Job {
+        #[command(subcommand)]
+        command: jobs::JobCommands,
+    },
     /// Upload a CSV file and ingest it into a dataset
     Csv(CsvArgs),
     /// Upload a Parquet file and ingest it into a dataset
@@ -26,6 +40,9 @@ pub enum IngestCommands {
 
 pub async fn handle(cmd: IngestCommands, client: NominalClient) -> anyhow::Result<()> {
     match cmd {
+        IngestCommands::Containerized(a) => containerized::handle(a, client).await,
+        IngestCommands::Batch(a) => batch::handle(a, client).await,
+        IngestCommands::Job { command } => jobs::handle(command, client).await,
         IngestCommands::Csv(args) => handle_csv(args, client).await,
         IngestCommands::Parquet(args) => handle_parquet(args, client).await,
         IngestCommands::Mcap(args) => handle_mcap(args, client).await,
@@ -34,5 +51,15 @@ pub async fn handle(cmd: IngestCommands, client: NominalClient) -> anyhow::Resul
         IngestCommands::ArdupilotDataflash(args) => handle_dataflash(args, client).await,
         IngestCommands::Video(args) => handle_video(args, client).await,
         IngestCommands::McapVideo(args) => handle_mcap_video(args, client).await,
+    }
+}
+
+impl IngestCommands {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        match self {
+            Self::Containerized(a) => a.validate(),
+            Self::Batch(a) => a.validate(),
+            _ => Ok(()),
+        }
     }
 }
