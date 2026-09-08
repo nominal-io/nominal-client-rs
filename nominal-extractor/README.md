@@ -16,17 +16,25 @@ runtime logs.
 use nominal_extractor::{ExtractResult, ManifestContext, TabularOutput, run_manifest};
 
 fn extract(ctx: &mut ManifestContext) -> ExtractResult {
+    // Register PARTS as an optional parameter and DATA as a required file input.
+    // Without PARTS, the example produces one output.
     let parts = ctx.optional_param::<usize>("PARTS")?.unwrap_or(1);
     let input = ctx.input("DATA")?;
     for part in 0..parts {
         let output = ctx.output_dir().join(format!("part-{part}.csv"));
+        // Copying demonstrates output handling; it does not split the CSV.
+        // Replace this step with the extraction or partitioning your format needs.
         std::fs::copy(&input, &output)?;
+        // Declare each completed file. Prefixes keep its channels distinct from
+        // those in other outputs; timestamps use the job or image defaults.
         ctx.add_tabular(TabularOutput::new(output).channel_prefix(format!("part-{part}/")))?;
     }
     Ok(())
 }
 
 fn main() -> nominal_extractor::Result<()> {
+    // The runner writes the manifest after extract succeeds. Returning Result
+    // makes an extraction error produce a nonzero process exit status.
     run_manifest(extract).map(|_| ())
 }
 ```

@@ -18,16 +18,26 @@ use nominal::core::{
 use std::path::Path;
 
 async fn register(client: &NominalClient) -> nominal::Result<()> {
+    // The extractor is the stable resource. Images provide versioned implementations.
     let extractors = client.extractors();
     let extractor = extractors.create(ExtractorCreate::new("flight-recorder")).await?;
+
+    // Declare how the container receives inputs and what it produces. Manifest
+    // outputs can override this default interpretation of the ts column.
     let contract = ImageRegistration::new(
         "v1", RegisterableOutputFormat::Manifest,
         Timestamp::epoch("ts", TimeUnit::Nanoseconds),
     )
+    // RECORDING carries the input file path; PARTS carries a scalar string.
     .input(FileExtractionInput::new("Recording", "RECORDING").suffix("flight").required(true))
     .parameter(FileExtractionParameter::new("Parts", "PARTS"));
+
+    // Upload the archive created by docker save. Registration alone does not
+    // change which image the extractor runs.
     let image = client.container_images()
         .register(&extractor, Path::new("flight-recorder-v1.tar"), contract).await?;
+
+    // Wait for Nominal to prepare the image before making it active.
     extractors.activate(&extractor, &image, Activation::Wait(WaitOptions::default())).await?;
     Ok(())
 }
@@ -49,6 +59,8 @@ stored with that resource.
 use nominal::core::{ContainerizedIngest, DatasetTarget, NominalClient, WaitOptions};
 
 async fn ingest(client: &NominalClient, extractor: &str, dataset: &str) -> nominal::Result<()> {
+    // These are the environment names from the image registration. The SDK
+    // uploads the local source and sends the argument and data tags with the job.
     let submission = client.ingest().upload_containerized(
         DatasetTarget::Existing(dataset.into()),
         ContainerizedIngest::new(extractor)
@@ -56,7 +68,11 @@ async fn ingest(client: &NominalClient, extractor: &str, dataset: &str) -> nomin
             .argument("PARTS", "4")
             .tag("vehicle", "n1234"),
     ).await?;
+    // Keep the job ID so you can inspect this submission even if waiting fails.
     println!("job: {}", submission.job().rid());
+
+    // A job can create several files. Wait for the job before listing its outputs,
+    // then wait for those files to finish ingestion.
     let files = client.ingest()
         .wait_for_job_files(submission.job().rid(), WaitOptions::default()).await?;
     println!("{} output files", files.len());
@@ -90,9 +106,14 @@ returns its updated state.
 use nominal::core::{BatchOptions, ContainerizedIngest, NominalClient};
 
 async fn batch(client: &NominalClient, extractor: &str, dataset: &str) -> nominal::Result<()> {
+    // Both recordings target the same existing dataset and belong to one job.
+    // Adding items records work; the uploads begin when submit is called.
     let batch = client.ingest().batch(dataset)
         .add_containerized(ContainerizedIngest::new(extractor).source("RECORDING", "one.flight"))?
         .add_containerized(ContainerizedIngest::new(extractor).source("RECORDING", "two.flight"))?;
+
+    // Default settings upload at most four files at once and submit no job if
+    // an upload fails. Submitting consumes the batch to prevent accidental reuse.
     let submission = batch.submit(BatchOptions::default()).await?;
     println!("job: {}", submission.job.rid());
     Ok(())
