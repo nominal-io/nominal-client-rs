@@ -77,7 +77,7 @@ pub struct Timestamp {
 }
 
 #[derive(Debug, Clone)]
-enum TimestampKind {
+pub enum TimestampKind {
     Iso8601,
     Epoch(TimeUnit),
     Custom {
@@ -92,6 +92,10 @@ enum TimestampKind {
 }
 
 impl Timestamp {
+    /// The encoding and its format-specific options.
+    pub fn encoding(&self) -> &TimestampKind {
+        &self.kind
+    }
     pub fn series_name(&self) -> &str {
         &self.series_name
     }

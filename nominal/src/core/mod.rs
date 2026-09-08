@@ -3,6 +3,7 @@ pub(crate) mod catalog;
 pub(crate) mod client;
 pub(crate) mod datasource;
 pub(crate) mod datetime;
+pub(crate) mod extractor;
 pub(crate) mod fs;
 pub(crate) mod grpc;
 pub(crate) mod ingest;
@@ -23,6 +24,12 @@ pub use catalog::{
 };
 pub use client::{NominalClient, NominalClientBuilder};
 pub use datasource::DataSource;
+pub use extractor::{
+    Activation, ContainerImage, ContainerImageQuery, ContainerImageStatus, ContainerImagesClient,
+    ContainerizedExtractor, ExtractorCreate, ExtractorError, ExtractorQuery, ExtractorUpdate,
+    ExtractorsClient, FileExtractionInput, FileExtractionParameter, FileOutputFormat,
+    ImageRegistration, RegisterableOutputFormat,
+};
 pub use fs::{
     Directory, Drive, DriveFilesClient, DriveKind, DriveMutability, DriveSource, DriveState,
     DrivesClient, FileEntry, FileOperationDestination, FileRevision, FileState, LogicalFile,
@@ -30,7 +37,7 @@ pub use fs::{
 pub use ingest::{
     AvroStreamIngest, CsvIngest, DataflashIngest, DatasetTarget, FileType, IngestClient, IngestJob,
     IngestJobStatus, IngestType, JournalJsonIngest, McapIngest, ParquetIngest, ProgressCallback,
-    TimeUnit, Timestamp, UploadEvent, UploadOptions, VideoIngest, VideoTarget,
+    TimeUnit, Timestamp, TimestampKind, UploadEvent, UploadOptions, VideoIngest, VideoTarget,
 };
 pub use run::{Run, RunCreate, RunQuery, RunUpdate, RunsClient};
 pub use template::{Template, TemplatesClient};

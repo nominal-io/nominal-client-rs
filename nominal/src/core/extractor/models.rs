@@ -455,7 +455,8 @@ impl ImageRegistration {
         self
     }
     pub(crate) fn validate(&self) -> Result<()> {
-        if self.timestamp.to_registry_proto().series_name.is_empty() || self.inputs.is_empty()
+        if self.timestamp.to_registry_proto().series_name.is_empty()
+            || self.inputs.is_empty()
             || self
                 .inputs
                 .iter()

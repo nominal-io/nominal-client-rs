@@ -27,6 +27,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 nominal-api = "0.1349.0"
 conjure-object = "5.10"
 serde_json = "1"
+serde = { version = "1", features = ["derive"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "http2", "rustls-tls-native-roots"] }
 bytes = "1"
 url = "2"

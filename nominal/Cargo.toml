@@ -30,6 +30,7 @@ serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9.34"
 thiserror = "2"
+tempfile = "3"
 tonic = { version = "0.13", features = ["tls-ring", "tls-native-roots"] }
 tower = "0.5"
 tokio = { version = "1", features = [
