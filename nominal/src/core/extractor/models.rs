@@ -454,6 +454,32 @@ impl ImageRegistration {
         self.parameters.push(v);
         self
     }
+    pub(crate) fn into_request(
+        self,
+        extractor: &ContainerizedExtractor,
+        object_path: String,
+    ) -> proto::CreateImageRequest {
+        proto::CreateImageRequest {
+            workspace_rid: extractor.workspace_rid().into(),
+            extractor_rid: extractor.rid().into(),
+            object_path,
+            tag: self.tag,
+            file_output_format: self.format.into_proto(),
+            default_timestamp_metadata: Some(self.timestamp.to_registry_proto()),
+            inputs: self
+                .inputs
+                .into_iter()
+                .map(FileExtractionInput::into_proto)
+                .collect(),
+            parameters: self
+                .parameters
+                .into_iter()
+                .map(FileExtractionParameter::into_proto)
+                .collect(),
+            source_image_rid: None,
+            exit_code_mappings: vec![],
+        }
+    }
     pub(crate) fn validate(&self) -> Result<()> {
         if self.timestamp.to_registry_proto().series_name.is_empty()
             || self.inputs.is_empty()

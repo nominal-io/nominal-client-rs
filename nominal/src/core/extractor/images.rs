@@ -67,7 +67,6 @@ impl ContainerImagesClient {
         registration: ImageRegistration,
     ) -> Result<ContainerImage> {
         registration.validate()?;
-        let timestamp = registration.timestamp.to_registry_proto();
         let workspace = extractor.workspace_rid().to_owned();
         let filename = tarball
             .file_name()
@@ -90,26 +89,7 @@ impl ContainerImagesClient {
         let response = self
             .write
             .clone()
-            .create_image(proto::CreateImageRequest {
-                workspace_rid: workspace.clone(),
-                tag: registration.tag,
-                object_path: object_path.clone(),
-                extractor_rid: extractor.rid().into(),
-                inputs: registration
-                    .inputs
-                    .into_iter()
-                    .map(FileExtractionInput::into_proto)
-                    .collect(),
-                parameters: registration
-                    .parameters
-                    .into_iter()
-                    .map(FileExtractionParameter::into_proto)
-                    .collect(),
-                file_output_format: registration.format.into_proto(),
-                default_timestamp_metadata: Some(timestamp),
-                source_image_rid: None,
-                exit_code_mappings: vec![],
-            })
+            .create_image(registration.into_request(extractor, object_path.clone()))
             .await
             .map_err(|source| ExtractorError::Registration {
                 object_path,
