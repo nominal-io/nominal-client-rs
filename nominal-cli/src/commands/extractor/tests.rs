@@ -13,10 +13,13 @@ use std::{
     task::{Context, Poll},
 };
 
+type MockReply = (String, Vec<u8>, u16);
+type RecordedRequest = (String, Vec<u8>);
+
 #[derive(Clone)]
 struct Mock {
-    replies: Arc<Mutex<VecDeque<(String, Vec<u8>, u16)>>>,
-    requests: Arc<Mutex<Vec<(String, Vec<u8>)>>>,
+    replies: Arc<Mutex<VecDeque<MockReply>>>,
+    requests: Arc<Mutex<Vec<RecordedRequest>>>,
 }
 impl tonic::server::NamedService for Mock {
     const NAME: &'static str = "nominal.registry.v2.RegistryService";

@@ -94,7 +94,10 @@ pub async fn handle(cmd: JobCommands, client: NominalClient) -> anyhow::Result<(
                 ingest.dataset_files(&rid).await?
             };
             emit(
-                &files.iter().map(FileView::from).collect::<Vec<_>>(),
+                &files
+                    .iter()
+                    .map(FileView::try_from)
+                    .collect::<anyhow::Result<Vec<_>>>()?,
                 output.json,
             )
         }

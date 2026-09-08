@@ -61,6 +61,10 @@ pub struct FileView<'a> {
     rid: &'a str,
     dataset_rid: &'a str,
     name: &'a str,
+    bounds: Option<(i128, i128)>,
+    bounds_timestamp_type: Option<String>,
+    file_size_bytes: Option<i64>,
+    timestamp: Option<crate::commands::extractor::render::TimestampView>,
     ingest_status: String,
     uploaded_at: String,
     ingested_at: Option<String>,
@@ -70,12 +74,21 @@ pub struct FileView<'a> {
     file_tags: Option<std::collections::BTreeMap<String, String>>,
     tag_columns: Option<std::collections::BTreeMap<String, String>>,
 }
-impl<'a> From<&'a DatasetFile> for FileView<'a> {
-    fn from(v: &'a DatasetFile) -> Self {
-        Self {
+impl<'a> TryFrom<&'a DatasetFile> for FileView<'a> {
+    type Error = anyhow::Error;
+    fn try_from(v: &'a DatasetFile) -> anyhow::Result<Self> {
+        Ok(Self {
             rid: v.rid(),
             dataset_rid: v.dataset_rid(),
             name: v.name(),
+            bounds: v.bounds(),
+            bounds_timestamp_type: v.bounds_timestamp_type(),
+            file_size_bytes: v.file_size_bytes(),
+            timestamp: v
+                .timestamp()
+                .with_context(|| format!("timestamp metadata for dataset file {}", v.rid()))?
+                .as_ref()
+                .map(Into::into),
             ingest_status: match v.ingest_status() {
                 DatasetFileStatus::Success => "success".into(),
                 DatasetFileStatus::InProgress => "in_progress".into(),
@@ -94,7 +107,7 @@ impl<'a> From<&'a DatasetFile> for FileView<'a> {
             timestamp_channel: v.timestamp_channel(),
             file_tags: v.file_tags(),
             tag_columns: v.tag_columns(),
-        }
+        })
     }
 }
 #[derive(Serialize)]

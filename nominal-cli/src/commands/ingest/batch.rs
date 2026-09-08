@@ -35,11 +35,41 @@ pub struct BatchRequest {
     runs_to_expand: Vec<String>,
     items: Vec<Item>,
 }
+fn unique_sources<'de, D>(deserializer: D) -> Result<BTreeMap<String, PathBuf>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct Sources;
+    impl<'de> serde::de::Visitor<'de> for Sources {
+        type Value = BTreeMap<String, PathBuf>;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("source paths keyed by unique environment variable names")
+        }
+        fn visit_map<M: serde::de::MapAccess<'de>>(
+            self,
+            mut map: M,
+        ) -> Result<Self::Value, M::Error> {
+            let mut sources = BTreeMap::new();
+            while let Some((name, path)) = map.next_entry::<String, PathBuf>()? {
+                if sources.contains_key(&name) {
+                    return Err(serde::de::Error::custom(format!(
+                        "duplicate source environment key: {name}"
+                    )));
+                }
+                sources.insert(name, path);
+            }
+            Ok(sources)
+        }
+    }
+    deserializer.deserialize_map(Sources)
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum Item {
     Containerized {
         extractor: String,
+        #[serde(deserialize_with = "unique_sources")]
         sources: BTreeMap<String, PathBuf>,
         #[serde(default)]
         arguments: BTreeMap<String, String>,
@@ -412,5 +442,27 @@ impl BatchArgs {
         let request: BatchRequest = contract::read(&self.file)?;
         contract::version(request.schema_version)
             .with_context(|| format!("batch request {}", self.file.display()))
+    }
+}
+
+#[cfg(test)]
+mod duplicate_source_tests {
+    use super::*;
+    #[test]
+    fn extractor_batch_rejects_duplicate_source_keys() {
+        let input = r#"{"kind":"containerized","extractor":"extractor","sources":{"INPUT":"a.flight","INPUT":"b.flight"}}"#;
+        assert!(serde_json::from_str::<Item>(input).is_err());
+    }
+    #[test]
+    fn extractor_batch_argument_and_tag_duplicates_remain_last_wins() {
+        let input = r#"{"kind":"containerized","extractor":"extractor","sources":{"INPUT":"a.flight"},"arguments":{"A":"first","A":"last"},"tags":{"K":"first","K":"last"}}"#;
+        let Item::Containerized {
+            arguments, tags, ..
+        } = serde_json::from_str::<Item>(input).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(arguments["A"], "last");
+        assert_eq!(tags["K"], "last");
     }
 }

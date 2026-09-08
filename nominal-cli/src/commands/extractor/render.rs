@@ -36,7 +36,7 @@ pub struct ImageView<'a> {
     created_at: Option<String>,
     status: String,
     output_format: String,
-    default_timestamp: Option<TimestampView<'a>>,
+    default_timestamp: Option<TimestampView>,
     inputs: Vec<InputView<'a>>,
     parameters: Vec<ParameterView<'a>>,
 }
@@ -106,29 +106,29 @@ impl<'a> From<&'a ContainerImage> for ImageView<'a> {
 }
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub enum TimestampView<'a> {
+pub enum TimestampView {
     Epoch {
-        column: &'a str,
+        column: String,
         unit: &'static str,
     },
     Relative {
-        column: &'a str,
+        column: String,
         unit: &'static str,
         start: Option<String>,
     },
     Iso8601 {
-        column: &'a str,
+        column: String,
     },
     Custom {
-        column: &'a str,
-        format: &'a str,
+        column: String,
+        format: String,
         default_year: Option<i32>,
         default_day_of_year: Option<i32>,
     },
 }
-impl<'a> From<&'a Timestamp> for TimestampView<'a> {
-    fn from(v: &'a Timestamp) -> Self {
-        let column = v.series_name();
+impl From<&Timestamp> for TimestampView {
+    fn from(v: &Timestamp) -> Self {
+        let column = v.series_name().to_owned();
         match v.encoding() {
             TimestampKind::Epoch(u) => Self::Epoch {
                 column,
@@ -146,7 +146,7 @@ impl<'a> From<&'a Timestamp> for TimestampView<'a> {
                 default_day_of_year,
             } => Self::Custom {
                 column,
-                format,
+                format: format.clone(),
                 default_year: *default_year,
                 default_day_of_year: *default_day_of_year,
             },
@@ -178,24 +178,6 @@ pub struct Deleted<'a> {
     pub deleted: bool,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn extractor_timestamp_json_is_lossless() {
-        let t = Timestamp::custom("ts", "yyyy-DDD")
-            .with_default_year(2026)
-            .with_default_day_of_year(5);
-        let v = serde_json::to_value(TimestampView::from(&t)).unwrap();
-        assert_eq!(v["default_year"], 2026);
-        assert_eq!(v["default_day_of_year"], 5);
-        let t = Timestamp::relative("ts", TimeUnit::Nanoseconds)
-            .with_offset(chrono::DateTime::from_timestamp(1, 123456789).unwrap());
-        let v = serde_json::to_value(TimestampView::from(&t)).unwrap();
-        assert_eq!(v["start"], "1970-01-01T00:00:01.123456789+00:00");
-    }
-}
-
 fn print_human(value: &serde_json::Value, indent: usize) {
     match value {
         serde_json::Value::Object(fields) => {
@@ -222,5 +204,23 @@ fn print_human(value: &serde_json::Value, indent: usize) {
         }
         serde_json::Value::String(text) => println!("{}{}", " ".repeat(indent), text),
         value => println!("{}{}", " ".repeat(indent), value),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn extractor_timestamp_json_is_lossless() {
+        let t = Timestamp::custom("ts", "yyyy-DDD")
+            .with_default_year(2026)
+            .with_default_day_of_year(5);
+        let v = serde_json::to_value(TimestampView::from(&t)).unwrap();
+        assert_eq!(v["default_year"], 2026);
+        assert_eq!(v["default_day_of_year"], 5);
+        let t = Timestamp::relative("ts", TimeUnit::Nanoseconds)
+            .with_offset(chrono::DateTime::from_timestamp(1, 123456789).unwrap());
+        let v = serde_json::to_value(TimestampView::from(&t)).unwrap();
+        assert_eq!(v["start"], "1970-01-01T00:00:01.123456789+00:00");
     }
 }
