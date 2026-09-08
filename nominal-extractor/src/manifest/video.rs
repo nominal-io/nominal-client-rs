@@ -3,19 +3,23 @@ use crate::{Error, Result};
 use chrono::{DateTime, Utc};
 use std::{io::Write, path::PathBuf};
 #[derive(Clone, Debug)]
+/// How Nominal scales a video timeline relative to its start time.
 pub enum VideoScale {
     EndingTimestamp(DateTime<Utc>),
     TrueFrameRate(f64),
     Factor(f64),
 }
 #[derive(Clone, Debug)]
+/// A start time for the video or an absolute timestamp for each frame.
 pub enum VideoTiming {
     Start {
         at: DateTime<Utc>,
         scale: Option<VideoScale>,
     },
+    /// Frame timestamps in nanoseconds since the Unix epoch.
     FrameTimestamps(Vec<i64>),
 }
+/// A video file, its channel name and its timing settings.
 pub struct VideoOutput {
     path: PathBuf,
     channel: String,

@@ -189,7 +189,7 @@ mod pagination_tests {
     use super::*;
     use std::io::{Read, Write};
     #[tokio::test]
-    async fn job_search_paginates_without_hydrating_results() {
+    async fn job_search_returns_all_pages_without_extra_job_requests() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {

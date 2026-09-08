@@ -5,6 +5,7 @@ use crate::{Error, Result, environment::Environment, paths::OutputDirectory};
 use std::{collections::BTreeMap, path::PathBuf};
 pub use tabular::*;
 pub use video::*;
+/// Inputs, parameters and output declarations for a manifest extractor.
 pub struct ManifestContext {
     env: Environment,
     output: OutputDirectory,
@@ -78,6 +79,7 @@ impl ManifestContext {
         self.output.account(relative);
         Ok(path)
     }
+    /// Return the declared outputs as JSON without writing the manifest file.
     pub fn build_manifest(&self) -> Result<serde_json::Value> {
         Ok(serde_json::to_value(&self.manifest)?)
     }

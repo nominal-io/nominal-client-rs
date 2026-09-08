@@ -8,7 +8,7 @@ use nominal_api::objects::ingest::api::{
 };
 use std::{collections::BTreeMap, path::PathBuf};
 
-/// An acknowledged job identity. Fetch its snapshot explicitly with `get_ingest_job`.
+/// An acknowledged job RID. Use `get_ingest_job` to fetch its current state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IngestJobRef {
     rid: String,
@@ -89,10 +89,10 @@ impl ContainerizedIngest {
         self.timestamp = Some(timestamp);
         self
     }
-    /// Merge caller-supplied scope tags below explicit ingest tags.
+    /// Add default scope tags without replacing tags already set on the request.
     ///
-    /// Existing workbook run scopes can resolve an attached dataset through a run's
-    /// named data sources. `WorkbookDataScope` exposes assets/runs, not dataset views
+    /// A workbook run scope identifies datasets through each run's
+    /// named data sources. `WorkbookDataScope` exposes assets and runs, not dataset views
     /// or tag filters, so tags must be supplied explicitly. This example requires a
     /// run-scoped workbook and a dataset directly attached to the selected run;
     /// multi-asset runs may instead require looking up the underlying asset.
@@ -136,7 +136,7 @@ impl IngestClient {
         target: DatasetTarget,
         ingest: ContainerizedIngest,
     ) -> Result<ContainerizedSubmission> {
-        // Validate the target and active input contract before creating remote upload objects.
+        // Check the target and required inputs before uploading files.
         let extractor = self.extractors.get(&ingest.extractor_rid).await?;
         let target = target.into_api(Some(extractor.workspace_rid()))?;
         let image = preflight(&extractor, &ingest)?;
@@ -240,13 +240,8 @@ mod tests {
                 ("scope".into(), "default".into()),
                 ("other".into(), "value".into()),
             ]));
-        assert_eq!(ingest.tags["scope"], "caller");
-        assert_eq!(ingest.tags["other"], "value");
-        assert!(ingest.sources.is_empty());
-    }
-    #[test]
-    fn containerized_acknowledgement_requires_job() {
-        assert!(IngestJobRef::new(String::new()).is_err());
+        assert_eq!(ingest.tags()["scope"], "caller");
+        assert_eq!(ingest.tags()["other"], "value");
     }
 }
 #[cfg(test)]
@@ -282,7 +277,7 @@ mod request_tests {
         assert!(preflight(&snapshot, &ingest.source("INPUT", "does-not-need-to-exist")).is_ok());
     }
     #[tokio::test]
-    async fn containerized_acknowledgement_does_not_hydrate_job() {
+    async fn containerized_submission_returns_the_job_id_without_fetching_metadata() {
         use std::io::{Read, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
@@ -339,6 +334,19 @@ mod request_tests {
 #[cfg(test)]
 mod acknowledgement_tests {
     use super::*;
+    #[test]
+    fn acknowledgement_without_job_rid_is_rejected() {
+        let response = serde_json::from_value(serde_json::json!({
+            "details":{"type":"dataset","dataset":{"datasetRid":"ri.catalog.main.dataset.test"}}
+        }))
+        .unwrap();
+        assert!(matches!(
+            ContainerizedSubmission::from_response(response),
+            Err(Error::UnexpectedResponse {
+                field: "ingest_job_rid"
+            })
+        ));
+    }
     #[test]
     fn malformed_destination_preserves_acknowledged_job_identity() {
         let response = serde_json::from_value(serde_json::json!({

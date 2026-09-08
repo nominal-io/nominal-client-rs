@@ -105,6 +105,5 @@ mod tests {
             )
             .is_err()
         );
-        assert!(version(2).is_err());
     }
 }

@@ -1,5 +1,6 @@
 use crate::{NumericTimestamp, timestamp::TimestampMetadata};
 use std::{collections::BTreeMap, path::PathBuf};
+/// A CSV or Parquet output with optional channel and timestamp settings.
 pub struct TabularOutput {
     pub(crate) path: PathBuf,
     pub(crate) tags: BTreeMap<String, String>,
@@ -28,7 +29,8 @@ impl TabularOutput {
         self
     }
 }
-/// Avro's timestamp series is always `timestamps`.
+/// An Avro stream output. The timestamp field is always `timestamps`.
+///
 /// ```compile_fail
 /// use nominal_extractor::*;
 /// AvroStreamOutput::new("x.avro").timestamp("column", NumericTimestamp::Epoch(NumericTimeUnit::Seconds));
@@ -55,7 +57,9 @@ impl AvroStreamOutput {
         self
     }
 }
-/// Logs have no tag columns or channel prefix.
+/// A journal JSON output with optional timestamps. Tag columns and channel
+/// prefixes are not supported.
+///
 /// ```compile_fail
 /// use nominal_extractor::*;
 /// JournalJsonOutput::new("x.jsonl").tag_column("tag", "column");

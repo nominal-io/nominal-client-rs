@@ -85,7 +85,7 @@ async fn fixture(
     (client, mock, task)
 }
 #[tokio::test]
-async fn batch_rpc_ack_is_not_hydrated_and_unavailable_is_not_replayed() {
+async fn batch_returns_the_job_id_without_fetching_metadata_or_retrying_submission() {
     for status in [0, 14] {
         let (client, mock, task) = fixture(status).await;
         let batch = client
@@ -116,7 +116,11 @@ async fn batch_rpc_ack_is_not_hydrated_and_unavailable_is_not_replayed() {
 }
 #[tokio::test]
 async fn batch_rpc_partial_omits_failed_item_and_default_submits_nothing() {
-    for policy in [FailurePolicy::FailFast, FailurePolicy::AllowPartial] {
+    for (policy, all_fail) in [
+        (FailurePolicy::FailFast, false),
+        (FailurePolicy::AllowPartial, false),
+        (FailurePolicy::AllowPartial, true),
+    ] {
         let (client, mock, task) = fixture(0).await;
         let batch = client
             .ingest()
@@ -130,7 +134,7 @@ async fn batch_rpc_partial_omits_failed_item_and_default_submits_nothing() {
             2,
             FailurePolicy::AllowPartial,
             |path, _| async move {
-                if path == std::path::Path::new("bad.bin") {
+                if all_fail || path == std::path::Path::new("bad.bin") {
                     Err(invalid("bad"))
                 } else {
                     Ok("s3://good".into())
@@ -141,7 +145,7 @@ async fn batch_rpc_partial_omits_failed_item_and_default_submits_nothing() {
         let result = batch
             .submit_completed(BatchOptions::default().failure_policy(policy), report)
             .await;
-        if policy == FailurePolicy::FailFast {
+        if policy == FailurePolicy::FailFast || all_fail {
             assert!(result.is_err());
             assert!(mock.requests.lock().unwrap().is_empty());
         } else {

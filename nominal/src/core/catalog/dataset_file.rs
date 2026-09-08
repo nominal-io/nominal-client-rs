@@ -25,7 +25,7 @@ impl DatasetFileStatus {
         )
     }
 }
-/// Immutable catalog file snapshot; this is distinct from a File Store resource.
+/// A dataset file and its current ingest state. This is not a File Store resource.
 #[derive(Debug, Clone)]
 pub struct DatasetFile {
     api: ApiDatasetFile,
@@ -122,7 +122,7 @@ impl CatalogClient {
             file.check_ingest_failure()?;
         }
         while files.iter().any(|file| !file.status.is_complete()) {
-            // Borrow disjoint snapshots so responses can complete out of order while
+            // Refresh files independently so responses can complete out of order while
             // the caller's result order stays unchanged. Dropping this stream on a
             // failure cancels the remaining read requests.
             stream::iter(

@@ -20,7 +20,7 @@ suggested fixture or external check was executed literally.
 | Register: extractor, tarball path, immutable tag, format, required timestamp column/type, input name/env/description/suffixes/required, parameter name/env/description/required | `ImageRegistration`, `FileExtractionInput`, `FileExtractionParameter`, `ContainerImagesClient::register` | `extractor image register --contract` | `registration_encodes_completed_upload_and_complete_contract`, `preflight_rejects_invalid_contract_and_timestamp_before_file_or_network`, `extraction_contract_roundtrips` |
 | Image get/refresh/delete; search extractor/tag/status/workspace; readiness interval | `ContainerImagesClient`, `ContainerImageQuery`, `WaitOptions` | `extractor image get/search/delete/wait` | `image_search_follows_pages_and_ands_filters`, `extractor_get_image_search_and_wait_map_arguments`, `waiting_unknown_status_rejects_promptly_without_deadline_or_activation` |
 | Activate image RID/resource, optionally poll until ready | `ExtractorsClient::activate`, `Activation` | `extractor activate`, `--no-wait`, `--timeout` | `activation_refreshes_pending_then_ready_and_mutates_once_in_snapshot_workspace`, `activation_rejects_pending_failed_unknown_without_mutation`, `mismatch_rejects_before_any_request` |
-| Direct ingest: extractor, sources, arguments, tags, optional timestamp column/type, dataset destination | `ContainerizedIngest`, `DatasetTarget::{New,Existing}`, `upload_containerized` | `ingest containerized`, dataset/new-dataset, two-token source/argument/tag, timestamp flags/JSON | `containerized_acknowledgement_does_not_hydrate_job`, `containerized_preflight_empty_sources_depend_on_active_contract`, `malformed_destination_preserves_acknowledged_job_identity` |
+| Direct ingest: extractor, sources, arguments, tags, optional timestamp column/type, dataset destination | `ContainerizedIngest`, `DatasetTarget::{New,Existing}`, `upload_containerized` | `ingest containerized`, dataset/new-dataset, two-token source/argument/tag, timestamp flags/JSON | `containerized_submission_returns_the_job_id_without_fetching_metadata`, `containerized_preflight_empty_sources_depend_on_active_contract`, `malformed_destination_preserves_acknowledged_job_identity` |
 | Dataset-scope defaults with explicit tags winning | `with_scope_tags`; existing run/workbook lookup composed with canonical direct ingest | Resolved dataset and tags supplied to direct command | `containerized_scope_defaults_do_not_replace_caller_tags`; compiling workbook→run→dataset doctest |
 | Job RID/status/type/origin files/dataset/file count/creator/created/start/end/URL, refresh/get/cancel | `IngestJob`, `get_ingest_job`, `cancel_ingest_job` | `ingest job get/cancel/wait` | Job conversion tests; CLI `JobView` typed serialization; existing wait tests |
 | Search dataset RIDs, creator RIDs, statuses, text, inclusive lower/exclusive upper start time, default/specific/all workspace | `IngestJobQuery`, `WorkspaceSelection`, `search_ingest_jobs` | `ingest job search` | `job_query_all_omits_workspace_and_preserves_bounds`, two-page HTTP search fixture in `job_query.rs` |
@@ -38,7 +38,7 @@ The management snapshots expose optional metadata and preserve unknown enum
 values rather than defaulting to READY or inventing timestamps. Registry and
 batch timestamp conversion live beside the existing SDK timestamp owner.
 Mutation clients explicitly use non-retrying transports. `mutation_unavailable_is_attempted_once`
-and `batch_rpc_ack_is_not_hydrated_and_unavailable_is_not_replayed` count real
+and `batch_returns_the_job_id_without_fetching_metadata_or_retrying_submission` count real
 loopback RPCs. Successful image registration uses the existing multipart uploader;
 its complete request encoding and preflight are tested separately from multipart
 transport. A full successful multipart→CreateImage platform flow was not run.
@@ -51,17 +51,17 @@ macro crate, async runtime, network client or generated API dependency is added.
 
 | Python behavior / arguments | Rust surface and evidence |
 | --- | --- |
-| Registered input metadata authoritative, display/env lookup, sole input, fallback directory discovery | Context `input/inputs/sole_input`; `metadata_order_and_empty_authoritative_contract`, `fallback_parameters_and_discovery` |
-| Registered parameters display/env lookup, absent optional, required, malformed values | Generic `param<T>/optional_param<T>`; `registered_parameter_name_resolves_and_parses`, `malformed_metadata_is_contextual` |
+| Registered input metadata authoritative, display/env lookup, sole input, fallback directory discovery | Context `input/inputs/sole_input`; `registered_inputs_keep_their_order_and_exclude_unregistered_values`, `fallback_parameters_and_discovery` |
+| Registered parameters display/env lookup, absent optional, required, malformed values | Generic `param<T>/optional_param<T>`; `registered_parameter_name_resolves_and_parses`, `malformed_metadata_reports_the_environment_variable` |
 | Optional job RID, dataset RID, tags, full timestamp metadata; absent/null/empty handling | Context metadata getters; `complete_timestamp_inspection_and_unknown_preservation`, `null_json_metadata_matches_absence` |
-| Single-file set output, once only, no missing output, registered format check, failure exit | `run_single_file`, injected-map runner; `no_output_and_second_output`, `mismatch_precedes_author_and_author_failure_does_not_finalize`, subprocess runner test |
-| Tabular path, tag columns, prefix, paired numeric timestamp column/type | `TabularOutput`; `python_golden_complete_manifest`, `four_units_and_all_supported_extensions` |
+| Single-file set output, once only, no missing output, registered format check, failure exit | `run_single_file`, injected-map runner; `no_output_and_second_output`, `invalid_registration_skips_the_extractor_and_errors_leave_no_manifest`, subprocess runner test |
+| Tabular path, tag columns, prefix, paired numeric timestamp column/type | `TabularOutput`; `manifest_matches_python_output`, `four_units_and_all_supported_extensions` |
 | Avro path/gzip, prefix, numeric timestamp type, fixed timestamps series | `AvroStreamOutput`; Python semantic golden and compile-fail timestamp type doctest |
 | Journal JSON path/gzip, paired numeric timestamp column/type | `JournalJsonOutput`; golden and compile-fail unsupported prefix doctest |
 | Video path, channel, start timestamp, ending timestamp/true frame rate/scale factor, frame ns vector | `VideoOutput`, `VideoTiming`, `VideoScale`; Python semantic golden includes every scale and frame sidecars |
-| Repeat same path; sidecar index includes prior start-timed declarations | `nested_repeats_have_python_names` and Python fixture |
-| Sidecar collision protection; rejected declarations do not mutate; atomic final manifest; scratch warning | `collision_does_not_overwrite_or_record_rejected_entry`, `invalid_video_rejections_do_not_mutate`, `rejected_declaration_preserves_state_and_existing_manifest_replaced` |
-| Canonical containment/symlink escape, relative path serialization, reserved manifest filename | `symlink_escape_rejected`, `literal_backslash_filename_is_not_a_directory_separator`, `symlink_alias_extension_is_validated_without_changing_manifest_identity`, `non_utf8_output_identity_is_rejected_instead_of_changed` |
+| Repeat same path; sidecar index includes prior start-timed declarations | `repeated_videos_use_separate_timestamp_files` and Python fixture |
+| Sidecar collision protection; rejected declarations do not mutate; atomic final manifest; scratch warning | `collision_does_not_overwrite_or_record_rejected_entry`, `invalid_videos_leave_no_output_entries_or_timestamp_files`, `rejected_outputs_are_excluded_when_replacing_the_manifest` |
+| Canonical containment/symlink escape, relative path serialization, reserved manifest filename | `symlink_escape_rejected`, `literal_backslash_filename_is_not_a_directory_separator`, `symlink_uses_alias_extension_and_resolved_output_path`, `non_utf8_output_filename_is_rejected` |
 | Real callback process success/failure and authoritative video input metadata | `examples_execute_csv_and_propagate_failure_as_nonzero_exit` builds/runs both examples; registered-input mixed manifest regression |
 
 `tests/fixtures/python_manifest.json` was produced by the Python implementation,
@@ -88,7 +88,7 @@ temporary source was then removed.
 - Final CLI worker check: 40 tests plus strict CLI clippy passed.
 - Integrated doctests: 15 SDK (including consuming-batch compile-fail) and two runtime compile-fail tests passed.
 - Dependency inspection: `cargo tree -p nominal-extractor --edges normal` confirms no nominal/nominal-api/tonic/reqwest/Tokio dependency.
-- Final `cargo test --workspace --all-targets`: 146 SDK, 40 CLI and 20 runtime tests passed (206 total).
+- Final `cargo test --workspace --all-targets`: 145 SDK, 38 CLI and 20 runtime tests passed (203 total).
 - Final `cargo test --workspace --doc`: 15 SDK and two runtime doctests passed (17 total).
 - Final `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all -- --check` and `git diff --check`: passed.
 
@@ -128,3 +128,14 @@ failures as each response arrives while retaining the input order. The new
 with the old sequential loop and passes for both file orders after the change.
 A focused independent review found no remaining material issues in these fixes.
 The final tests, doctests, strict clippy, formatting and whitespace checks passed.
+
+## Documentation and test cleanup
+
+The guides and API comments use direct instructions and describe current behavior.
+Tests cover command arguments, request contents, output files and errors. Three
+redundant tests were removed: a private batch policy check, a key-value helper
+check, and a separate submission serialization check. Their distinct cases remain
+in the RPC, command and output tests. Runtime tests no longer check standard
+`Option` behavior or an exact directory entry count. The manifest replacement
+test checks the written file, and malformed metadata tests check the variable
+reported in the error.

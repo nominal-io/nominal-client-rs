@@ -4,7 +4,7 @@ fn env(p: &std::path::Path) -> BTreeMap<String, String> {
     BTreeMap::from([("OUTPUT_DIR".into(), p.display().to_string())])
 }
 #[test]
-fn nested_repeats_have_python_names() {
+fn repeated_videos_use_separate_timestamp_files() {
     let d = tempfile::tempdir().unwrap();
     let c = run_manifest_with_env(env(d.path()), |c| {
         for folder in ["a", "b"] {
@@ -90,7 +90,7 @@ fn collision_does_not_overwrite_or_record_rejected_entry() {
     );
 }
 #[test]
-fn invalid_video_rejections_do_not_mutate() {
+fn invalid_videos_leave_no_output_entries_or_timestamp_files() {
     let d = tempfile::tempdir().unwrap();
     run_manifest_with_env(env(d.path()), |c| {
         let p = c.output_dir().join("cam.mp4");

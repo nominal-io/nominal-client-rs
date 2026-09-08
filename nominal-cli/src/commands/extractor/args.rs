@@ -17,7 +17,7 @@ pub struct RidArgs {
 }
 #[derive(Subcommand)]
 pub enum ExtractorCommands {
-    /// Create an extractor.
+    /// Create an extractor
     Create {
         name: String,
         #[arg(long)]
@@ -25,9 +25,9 @@ pub enum ExtractorCommands {
         #[command(flatten)]
         scope: ScopeArgs,
     },
-    /// Inspect a resource by RID.
+    /// Get an extractor by RID
     Get(RidArgs),
-    /// Search resources in the selected workspace.
+    /// Search extractors in the selected workspace
     Search {
         #[arg(long)]
         include_archived: bool,
@@ -36,7 +36,7 @@ pub enum ExtractorCommands {
         #[command(flatten)]
         scope: ScopeArgs,
     },
-    /// Update the extractor name or description.
+    /// Update the extractor name or description
     Update {
         rid: String,
         #[arg(long)]
@@ -46,11 +46,11 @@ pub enum ExtractorCommands {
         #[command(flatten)]
         scope: ScopeArgs,
     },
-    /// Archive an extractor.
+    /// Archive an extractor
     Archive(RidArgs),
-    /// Restore an archived extractor.
+    /// Restore an archived extractor
     Unarchive(RidArgs),
-    /// Activate an image, waiting for readiness by default.
+    /// Activate an image; wait until it is ready by default
     Activate {
         rid: String,
         image_rid: String,
@@ -59,7 +59,7 @@ pub enum ExtractorCommands {
         #[command(flatten)]
         scope: ScopeArgs,
     },
-    /// Register and inspect container images.
+    /// Register and inspect container images
     Image {
         #[command(subcommand)]
         command: ImageCommands,
@@ -73,7 +73,7 @@ pub enum ImageStatus {
 }
 #[derive(Subcommand)]
 pub enum ImageCommands {
-    /// Upload an image tarball using a version 1 JSON execution contract.
+    /// Upload an image tarball with a version 1 JSON contract
     Register {
         extractor_rid: String,
         tarball: PathBuf,
@@ -82,9 +82,9 @@ pub enum ImageCommands {
         #[command(flatten)]
         scope: ScopeArgs,
     },
-    /// Inspect a resource by RID.
+    /// Get a container image by RID
     Get(RidArgs),
-    /// Search resources in the selected workspace.
+    /// Search container images in the selected workspace
     Search {
         #[arg(long)]
         extractor: Option<String>,
@@ -95,7 +95,7 @@ pub enum ImageCommands {
         #[command(flatten)]
         scope: ScopeArgs,
     },
-    /// Wait for image readiness.
+    /// Wait for an image to be ready
     Wait {
         rid: String,
         #[arg(long, value_parser=clap::value_parser!(u64).range(1..))]
@@ -103,6 +103,6 @@ pub enum ImageCommands {
         #[command(flatten)]
         scope: ScopeArgs,
     },
-    /// Delete an image.
+    /// Delete an image
     Delete(RidArgs),
 }

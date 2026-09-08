@@ -20,7 +20,7 @@ const MAX_RETRIES: u32 = 4;
 const INITIAL_BACKOFF: Duration = Duration::from_millis(250);
 const MAX_BACKOFF: Duration = Duration::from_secs(120);
 
-/// A gRPC-aware Tower layer which retries replayable unary requests before generated clients decode them.
+/// Retries unary read requests before the generated gRPC client decodes the response.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct RetryLayer;
 

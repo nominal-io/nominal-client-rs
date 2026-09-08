@@ -8,7 +8,7 @@ use ingest_proto::containerized_extractor_service_client::ContainerizedExtractor
 use nominal_api::objects::api::rids::WorkspaceRid;
 use std::sync::Arc;
 
-/// Workspace-scoped extractor management. Snapshot operations retain their original workspace.
+/// Manages extractors within a workspace. Operations on snapshots use their original workspace.
 #[derive(Clone)]
 pub struct ExtractorsClient {
     read: ContainerizedExtractorServiceClient<GrpcTransport>,

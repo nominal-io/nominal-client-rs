@@ -21,7 +21,9 @@ pub enum FailurePolicy {
     FailFast,
     AllowPartial,
 }
-/// File concurrency multiplies multipart concurrency in `UploadOptions`.
+/// Upload limits and failure handling for a batch.
+///
+/// Each concurrent file upload can use the multipart concurrency set in `UploadOptions`.
 #[derive(Debug, Clone)]
 pub struct BatchOptions {
     failure_policy: FailurePolicy,
@@ -80,7 +82,7 @@ pub struct BatchSubmission {
     pub omitted: Vec<BatchItemFailure>,
 }
 
-/// An owned, single-use batch targeting an existing dataset.
+/// A batch of uploads for an existing dataset. Submitting consumes the batch.
 ///
 /// ```compile_fail
 /// # async fn example(batch: nominal::core::IngestBatch) {

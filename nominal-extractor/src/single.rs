@@ -1,5 +1,6 @@
 use crate::{Error, Result, environment::Environment, paths::OutputDirectory};
 use std::{collections::BTreeMap, path::PathBuf};
+/// Inputs, parameters and output declaration for a single-file extractor.
 pub struct SingleFileContext {
     env: Environment,
     output: OutputDirectory,
@@ -18,6 +19,7 @@ impl SingleFileContext {
             declared: None,
         })
     }
+    /// Declare an existing file inside the output directory as the only output.
     pub fn set_output(&mut self, path: impl AsRef<std::path::Path>) -> Result<PathBuf> {
         if self.declared.is_some() {
             return Err(Error::InvalidOutput(

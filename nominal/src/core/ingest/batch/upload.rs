@@ -10,7 +10,7 @@ pub(super) struct UploadReport {
     pub locations: BTreeMap<usize, String>,
     pub failures: Vec<BatchItemFailure>,
 }
-/// Stop scheduling on the first observed error in fail-fast mode, then settle all active uploads.
+/// Stops scheduling after the first failure in fail-fast mode and waits for active uploads.
 pub(super) async fn upload_all<F, Fut>(
     items: &[PendingItem],
     limit: usize,
@@ -56,7 +56,7 @@ where
             }
         }
     }
-    // Unscheduled sources also identify the items omitted by fail-fast termination.
+    // Include items with unscheduled sources in the failure report.
     let mut incomplete = BTreeSet::new();
     for (index, item) in items.iter().enumerate() {
         if item

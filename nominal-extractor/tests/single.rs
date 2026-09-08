@@ -21,7 +21,7 @@ fn no_output_and_second_output() {
     .unwrap();
 }
 #[test]
-fn mismatch_precedes_author_and_author_failure_does_not_finalize() {
+fn invalid_registration_skips_the_extractor_and_errors_leave_no_manifest() {
     let d = tempfile::tempdir().unwrap();
     let called = Cell::new(false);
     let mut e = env(d.path());

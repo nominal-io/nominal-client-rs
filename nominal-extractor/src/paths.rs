@@ -30,7 +30,7 @@ impl OutputDirectory {
         if reserved && relative == "manifest.json" {
             return Err(Error::InvalidOutput("manifest.json is reserved".into()));
         }
-        // Validate the author's filename extension, but retain canonical wire identity.
+        // Check the supplied filename's extension; write the resolved path in the manifest.
         Ok((path.to_path_buf(), relative))
     }
     pub fn account(&mut self, path: String) {

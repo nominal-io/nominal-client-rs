@@ -10,11 +10,11 @@ use nominal::core::NominalClient;
 
 #[derive(Subcommand)]
 pub enum IngestCommands {
-    /// Run a containerized extractor with named input files.
+    /// Run a containerized extractor with named input files
     Containerized(containerized::ContainerizedArgs),
-    /// Submit a version 1 JSON batch into an existing dataset.
+    /// Ingest a version 1 JSON batch into an existing dataset
     Batch(batch::BatchArgs),
-    /// Inspect, wait for, and cancel ingest jobs.
+    /// Inspect, wait for, and cancel ingest jobs
     Job {
         #[command(subcommand)]
         command: jobs::JobCommands,

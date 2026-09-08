@@ -34,7 +34,9 @@ fn examples_execute_csv_and_propagate_failure_as_nonzero_exit() {
     for example in ["single_file", "manifest"] {
         let out = d.path().join(example);
         std::fs::create_dir(&out).unwrap();
-        let binary = target.join("debug/examples").join(example);
+        let binary = target
+            .join("debug/examples")
+            .join(format!("{example}{}", std::env::consts::EXE_SUFFIX));
         let success = Command::new(&binary)
             .env_clear()
             .env("OUTPUT_DIR", &out)
@@ -58,13 +60,13 @@ fn examples_execute_csv_and_propagate_failure_as_nonzero_exit() {
         assert!(!failure.status.success());
         assert!(String::from_utf8_lossy(&failure.stderr).contains("DATA"));
     }
-    // Platform-injected input metadata is authoritative; VIDEO is a file input,
-    // not a scalar parameter. These bytes test declaration plumbing, not decoding.
+    // VIDEO is a registered file input. The bytes only test output declarations;
+    // the runner does not decode video.
     let video = d.path().join("camera.mp4");
     std::fs::write(&video, b"metadata-only fixture").unwrap();
     let output = d.path().join("registered");
     std::fs::create_dir(&output).unwrap();
-    let result = Command::new(target.join("debug/examples/manifest"))
+    let result = Command::new(target.join("debug/examples").join(format!("manifest{}", std::env::consts::EXE_SUFFIX)))
         .env_clear()
         .env("OUTPUT_DIR", &output)
         .env("_NOMINAL_INPUTS", serde_json::json!([

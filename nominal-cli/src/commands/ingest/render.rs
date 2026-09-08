@@ -194,24 +194,6 @@ pub async fn submission(
 mod tests {
     use super::*;
     #[test]
-    fn extractor_submission_is_one_document() {
-        let v = SubmissionView {
-            job_rid: "job",
-            dataset_rid: "dataset",
-            status: None,
-            omitted: vec![],
-        };
-        let s = serde_json::to_string(&v).unwrap();
-        let value: serde_json::Value = serde_json::from_str(&s).unwrap();
-        assert!(value["status"].is_null());
-        assert_eq!(value["job_rid"], "job");
-    }
-}
-
-#[cfg(test)]
-mod partial_tests {
-    use super::*;
-    #[test]
     fn extractor_partial_output_preserves_both_sibling_outcomes() {
         let omitted = Omitted::from(BatchItemFailure {
             item_index: 4,
@@ -224,13 +206,17 @@ mod partial_tests {
             }],
             uploaded_sources: vec!["uploaded.flight".into()],
         });
-        let value = serde_json::to_value(SubmissionView {
+        let json = serde_json::to_string(&SubmissionView {
             job_rid: "job",
             dataset_rid: "dataset",
             status: None,
             omitted: vec![omitted],
         })
         .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["job_rid"], "job");
+        assert_eq!(value["dataset_rid"], "dataset");
+        assert!(value["status"].is_null());
         assert_eq!(value["omitted"][0]["item_index"], 4);
         assert_eq!(value["omitted"][0]["failed_sources"][0]["name"], "INPUT");
         assert_eq!(
@@ -243,7 +229,7 @@ mod partial_tests {
         );
     }
     #[tokio::test]
-    async fn extractor_no_wait_submission_never_hydrates() {
+    async fn no_wait_returns_the_job_id_without_fetching_metadata() {
         let client = NominalClient::builder("token")
             .base_url("http://127.0.0.1:1/api")
             .build()

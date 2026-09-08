@@ -16,7 +16,8 @@ pub enum NumericTimestamp {
         start: DateTime<Utc>,
     },
 }
-/// Full injected catalog metadata, kept separate from numeric output overrides.
+/// Timestamp settings supplied by Nominal for the job.
+/// Output declarations use `NumericTimestamp` to override these settings.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JobTimestampMetadata {

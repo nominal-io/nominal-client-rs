@@ -352,7 +352,7 @@ mod extractor_extra_tests {
         );
     }
     #[test]
-    fn extractor_validation_precedes_client_loading() {
+    fn containerized_rejects_duplicate_source_flags() {
         let cli = Cli::try_parse_from([
             "nomctl",
             "ingest",

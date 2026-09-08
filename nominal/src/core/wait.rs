@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-/// Polling policy for image readiness and dataset-file completion.
+/// Poll interval and timeout for image readiness and dataset file ingestion.
 #[derive(Debug, Clone, Copy)]
 pub struct WaitOptions {
     interval: Duration,

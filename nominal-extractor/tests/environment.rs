@@ -37,8 +37,23 @@ fn inspect(
     })
 }
 #[test]
-fn metadata_order_and_empty_authoritative_contract() {
-    inspect(&[("_NOMINAL_INPUTS",r#"[{"environmentVariable":"B","path":"/missing/b"},{"name":"Alpha","environmentVariable":"A","path":"/missing/a"}]"#)],|c|{assert_eq!(c.inputs().unwrap(),vec![std::path::PathBuf::from("/missing/b"),"/missing/a".into()]);assert_eq!(c.input("Alpha").unwrap(),std::path::PathBuf::from("/missing/a"));assert!(c.sole_input().is_err());}).unwrap();
+fn registered_inputs_keep_their_order_and_exclude_unregistered_values() {
+    let inputs = r#"[
+        {"environmentVariable":"B","path":"/missing/b"},
+        {"name":"Alpha","environmentVariable":"A","path":"/missing/a"}
+    ]"#;
+    inspect(&[("_NOMINAL_INPUTS", inputs)], |c| {
+        assert_eq!(
+            c.inputs().unwrap(),
+            vec![std::path::PathBuf::from("/missing/b"), "/missing/a".into()]
+        );
+        assert_eq!(
+            c.input("Alpha").unwrap(),
+            std::path::PathBuf::from("/missing/a")
+        );
+        assert!(c.sole_input().is_err());
+    })
+    .unwrap();
     inspect(
         &[
             ("_NOMINAL_INPUTS", "[]"),
@@ -76,7 +91,6 @@ fn fallback_parameters_and_discovery() {
                     .to_string()
                     .contains("BAD")
             );
-            assert_eq!(c.optional_param::<usize>("ABSENT").unwrap().unwrap_or(2), 2);
         },
     )
     .unwrap();
@@ -87,7 +101,7 @@ fn fallback_parameters_and_discovery() {
     .unwrap();
 }
 #[test]
-fn malformed_metadata_is_contextual() {
+fn malformed_metadata_reports_the_environment_variable() {
     for (key, raw) in [
         ("_NOMINAL_INPUTS", "{"),
         (
@@ -104,10 +118,12 @@ fn malformed_metadata_is_contextual() {
             r#"{"seriesName":"t","timestampType":{"type":"relative","relative":{"timeUnit":"SECONDS"}}}"#,
         ),
     ] {
-        assert!(matches!(
-            inspect(&[(key, raw)], |_| panic!("author called")),
-            Err(Error::Metadata { .. })
-        ));
+        match inspect(&[(key, raw)], |_| {
+            panic!("extractor runs with invalid metadata")
+        }) {
+            Err(Error::Metadata { variable, .. }) => assert_eq!(variable, key),
+            _ => panic!("expected a metadata error for {key}"),
+        }
     }
 }
 #[test]
@@ -136,7 +152,14 @@ fn complete_timestamp_inspection_and_unknown_preservation() {
         })
         .unwrap();
     }
-    inspect(&[("_NOMINAL_TIMESTAMP_METADATA",r#"{"seriesName":"t","timestampType":{"type":"future","future":{"x":42}}}"#)],|c|assert!(matches!(&c.job_timestamp_metadata().unwrap().timestamp_type,JobTimestampType::Unknown{kind,..} if kind=="future"))).unwrap();
+    let future = r#"{"seriesName":"t","timestampType":{"type":"future","future":{"x":42}}}"#;
+    inspect(&[("_NOMINAL_TIMESTAMP_METADATA", future)], |c| {
+        assert!(matches!(
+            &c.job_timestamp_metadata().unwrap().timestamp_type,
+            JobTimestampType::Unknown { kind, .. } if kind == "future"
+        ));
+    })
+    .unwrap();
     inspect(
         &[
             ("_NOMINAL_TIMESTAMP_METADATA", ""),

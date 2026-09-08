@@ -8,7 +8,7 @@ use crate::{Error, Result};
 use conjure_http::client::AsyncService;
 use nominal_api::clients::scout::catalog::{AsyncCatalogService, AsyncCatalogServiceClient};
 impl IngestClient {
-    /// Snapshot the files already produced by this job without waiting for completion.
+    /// Lists the files already produced by the job without waiting for it to complete.
     pub async fn dataset_files(&self, job_rid: &str) -> Result<Vec<DatasetFile>> {
         let service = AsyncCatalogServiceClient::new(self.conjure_client.clone(), &self.runtime);
         let job_rid = parse_rid(job_rid)?;
@@ -25,7 +25,7 @@ impl IngestClient {
             }
         }
     }
-    /// Wait for completion before discovering output files, then wait on that fixed snapshot.
+    /// Waits for the job to complete, lists its files, then waits for those files.
     pub async fn wait_for_job_files(
         &self,
         rid: &str,

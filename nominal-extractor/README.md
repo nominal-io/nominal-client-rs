@@ -1,16 +1,16 @@
 # nominal-extractor
 
-Experimental Rust authoring runtime for Nominal containerized extractors. It runs
-synchronously against local files with no credentials, network client, Docker, or
-async executor. The contract follows Python nominal-client commit
-`2a4e588b47346396d4e81cd8211a37e72d52f954`.
+`nominal-extractor` runs a Rust extractor function and prepares its output for
+Nominal. It works with local files and does not require credentials or a network
+connection. The crate is experimental.
 
 Write files inside `ctx.output_dir()` and declare them after writing. A
 single-file runner requires exactly one declaration; a manifest runner accepts
-ordered, repeated declarations and writes `manifest.json` after the author
-function succeeds. Author errors return through the library, and a Result-returning
-`main` exits unsuccessfully. The library never installs a logging subscriber or
-terminates the process.
+multiple declarations in order and writes `manifest.json` after the extractor
+function succeeds. The same file can be declared more than once. The runner
+returns errors to the caller; a `main` function that returns `Result` exits with a
+nonzero status on error. Configure a `tracing` subscriber in your binary to see
+runtime logs.
 
 ```rust
 use nominal_extractor::{ExtractResult, ManifestContext, TabularOutput, run_manifest};
@@ -32,30 +32,31 @@ fn main() -> nominal_extractor::Result<()> {
 ```
 
 `param::<T>` requires a value and parses it with `FromStr`.
-`optional_param::<T>` preserves absence; use `unwrap_or` for a default. An empty
+`optional_param::<T>` returns `None` when the value is absent; use `unwrap_or` for a default. An empty
 string is a present parameter. When registration metadata exists, registered
 names and environment-variable names resolve to the same value; unknown names
 fail, including optional access. Without metadata, names refer directly to
 environment variables.
 
-The output directory must exist. `inputs()` preserves injected registration order,
-or discovers sorted immediate files in `/input` (overridden by
-`NOMINAL_EXTRACTOR_INPUT_DIR`). `input(name)` returns an owned path and
-`sole_input()` requires exactly one input. Missing registered files/required
-parameters produce startup tracing warnings; lookup of a registered path itself
-does not require the file to exist.
+The output directory must exist. When Nominal supplies input metadata, `inputs()`
+returns those paths in the supplied order. Otherwise, it lists files directly
+inside `/input` in sorted order; set `NOMINAL_EXTRACTOR_INPUT_DIR` to use another
+directory. `input(name)` returns a path, and `sole_input()` requires exactly one
+input. The runner logs a warning for missing registered files or required
+parameters. Looking up a registered path does not check whether the file exists.
 
 Contexts expose `ingest_job_rid()`, `dataset_rid()`, `additional_tags()`, and
-`job_timestamp_metadata()`. Rich timestamp inspection distinguishes numeric epoch,
-relative offsets, ISO8601, custom formats and unknown future variants. Relative
-inspection preserves nanoseconds. This is separate from `NumericTimestamp`, which
-is the per-output override type and supports seconds, milliseconds, microseconds,
-and nanoseconds only. Omitted per-output timestamps inherit the resolved job/image
-metadata; the runtime does not synthesize overrides.
+`job_timestamp_metadata()`. Job timestamps include epoch units, relative offsets,
+ISO8601 and custom formats. Relative offsets retain nanosecond precision, and
+unrecognized timestamp types retain their original data. Use `NumericTimestamp`
+to override timestamps for an output; it supports seconds, milliseconds,
+microseconds and nanoseconds. Without an override, Nominal uses the job or image
+timestamp settings.
 
 For tests, use `run_manifest_with_env(BTreeMap<String, String>, extract)` or
-`run_single_file_with_env`. These snapshot helpers never mutate process
-environment. `build_manifest()` returns the same semantic JSON written to disk.
+`run_single_file_with_env`. These functions read the supplied map without changing
+the process environment. `build_manifest()` returns the JSON that the runner
+writes to disk.
 
 The output builders expose format-specific metadata:
 
@@ -66,17 +67,19 @@ The output builders expose format-specific metadata:
 
 Video timing is either `Start { at, scale }`, with optional ending timestamp,
 true frame rate or factor, or `FrameTimestamps(Vec<i64>)`. Frame timestamps are
-absolute integer nanoseconds and are written to exclusive-created sidecars.
-Repeated declarations count previous successful videos for that path, including
-start-timed declarations. Existing sidecars are preserved on collision. Scale
-factors and rates follow Python's semantics (including zero/negative values),
-except non-finite values are rejected because JSON cannot represent them.
+absolute integer nanoseconds. The runner writes them to separate JSON files
+without overwriting existing files.
+When a video is declared more than once, the timestamp filename includes the
+number of earlier declarations for that path. This count includes declarations
+that use a start time. Scale factors and rates accept zero and negative values,
+as in the Python runtime. Non-finite values are rejected because JSON cannot
+represent them.
 
-Output containment follows canonical paths, including symlink resolution.
-`manifest.json` is reserved in manifest mode; successful finalization atomically
-replaces an existing runtime manifest. Scratch files only produce tracing warnings.
-Local validation checks metadata and paths, not video decoding or actual frame
-counts. Video manifests require a sufficiently recent Nominal ingest pipeline;
+Output files must stay inside the output directory after resolving symlinks.
+`manifest.json` is reserved in manifest mode. After the extractor succeeds, the
+runner writes the manifest and replaces any previous manifest in one filesystem
+operation. Undeclared files produce warnings. Validation checks paths and metadata;
+it does not decode videos or count frames. Video manifests require a sufficiently recent Nominal ingest pipeline;
 older pipelines may ignore video fields or reject video-only manifests.
 
 ## Run the examples locally
@@ -114,22 +117,18 @@ COPY --from=build /app/target/release/my-extractor /usr/local/bin/my-extractor
 ENTRYPOINT ["/usr/local/bin/my-extractor"]
 ```
 
-Official Docker Hub tag metadata confirmed both image digests on 2026-09-08.
-Rust 1.85.1 supports the crate's Rust 2024/MSRV 1.85 contract. The slim image
-provides glibc for this runtime; add libraries required by your chosen file-format
-or media libraries. Image tag existence was verified; Docker build and platform
-registration/ingestion were not run. This recipe does not claim the crate has
-already been published: make the dependency available through your source checkout
-or chosen registry before building.
+This Dockerfile uses Rust 1.85.1 and a Debian image with glibc. Add any system
+libraries required by your file-format or media dependencies. Make the extractor
+crate available through your source checkout or registry before building.
+The Docker build and live Nominal ingestion are not part of the local test suite.
 
 ## Validation
 
-`cargo test -p nominal-extractor --all-targets` checks environment interpretation,
-canonical containment, failure propagation, declaration transactions, sidecar
-collisions, repeated outputs and all video timing modes. The test suite runs both
-CSV examples as subprocesses, checking success and nonzero failure exits.
-`cargo test -p nominal-extractor --doc` also checks illegal builder combinations.
-The semantic golden and its Python generator/provenance are in `tests/fixtures/`.
+Run `cargo test -p nominal-extractor --all-targets` to check input handling, output
+files, errors and video timing. The suite also runs both examples and checks their
+exit status. `cargo test -p nominal-extractor --doc` checks that unsupported output
+options fail to compile. Expected manifests come from the Python runtime; the
+fixture, generator and source version are in `tests/fixtures/`.
 
 For registration, activation, SDK ingestion and nomctl commands, see the
 [client guide](../docs/containerized-extractors.md).

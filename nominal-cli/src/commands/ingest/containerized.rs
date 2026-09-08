@@ -144,23 +144,6 @@ pub async fn handle(a: ContainerizedArgs, client: NominalClient) -> anyhow::Resu
     .await
 }
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn extractor_pairs_preserve_values() {
-        assert_eq!(
-            pairs(vec!["K".into(), "a b=c".into()], true).unwrap()["K"],
-            "a b=c"
-        );
-        assert!(pairs(vec!["K".into(), "1".into(), "K".into(), "2".into()], true).is_err());
-        assert_eq!(
-            pairs(vec!["K".into(), "1".into(), "K".into(), "2".into()], false).unwrap()["K"],
-            "2"
-        );
-    }
-}
-
-#[cfg(test)]
 mod conversion_tests {
     use super::*;
     use clap::Parser;
@@ -185,6 +168,9 @@ mod conversion_tests {
             "--argument",
             "ARG",
             "last value",
+            "--file-tag",
+            "tag",
+            "first",
             "--file-tag",
             "tag",
             "value",

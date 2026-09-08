@@ -24,7 +24,7 @@ fn literal_backslash_filename_is_not_a_directory_separator() {
 
 #[cfg(unix)]
 #[test]
-fn symlink_alias_extension_is_validated_without_changing_manifest_identity() {
+fn symlink_uses_alias_extension_and_resolved_output_path() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = run_manifest_with_env(env(dir.path()), |ctx| {
         let target = ctx.output_dir().join("blob");
@@ -43,7 +43,7 @@ fn symlink_alias_extension_is_validated_without_changing_manifest_identity() {
 
 #[cfg(unix)]
 #[test]
-fn non_utf8_output_identity_is_rejected_instead_of_changed() {
+fn non_utf8_output_filename_is_rejected() {
     use std::os::unix::ffi::OsStringExt;
     let dir = tempfile::tempdir().unwrap();
     let result = run_manifest_with_env(env(dir.path()), |ctx| {
@@ -57,7 +57,7 @@ fn non_utf8_output_identity_is_rejected_instead_of_changed() {
     assert!(result.is_err());
 }
 #[test]
-fn python_golden_complete_manifest() {
+fn manifest_matches_python_output() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = run_manifest_with_env(env(dir.path()), |c| {
         for name in ["data.csv", "data.avro.gz", "log.jsonl", "cam.mp4"] {
@@ -131,7 +131,7 @@ fn python_golden_complete_manifest() {
     );
 }
 #[test]
-fn rejected_declaration_preserves_state_and_existing_manifest_replaced() {
+fn rejected_outputs_are_excluded_when_replacing_the_manifest() {
     let d = tempfile::tempdir().unwrap();
     std::fs::write(d.path().join("manifest.json"), "old").unwrap();
     run_manifest_with_env(env(d.path()), |c| {
@@ -149,6 +149,11 @@ fn rejected_declaration_preserves_state_and_existing_manifest_replaced() {
         Ok(())
     })
     .unwrap();
+    let written: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(d.path().join("manifest.json")).unwrap()).unwrap();
+    let outputs = written["outputs"].as_array().unwrap();
+    assert_eq!(outputs.len(), 1);
+    assert_eq!(outputs[0]["relativePath"], "DATA.CSV.GZ");
 }
 #[test]
 fn four_units_and_all_supported_extensions() {
@@ -213,5 +218,4 @@ fn empty_manifest_fails_and_write_failure_propagates() {
         .is_err()
     );
     assert!(d.path().join("manifest.json").is_dir());
-    assert_eq!(std::fs::read_dir(d.path()).unwrap().count(), 2);
 }

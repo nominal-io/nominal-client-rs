@@ -3,11 +3,11 @@
 Use `nominal` to register and run extractors in Nominal. Use the separate
 [`nominal-extractor`](../nominal-extractor/README.md) crate inside your image to
 handle inputs, parameters, output declarations, manifests, and video sidecars.
-The authoring runtime and v2 batch contract are experimental.
+The authoring runtime and batch API are experimental.
 
 ## Register an image
 
-Create an extractor, upload a Docker-save tarball, then activate its image:
+Create an extractor, upload an image saved with `docker save`, then activate it:
 
 ```rust,no_run
 use nominal::core::{
@@ -38,10 +38,10 @@ Registration does not change the active image. Default timestamp metadata is
 required even when the manifest supplies per-output overrides. Select `Manifest`
 for a manifest runner, or `Csv`, `Parquet`, or `AvroStream` for a single-file runner.
 
-Resource clients support create/get/search/update/archive/unarchive, image
-get/search/delete, readiness waiting, and activation. Searches follow pagination.
-Use `.in_workspace(rid)` to select a workspace explicitly. Image and extractor
-snapshots retain their workspace for subsequent lifecycle operations.
+Use `client.extractors()` to find or update an extractor and `client.container_images()`
+to inspect its images. Searches return all pages. Use `.in_workspace(rid)` to select
+a workspace. Operations on an existing extractor or image use the workspace
+stored with that resource.
 
 ## Submit and inspect
 
@@ -65,23 +65,24 @@ async fn ingest(client: &NominalClient, extractor: &str, dataset: &str) -> nomin
 ```
 
 Direct ingest also accepts `DatasetTarget::New(DatasetCreate::new(name))` to create
-the destination as part of the ingest request. Acknowledgement returns the job RID
-immediately; fetch its metadata separately with `get_ingest_job`. This preserves
-successful submission when a later metadata read fails. Mutating submissions do
-not automatically replay ambiguous failures.
+the destination as part of the ingest request. Submission returns the job RID;
+use `get_ingest_job` to fetch its metadata. A failed metadata request does not hide
+a successful submission. The client does not retry submissions automatically,
+because a failed response can still mean that the server accepted the job.
 
 Source keys are registered environment-variable names. Direct ingestion allows no
 sources if the active image requires none; batch extractor items require at least
-one. `with_scope_tags` merges caller-supplied scope defaults below explicit tags.
-Its API documentation includes a compiling workbook → run → attached dataset
-example. The current workbook API exposes asset/run scopes; dataset-view tag
-filters are not exposed, so supply their tags explicitly.
+one. `with_scope_tags` adds default tags without replacing tags already set on the
+request. Its API example resolves a dataset attached to a run in a workbook.
+Workbook scopes expose assets and runs, so supply dataset-view tags explicitly.
 
-`dataset_files(job_rid)` is a current snapshot. `wait_for_job_files` waits for the
-job to complete, then discovers and waits for its files. For snapshot-at-call
-behavior, combine `dataset_files` with `catalog().wait_for_dataset_files`.
-Job search supports dataset/creator/status filters, path text, time bounds and
-default/specific/all workspace selection. Cancellation returns updated job state.
+`dataset_files(job_rid)` returns the files available when called.
+`wait_for_job_files` waits for the job to complete, then lists its files and waits
+for them to finish ingestion. To wait only for files already listed, pass the
+result of `dataset_files` to `catalog().wait_for_dataset_files`.
+Job searches accept dataset, creator, status, path and time filters. They can use
+the default workspace, a specified workspace or all workspaces. Cancelling a job
+returns its updated state.
 
 ## Batch ingestion
 
@@ -104,13 +105,14 @@ timestamps, tags, units, channel names or selection where supported. Batch video
 accept start timing or a per-frame timestamp vector; the authoring runtime also
 supports video scaling.
 
-`submit(self)` consumes the batch. Uploads use bounded file concurrency (default
-four), each with the multipart uploader's own part concurrency. Default failure
-policy stops scheduling, settles in-flight uploads, and submits nothing. It does
-not roll back already uploaded objects. `FailurePolicy::AllowPartial` submits
-surviving whole items and reports omissions with item indices and source paths.
-Zero survivors is an error. Generated temporary video sidecars are cleaned up;
-caller-owned files are preserved.
+`submit(self)` consumes the batch, so it cannot be submitted twice. By default,
+four files upload at a time; each file can upload several parts concurrently.
+If an upload fails, the default policy stops starting new uploads, waits for
+active uploads to finish, and submits no ingest request. Files already uploaded
+remain on the server. `FailurePolicy::AllowPartial` submits items whose uploads
+all succeeded and reports omitted item indices and source paths. If no items
+succeed, submission returns an error. Temporary video timestamp files are removed;
+files supplied by the caller are kept.
 
 ## nomctl
 
@@ -174,29 +176,26 @@ an array of signed 64-bit integer nanoseconds.
 ```
 
 Paths in JSON resolve relative to the JSON file; command-line paths resolve from
-the current directory. Unknown schema fields and unsupported versions fail before
-mutation. `--json` emits one document to stdout, with diagnostics on stderr.
+the current directory. Unknown schema fields and unsupported versions are rejected before
+upload or submission. `--json` emits one document to stdout, with diagnostics on stderr.
 
 Ingest waits by default, matching native nomctl commands. `--no-wait` returns the
-acknowledged RID. A later wait failure reports that RID; do not resubmit merely to
-recover metadata. Use `--timeout` to bound waits and `--timestamp-json` for richer
-timestamp types. `nomctl help-all` prints complete command help.
+job RID. A later wait failure reports that RID; inspect that job before submitting
+again. Use `--timeout` to limit how long the command waits and `--timestamp-json`
+for relative timestamps or custom formats. `nomctl help-all` prints complete command help.
 
 ## Authoring, containers and verification
 
-See the [runtime guide](../nominal-extractor/README.md) for ordinary Rust entrypoints,
-typed contexts, local tests, complete output options, and a multi-stage Dockerfile.
+See the [runtime guide](../nominal-extractor/README.md) for extractor functions,
+output options, local tests and a multi-stage Dockerfile.
 Build your image with Docker, then save it with `docker save IMAGE -o extractor.tar`.
-Format parsing, writing and media libraries remain the author's dependencies.
+Choose the libraries your extractor needs to read and write its file formats.
 
-Local tests verify contracts, generated requests, upload outcomes and error
-handling. A live platform smoke test additionally requires an authorized test
-profile/workspace and actual container images. Its sequence is create → register →
-activate → ingest single-file and mixed/video-only outputs → inspect files → clean
-up only newly created resources. No live platform deployment is implied by passing
-local tests. Older pipelines may not support manifest video outputs.
+Local tests check requests, output files and errors. Testing the complete workflow
+requires a Nominal test workspace and container images. Older ingest pipelines
+may not support manifest video outputs.
 
-For an opt-in smoke test, use a profile explicitly configured for a test workspace
+To test against Nominal, use a profile configured for a test workspace
 and images you built from the single-file and manifest examples. Save each image
 to a tarball. Prepare matching `single-image.json` (`output_format: "csv"`) and
 `manifest-image.json` (`output_format: "manifest"`) contracts. Register `DATA` as
@@ -222,11 +221,10 @@ nomctl --profile extractor-smoke ingest containerized "$EXTRACTOR_RID" --dataset
 nomctl --profile extractor-smoke ingest job files "$MIXED_JOB_RID" --wait --timeout 300 --json
 ```
 
-Also exercise a video-only author callback using `ManifestContext::add_video`,
-registering only its video input; its successful file results verify backend
-support independently of mixed output. Re-run with a new image tag for each
+Also test an extractor that outputs only video with `ManifestContext::add_video`,
+registering only its video input. Check that its output finishes ingestion. Re-run with a new image tag for each
 build. If a request times out, inspect its job before retrying submission.
 After recording results, archive only the new extractor/dataset and delete only
 new image RIDs where the service permits deletion. Do not reuse this cleanup for
-pre-existing resources. These live steps and the Docker build were not run during
-local implementation validation.
+pre-existing resources. The Docker build and live ingestion checks have not been
+run for this change.
