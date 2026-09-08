@@ -2,6 +2,10 @@
 
 The canonical Nominal Rust SDK.
 
+See the [containerized extractor guide](docs/containerized-extractors.md) for image
+registration, direct/batch ingestion, job inspection, and the standalone
+[`nominal-extractor`](nominal-extractor/README.md) authoring crate.
+
 ### Install
 ```sh
 cargo add nominal

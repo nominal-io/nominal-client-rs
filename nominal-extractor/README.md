@@ -93,9 +93,9 @@ DATA=/absolute/input.csv OUTPUT_DIR=/tmp/extractor-manifest \
 
 The manifest example optionally copies a caller-supplied real video. Set
 `VIDEO=/absolute/camera.mp4` and `VIDEO_START=2026-01-01T00:00:00Z` in addition to
-the variables above. `PREFIX` optionally prefixes telemetry channels. With
-injected parameter registration, register these example parameters before using
-them. No playable video fixture is bundled.
+the variables above. `PREFIX` optionally prefixes telemetry channels. With injected
+registration, register `DATA` and optional `VIDEO` as file inputs, and `PREFIX`
+and `VIDEO_START` as optional scalar parameters. No playable video fixture is bundled.
 
 ## Container recipe
 
@@ -130,3 +130,6 @@ collisions, repeated outputs and all video timing modes. The test suite runs bot
 CSV examples as subprocesses, checking success and nonzero failure exits.
 `cargo test -p nominal-extractor --doc` also checks illegal builder combinations.
 The semantic golden and its Python generator/provenance are in `tests/fixtures/`.
+
+For registration, activation, SDK ingestion and nomctl commands, see the
+[client guide](../docs/containerized-extractors.md).

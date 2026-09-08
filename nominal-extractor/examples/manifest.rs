@@ -11,9 +11,13 @@ fn extract(ctx: &mut ManifestContext) -> ExtractResult {
             .channel_prefix(prefix)
             .timestamp("ts", NumericTimestamp::Epoch(NumericTimeUnit::Nanoseconds)),
     )?;
-    if let Some(video) = ctx.optional_param::<String>("VIDEO")? {
+    let video = match ctx.input("VIDEO") {
+        Ok(input) => Some(input),
+        Err(nominal_extractor::Error::Input(_)) => None,
+        Err(error) => return Err(error.into()),
+    };
+    if let Some(input) = video {
         let start = ctx.param::<chrono::DateTime<chrono::Utc>>("VIDEO_START")?;
-        let input = std::path::PathBuf::from(video);
         let output = ctx
             .output_dir()
             .join(input.file_name().ok_or("VIDEO has no file name")?);

@@ -1,5 +1,12 @@
 # Containerized Extractors Implementation Plan
 
+**Execution status (2026-09-08):** R1–R5, C1–C5 and L1–L3 are implemented on
+`codex/containerized-extractors`. The user changed execution to Astra subagents
+with low reasoning. See [the parity and verification record](extractor-parity.md)
+for actual acceptance evidence, review fixes, and unrun external checks. The
+original checklists and Terra launch template below are retained as the planning
+record; do not interpret unchecked historical steps as the current task status.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. The user's execution preference is parallel `gpt-5.6-terra` agents with `max` reasoning.
 
 **Goal:** Implement the complete Python containerized-extractor workflow in Rust, including authoring, management, direct/batch ingest, jobs, and nomctl.
