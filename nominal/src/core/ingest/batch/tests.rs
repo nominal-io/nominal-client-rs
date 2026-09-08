@@ -123,8 +123,8 @@ async fn batch_builder_validation_and_sidecar_cleanup() {
             .add_video("a.mp4", "video", BatchVideoTiming::FrameTimestamps(vec![]))
             .is_err()
     );
-    let batch = ingest
-        .batch("dataset")
+    let mut batch = ingest.batch("dataset");
+    batch
         .add_video(
             "a.mp4",
             "video",
@@ -163,8 +163,8 @@ async fn batch_all_formats_encode_complete_options() {
         .build()
         .unwrap();
     let ingest = client.ingest();
-    let batch = ingest
-        .batch("dataset")
+    let mut batch = ingest.batch("dataset");
+    batch
         .add_tabular(
             "a.parquet.tar.gz",
             BatchTabular::new(Timestamp::epoch("t", TimeUnit::Seconds))
@@ -196,7 +196,7 @@ async fn batch_all_formats_encode_complete_options() {
                 .timestamp(Timestamp::epoch("time", TimeUnit::Microseconds)),
         )
         .unwrap()
-        .add_dataflash("a.bin", BatchDataflash::default())
+        .add_ardupilot_dataflash("a.bin", BatchDataflash::default())
         .unwrap()
         .add_containerized(
             ContainerizedIngest::new("extractor")
@@ -281,7 +281,56 @@ async fn batch_python_suffix_and_fixed_format_parity() {
     assert!(
         ingest
             .batch("dataset")
-            .add_dataflash("extensionless", BatchDataflash::default())
+            .add_ardupilot_dataflash("extensionless", BatchDataflash::default())
             .is_ok()
+    );
+}
+
+#[tokio::test]
+async fn batch_builds_in_a_loop_and_retains_items_after_rejected_additions() {
+    let client = crate::core::NominalClient::builder("token")
+        .base_url("http://localhost:1/api")
+        .build()
+        .unwrap();
+    let mut batch = client.ingest().batch("ri.catalog.main.dataset.test");
+    for path in ["first.bin", "second.bin"] {
+        batch
+            .add_ardupilot_dataflash(path, BatchDataflash::default())
+            .unwrap();
+    }
+    assert!(
+        batch
+            .add_containerized(ContainerizedIngest::new("extractor"))
+            .is_err()
+    );
+    assert!(
+        batch
+            .add_tabular(
+                "bad.txt",
+                BatchTabular::new(super::super::Timestamp::iso8601("time"))
+            )
+            .is_err()
+    );
+    assert!(
+        batch
+            .add_video("a.mp4", "camera", BatchVideoTiming::FrameTimestamps(vec![]))
+            .is_err()
+    );
+    batch.add_tags(BTreeMap::from([("batch".into(), "loop".into())]));
+    batch
+        .add_ardupilot_dataflash("third.bin", BatchDataflash::default())
+        .unwrap();
+    let report = upload::upload_all(
+        &batch.items,
+        2,
+        FailurePolicy::FailFast,
+        |path, _| async move { Ok(format!("s3://{}", path.display())) },
+    )
+    .await;
+    let items = upload::completed_items(&batch.items, &report, FailurePolicy::FailFast).unwrap();
+    assert_eq!(items.len(), 3);
+    assert_eq!(
+        report.locations.into_values().collect::<Vec<_>>(),
+        ["s3://first.bin", "s3://second.bin", "s3://third.bin"]
     );
 }

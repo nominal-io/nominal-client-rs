@@ -146,15 +146,16 @@ enum TimingInput {
 impl BatchRequest {
     fn build(self, ingest: &IngestClient, parent: &Path) -> anyhow::Result<IngestBatch> {
         contract::version(self.schema_version)?;
-        let mut batch = ingest.batch(self.dataset).add_tags(self.tags);
+        let mut batch = ingest.batch(self.dataset);
+        batch.add_tags(self.tags);
         for (index, item) in self.items.into_iter().enumerate() {
-            batch = add_item(batch, item, parent).with_context(|| format!("items[{index}]"))?;
+            add_item(&mut batch, item, parent).with_context(|| format!("items[{index}]"))?;
         }
         Ok(batch)
     }
 }
-fn add_item(batch: IngestBatch, item: Item, parent: &Path) -> anyhow::Result<IngestBatch> {
-    Ok(match item {
+fn add_item(batch: &mut IngestBatch, item: Item, parent: &Path) -> anyhow::Result<()> {
+    match item {
         Item::Containerized {
             extractor,
             sources,
@@ -273,7 +274,7 @@ fn add_item(batch: IngestBatch, item: Item, parent: &Path) -> anyhow::Result<Ing
             for (k, v) in tags {
                 o = o.tag(k, v)
             }
-            batch.add_dataflash(parent.join(path), o)?
+            batch.add_ardupilot_dataflash(parent.join(path), o)?
         }
         Item::Video {
             path,
@@ -291,7 +292,8 @@ fn add_item(batch: IngestBatch, item: Item, parent: &Path) -> anyhow::Result<Ing
             };
             batch.add_video_with_tags(parent.join(path), channel, timing, tags)?
         }
-    })
+    };
+    Ok(())
 }
 pub async fn handle(a: BatchArgs, client: NominalClient) -> anyhow::Result<()> {
     let request: BatchRequest = contract::read(&a.file)?;
@@ -311,7 +313,7 @@ pub async fn handle(a: BatchArgs, client: NominalClient) -> anyhow::Result<()> {
     let batch = request
         .build(&ingest, a.file.parent().unwrap_or(Path::new(".")))
         .with_context(|| format!("batch request {}", a.file.display()))?;
-    let result = match batch.submit(options).await {
+    let result = match batch.submit_with_report(options).await {
         Ok(result) => result,
         Err(nominal::Error::BatchUpload(error)) => {
             let failures: Vec<render::Omitted> =
@@ -423,13 +425,10 @@ mod sidecar_tests {
             .build()
             .unwrap();
         let item:Item=serde_json::from_str(r#"{"kind":"video","path":"clip.mp4","channel":"camera","timing":{"kind":"frames","timestamps_file":"frames.json"}}"#).unwrap();
-        let result = add_item(
-            client
-                .ingest()
-                .batch("ri.scout.main.dataset.00000000-0000-0000-0000-000000000001"),
-            item,
-            &directory,
-        );
+        let mut batch = client
+            .ingest()
+            .batch("ri.scout.main.dataset.00000000-0000-0000-0000-000000000001");
+        let result = add_item(&mut batch, item, &directory);
         std::fs::remove_dir_all(&directory).unwrap();
         assert!(result.is_ok());
     }

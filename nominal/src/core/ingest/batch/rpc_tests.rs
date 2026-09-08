@@ -88,10 +88,9 @@ async fn fixture(
 async fn batch_returns_the_job_id_without_fetching_metadata_or_retrying_submission() {
     for status in [0, 14] {
         let (client, mock, task) = fixture(status).await;
-        let batch = client
-            .ingest()
-            .batch("ri.catalog.main.dataset.test")
-            .add_dataflash("data.bin", BatchDataflash::default().tag("item", "yes"))
+        let mut batch = client.ingest().batch("ri.catalog.main.dataset.test");
+        batch
+            .add_ardupilot_dataflash("data.bin", BatchDataflash::default().tag("item", "yes"))
             .unwrap()
             .add_tags(BTreeMap::from([("request".into(), "yes".into())]));
         let report = upload::UploadReport {
@@ -122,12 +121,11 @@ async fn batch_rpc_partial_omits_failed_item_and_default_submits_nothing() {
         (FailurePolicy::AllowPartial, true),
     ] {
         let (client, mock, task) = fixture(0).await;
-        let batch = client
-            .ingest()
-            .batch("ri.catalog.main.dataset.test")
-            .add_dataflash("bad.bin", BatchDataflash::default())
+        let mut batch = client.ingest().batch("ri.catalog.main.dataset.test");
+        batch
+            .add_ardupilot_dataflash("bad.bin", BatchDataflash::default())
             .unwrap()
-            .add_dataflash("good.bin", BatchDataflash::default())
+            .add_ardupilot_dataflash("good.bin", BatchDataflash::default())
             .unwrap();
         let report = upload::upload_all(
             &batch.items,
@@ -153,6 +151,77 @@ async fn batch_rpc_partial_omits_failed_item_and_default_submits_nothing() {
             assert_eq!(result.omitted[0].item_index, 0);
             assert_eq!(mock.requests.lock().unwrap()[0].items.len(), 1);
         }
+        task.abort();
+    }
+}
+
+#[tokio::test]
+async fn accepted_batch_fetches_full_job_and_preserves_rid_on_metadata_failure() {
+    use std::io::{Read, Write};
+    for success in [true, false] {
+        let (client, mock, task) = fixture(0).await;
+        let mut batch = client.ingest().batch("ri.catalog.main.dataset.test");
+        batch
+            .add_ardupilot_dataflash("data.bin", BatchDataflash::default())
+            .unwrap();
+        let report = batch
+            .submit_completed(
+                BatchOptions::default(),
+                upload::UploadReport {
+                    locations: BTreeMap::from([(0, "s3://complete".into())]),
+                    failures: vec![],
+                },
+            )
+            .await
+            .unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+                .unwrap();
+            let mut bytes = Vec::new();
+            let mut buffer = [0; 2048];
+            while !bytes.windows(4).any(|w| w == b"\r\n\r\n") {
+                let n = stream.read(&mut buffer).unwrap();
+                assert_ne!(n, 0);
+                bytes.extend_from_slice(&buffer[..n]);
+            }
+            assert!(
+                String::from_utf8_lossy(&bytes)
+                    .starts_with("GET /api/ingest/v1/ingest-job/ri.ingest.main.job.ack ")
+            );
+            let body = if success {
+                serde_json::json!({
+                "ingestJobRid":"ri.ingest.main.job.ack", "status":"QUEUED", "ingestType":"MULTI",
+                "createdBy":"00000000-0000-0000-0000-000000000000", "orgUuid":"00000000-0000-0000-0000-000000000000",
+                "datasetRid":"ri.catalog.main.dataset.test", "producedFileCount":7,
+            }).to_string()
+            } else {
+                "{}".into()
+            };
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(),body).unwrap();
+        });
+        let metadata_client = crate::core::NominalClient::builder("test")
+            .base_url(format!("http://{address}/api"))
+            .build()
+            .unwrap();
+        let result = report.fetch_job(&metadata_client.ingest()).await;
+        if success {
+            let job: crate::core::IngestJob = result.unwrap();
+            assert_eq!(job.rid(), "ri.ingest.main.job.ack");
+            assert_eq!(job.produced_file_count(), Some(7));
+            assert_eq!(job.status(), &crate::core::IngestJobStatus::Queued);
+        } else {
+            let error = result.unwrap_err();
+            assert!(
+                matches!(&error, Error::IngestJobMetadata { job_rid, .. } if job_rid == "ri.ingest.main.job.ack")
+            );
+            assert!(error.to_string().contains("do not resubmit"));
+        }
+        assert_eq!(mock.requests.lock().unwrap().len(), 1);
+        server.join().unwrap();
         task.abort();
     }
 }

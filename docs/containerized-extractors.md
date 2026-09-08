@@ -103,19 +103,20 @@ returns its updated state.
 ## Batch ingestion
 
 ```rust,no_run
-use nominal::core::{BatchOptions, ContainerizedIngest, NominalClient};
+use nominal::core::{ContainerizedIngest, NominalClient};
 
 async fn batch(client: &NominalClient, extractor: &str, dataset: &str) -> nominal::Result<()> {
-    // Both recordings target the same existing dataset and belong to one job.
+    // All recordings target the same existing dataset and belong to one job.
     // Adding items records work; the uploads begin when submit is called.
-    let batch = client.ingest().batch(dataset)
-        .add_containerized(ContainerizedIngest::new(extractor).source("RECORDING", "one.flight"))?
-        .add_containerized(ContainerizedIngest::new(extractor).source("RECORDING", "two.flight"))?;
+    let mut batch = client.ingest().batch(dataset);
+    for path in ["one.flight", "two.flight"] {
+        batch.add_containerized(ContainerizedIngest::new(extractor).source("RECORDING", path))?;
+    }
 
     // Default settings upload at most four files at once and submit no job if
     // an upload fails. Submitting consumes the batch to prevent accidental reuse.
-    let submission = batch.submit(BatchOptions::default()).await?;
-    println!("job: {}", submission.job.rid());
+    let job = batch.submit().await?;
+    println!("job: {}", job.rid());
     Ok(())
 }
 ```
@@ -134,6 +135,22 @@ remain on the server. `FailurePolicy::AllowPartial` submits items whose uploads
 all succeeded and reports omitted item indices and source paths. If no items
 succeed, submission returns an error. Temporary video timestamp files are removed;
 files supplied by the caller are kept.
+
+The `add_*` methods modify the batch in place. A rejected addition leaves earlier
+items in the batch. Use `add_tabular` for CSV or Parquet and
+`add_ardupilot_dataflash` for DataFlash, matching the existing Rust ingest names.
+
+`submit()` returns an `IngestJob`, including its current state. To change upload
+limits, partial-failure handling or run expansion, pass `BatchOptions` to
+`submit_with_options(options)`. If the server accepts the job but fetching its
+metadata fails, `Error::IngestJobMetadata` contains the accepted `job_rid`.
+Inspect that job before submitting again.
+
+For callers that need the omitted-item report or want to skip the metadata
+request, `submit_with_report(options)` returns a `BatchSubmission` with a job
+reference and omitted items. It submits the batch once; it is an alternative to
+`submit()`, not a follow-up operation. `nomctl` uses this path for `--no-wait` and
+its JSON omission report.
 
 ## nomctl
 

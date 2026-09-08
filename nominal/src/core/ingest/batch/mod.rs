@@ -84,11 +84,23 @@ pub struct BatchSubmission {
 
 /// A batch of uploads for an existing dataset. Submitting consumes the batch.
 ///
+/// ```no_run
+/// # async fn example(client: &nominal::core::NominalClient) -> nominal::Result<()> {
+/// use nominal::core::{BatchDataflash, IngestJob};
+/// let mut batch = client.ingest().batch("ri.catalog.main.dataset.example");
+/// for path in ["first.bin", "second.bin"] {
+///     batch.add_ardupilot_dataflash(path, BatchDataflash::default())?;
+/// }
+/// let job: IngestJob = batch.submit().await?;
+/// println!("{}: {:?}", job.rid(), job.status());
+/// # Ok(())
+/// # }
+/// ```
+///
 /// ```compile_fail
 /// # async fn example(batch: nominal::core::IngestBatch) {
-/// use nominal::core::BatchOptions;
-/// batch.submit(BatchOptions::default()).await;
-/// batch.submit(BatchOptions::default()).await;
+/// batch.submit().await;
+/// batch.submit().await;
 /// # }
 /// ```
 pub struct IngestBatch {
@@ -127,11 +139,11 @@ impl IngestBatch {
             mime,
         }
     }
-    pub fn add_tags(mut self, tags: BTreeMap<String, String>) -> Self {
+    pub fn add_tags(&mut self, tags: BTreeMap<String, String>) -> &mut Self {
         self.tags.extend(tags);
         self
     }
-    pub fn add_containerized(mut self, options: ContainerizedIngest) -> Result<Self> {
+    pub fn add_containerized(&mut self, options: ContainerizedIngest) -> Result<&mut Self> {
         if options.sources.is_empty() {
             return Err(invalid("batch containerized sources must not be empty"));
         }
@@ -144,7 +156,11 @@ impl IngestBatch {
             .push(PendingItem::Containerized { sources, options });
         Ok(self)
     }
-    pub fn add_tabular(mut self, path: impl Into<PathBuf>, options: BatchTabular) -> Result<Self> {
+    pub fn add_tabular(
+        &mut self,
+        path: impl Into<PathBuf>,
+        options: BatchTabular,
+    ) -> Result<&mut Self> {
         let path = path.into();
         let descriptor = format(&path)?;
         let format = descriptor
@@ -160,27 +176,27 @@ impl IngestBatch {
         Ok(self)
     }
     pub fn add_avro_stream(
-        mut self,
+        &mut self,
         path: impl Into<PathBuf>,
         options: BatchAvroStream,
-    ) -> Result<Self> {
+    ) -> Result<&mut Self> {
         let path = path.into();
         let descriptor = require_format(&path, IngestFileFormat::is_avro)?;
         let file = self.upload(path, "file", descriptor.batch_mime());
         self.items.push(PendingItem::Avro { file, options });
         Ok(self)
     }
-    pub fn add_mcap(mut self, path: impl Into<PathBuf>, options: BatchMcap) -> Result<Self> {
+    pub fn add_mcap(&mut self, path: impl Into<PathBuf>, options: BatchMcap) -> Result<&mut Self> {
         let path = path.into();
         let file = self.upload(path, "file", "application/octet-stream");
         self.items.push(PendingItem::Mcap { file, options });
         Ok(self)
     }
     pub fn add_journal_json(
-        mut self,
+        &mut self,
         path: impl Into<PathBuf>,
         options: BatchJournalJson,
-    ) -> Result<Self> {
+    ) -> Result<&mut Self> {
         if options.timestamp.as_ref().is_some_and(|t| !t.is_numeric()) {
             return Err(invalid("journal JSON timestamps must be numeric"));
         }
@@ -190,31 +206,31 @@ impl IngestBatch {
         self.items.push(PendingItem::Journal { file, options });
         Ok(self)
     }
-    pub fn add_dataflash(
-        mut self,
+    pub fn add_ardupilot_dataflash(
+        &mut self,
         path: impl Into<PathBuf>,
         options: BatchDataflash,
-    ) -> Result<Self> {
+    ) -> Result<&mut Self> {
         let path = path.into();
         let file = self.upload(path, "file", "application/octet-stream");
         self.items.push(PendingItem::Dataflash { file, options });
         Ok(self)
     }
     pub fn add_video(
-        self,
+        &mut self,
         path: impl Into<PathBuf>,
         channel: impl Into<String>,
         timing: BatchVideoTiming,
-    ) -> Result<Self> {
+    ) -> Result<&mut Self> {
         self.add_video_with_tags(path, channel, timing, BTreeMap::new())
     }
     pub fn add_video_with_tags(
-        mut self,
+        &mut self,
         path: impl Into<PathBuf>,
         channel: impl Into<String>,
         timing: BatchVideoTiming,
         tags: BTreeMap<String, String>,
-    ) -> Result<Self> {
+    ) -> Result<&mut Self> {
         let path = path.into();
         let descriptor = require_format(&path, IngestFileFormat::is_video)?;
         let timing = match timing {
@@ -243,7 +259,21 @@ impl IngestBatch {
         });
         Ok(self)
     }
-    pub async fn submit(self, options: BatchOptions) -> Result<BatchSubmission> {
+    /// Uploads this batch and fetches the accepted job's current state.
+    pub async fn submit(self) -> Result<super::IngestJob> {
+        self.submit_with_options(BatchOptions::default()).await
+    }
+
+    /// Uploads with the selected failure policy and fetches the accepted job.
+    /// Use `submit_with_report` to inspect omissions without fetching job metadata.
+    pub async fn submit_with_options(self, options: BatchOptions) -> Result<super::IngestJob> {
+        let client = self.client.clone();
+        let report = self.submit_with_report(options).await?;
+        report.fetch_job(&client).await
+    }
+
+    /// Returns the acknowledged job RID and upload report without fetching metadata.
+    pub async fn submit_with_report(self, options: BatchOptions) -> Result<BatchSubmission> {
         if self.items.is_empty() {
             return Err(invalid("cannot submit an empty batch"));
         }
@@ -347,4 +377,19 @@ fn batch_mime(path: &std::path::Path) -> &'static str {
     IngestFileFormat::from_path(path)
         .map(IngestFileFormat::batch_mime)
         .unwrap_or("application/octet-stream")
+}
+
+impl BatchSubmission {
+    async fn fetch_job(self, client: &IngestClient) -> Result<super::IngestJob> {
+        for omitted in &self.omitted {
+            tracing::warn!(job_rid = self.job.rid(), item_index = omitted.item_index, failed_sources = ?omitted.failed_sources, uploaded_sources = ?omitted.uploaded_sources, "batch item omitted after upload failure");
+        }
+        client
+            .get_ingest_job(self.job.rid())
+            .await
+            .map_err(|source| Error::IngestJobMetadata {
+                job_rid: self.job.rid().to_owned(),
+                source: Box::new(source),
+            })
+    }
 }

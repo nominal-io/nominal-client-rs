@@ -53,6 +53,14 @@ pub enum FileStoreError {
 #[non_exhaustive]
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error(
+        "ingest job {job_rid} was accepted, but fetching its metadata failed; inspect this job and do not resubmit: {source}"
+    )]
+    IngestJobMetadata {
+        job_rid: String,
+        #[source]
+        source: Box<Error>,
+    },
     #[error(transparent)]
     BatchUpload(#[from] crate::core::ingest::batch::BatchUploadError),
     #[error(transparent)]
