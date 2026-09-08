@@ -173,17 +173,6 @@ impl CatalogClient {
         }
     }
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn dataset_file_completion_requires_success() {
-        assert!(DatasetFileStatus::Success.is_complete());
-        assert!(DatasetFileStatus::Deleted.is_complete());
-        assert!(!DatasetFileStatus::Failed.is_complete());
-        assert!(!DatasetFileStatus::Unknown("future".into()).is_complete());
-    }
-}
 
 impl DatasetFile {
     /// Bounds in nanoseconds, using the coordinate system named by `bounds_timestamp_type`.
@@ -263,5 +252,17 @@ impl DatasetFile {
             }
         };
         Ok(Some(timestamp))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn dataset_file_completion_requires_success() {
+        assert!(DatasetFileStatus::Success.is_complete());
+        assert!(DatasetFileStatus::Deleted.is_complete());
+        assert!(!DatasetFileStatus::Failed.is_complete());
+        assert!(!DatasetFileStatus::Unknown("future".into()).is_complete());
     }
 }

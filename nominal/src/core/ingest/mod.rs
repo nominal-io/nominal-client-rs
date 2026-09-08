@@ -58,6 +58,8 @@ pub struct IngestClient {
 }
 
 impl IngestClient {
+    // Internal dependency wiring keeps read and mutation transports distinct.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         client: Client,
         runtime: &Arc<ConjureRuntime>,

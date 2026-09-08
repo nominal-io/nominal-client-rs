@@ -43,7 +43,7 @@ async fn batch_failed_sibling_omits_whole_item() {
         2,
         FailurePolicy::AllowPartial,
         |path, _| async move {
-            if path == PathBuf::from("bad") {
+            if path == std::path::Path::new("bad") {
                 Err(invalid("failed"))
             } else {
                 Ok("s3://good".into())
@@ -285,7 +285,7 @@ async fn batch_partial_policy_only_admits_complete_survivors() {
         2,
         FailurePolicy::AllowPartial,
         |path, _| async move {
-            if path == PathBuf::from("0") {
+            if path == std::path::Path::new("0") {
                 Err(invalid("failed"))
             } else {
                 Ok("s3://good".into())

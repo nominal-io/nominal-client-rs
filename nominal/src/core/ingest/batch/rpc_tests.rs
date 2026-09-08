@@ -130,7 +130,7 @@ async fn batch_rpc_partial_omits_failed_item_and_default_submits_nothing() {
             2,
             FailurePolicy::AllowPartial,
             |path, _| async move {
-                if path == PathBuf::from("bad.bin") {
+                if path == std::path::Path::new("bad.bin") {
                     Err(invalid("bad"))
                 } else {
                     Ok("s3://good".into())

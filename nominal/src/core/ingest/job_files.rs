@@ -101,6 +101,55 @@ mod tests {
             "ingestStatus":{"type":status,status:{}}})
     }
     #[tokio::test]
+    async fn job_file_wait_spends_one_deadline_and_keeps_discovered_file_identity() {
+        let id = "00000000-0000-0000-0000-000000000004";
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            for step in 0..3 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0; 2048];
+                let n = stream.read(&mut request).unwrap();
+                let request = String::from_utf8_lossy(&request[..n]);
+                if step == 0 {
+                    assert!(request.contains("/ingest/v1/ingest-job/"));
+                } else if step == 1 {
+                    assert!(request.contains("/catalog/v1/ingest-job/"));
+                } else {
+                    assert!(request.contains(id));
+                }
+                if step == 2 {
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    break;
+                }
+                let body = if step == 0 {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    serde_json::json!({"ingestJobRid":"ri.ingest.main.job.test","status":"COMPLETED","ingestType":"MULTI","createdBy":"00000000-0000-0000-0000-000000000000","orgUuid":"00000000-0000-0000-0000-000000000000"})
+                } else { serde_json::json!({"files":[file(id,"inProgress")]}) }.to_string();
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
+            }
+        });
+        let client = crate::core::NominalClient::builder("token")
+            .base_url(format!("http://{address}/api"))
+            .build()
+            .unwrap();
+        let started = std::time::Instant::now();
+        let error = client
+            .ingest()
+            .wait_for_job_files(
+                "ri.ingest.main.job.test",
+                WaitOptions::default().timeout(std::time::Duration::from_millis(150)),
+            )
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains(id));
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(225),
+            "file waiting restarted the timeout"
+        );
+        server.join().unwrap();
+    }
+    #[tokio::test]
     async fn dataset_file_rpc_timeout_reports_the_file_identity() {
         let id = "00000000-0000-0000-0000-000000000003";
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();

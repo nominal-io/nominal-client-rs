@@ -89,7 +89,40 @@ impl ContainerizedIngest {
         self.timestamp = Some(timestamp);
         self
     }
-    /// Merge workbook scope defaults below explicit caller tags.
+    /// Merge caller-supplied scope tags below explicit ingest tags.
+    ///
+    /// Existing workbook run scopes can resolve an attached dataset through a run's
+    /// named data sources. `WorkbookDataScope` exposes assets/runs, not dataset views
+    /// or tag filters, so tags must be supplied explicitly. This example requires a
+    /// run-scoped workbook and a dataset directly attached to the selected run;
+    /// multi-asset runs may instead require looking up the underlying asset.
+    ///
+    /// ```no_run
+    /// use nominal::{Result, Error};
+    /// use nominal::core::{NominalClient, WorkbookDataScope, DataSource,
+    ///     ContainerizedIngest, ContainerizedSubmission, DatasetTarget};
+    /// use std::collections::BTreeMap;
+    /// async fn ingest_run_dataset(
+    ///     client: &NominalClient, workbook_rid: &str, run_rid: &str,
+    ///     ref_name: &str, extractor_rid: &str, scope_tags: BTreeMap<String, String>,
+    /// ) -> Result<ContainerizedSubmission> {
+    ///     let workbook = client.workbooks().get(workbook_rid).await?;
+    ///     if !matches!(workbook.data_scope(), WorkbookDataScope::Runs(runs)
+    ///         if runs.iter().any(|rid| rid == run_rid)) {
+    ///         return Err(Error::Ingest { details: "select a run in this workbook's run scope".into() });
+    ///     }
+    ///     let run = client.runs().get(run_rid).await?;
+    ///     let Some(DataSource::Dataset(dataset_rid)) = run.data_sources().get(ref_name) else {
+    ///         return Err(Error::Ingest { details: "selected run reference is not an attached dataset".into() });
+    ///     };
+    ///     let ingest = ContainerizedIngest::new(extractor_rid)
+    ///         .source("INPUT", "measurements.bin")
+    ///         .tag("operator", "caller")
+    ///         .with_scope_tags(scope_tags);
+    ///     client.ingest().upload_containerized(
+    ///         DatasetTarget::Existing(dataset_rid.clone()), ingest).await
+    /// }
+    /// ```
     pub fn with_scope_tags(mut self, tags: BTreeMap<String, String>) -> Self {
         for (k, v) in tags {
             self.tags.entry(k).or_insert(v);
@@ -150,6 +183,11 @@ impl IngestClient {
                 &IngestRequest::new(IngestOptions::Containerized(opts)),
             )
             .await?;
+        ContainerizedSubmission::from_response(response)
+    }
+}
+impl ContainerizedSubmission {
+    fn from_response(response: nominal_api::objects::ingest::api::IngestResponse) -> Result<Self> {
         let job = IngestJobRef::new(
             response
                 .ingest_job_rid()
@@ -159,8 +197,11 @@ impl IngestClient {
         let dataset_rid = match response.details() {
             IngestDetails::Dataset(d) => d.dataset_rid().to_string(),
             _ => {
-                return Err(Error::UnexpectedResponse {
-                    field: "dataset_rid",
+                return Err(Error::Ingest {
+                    details: format!(
+                        "ingest job {} was acknowledged but its response omitted the dataset destination; inspect this job rather than resubmitting",
+                        job.rid()
+                    ),
                 });
             }
         };
@@ -216,13 +257,18 @@ mod request_tests {
     fn containerized_preflight_empty_sources_depend_on_active_contract() {
         let ingest = ContainerizedIngest::new("extractor");
         let mut proto = v2::ContainerizedExtractor {
+            rid: "extractor".into(),
             workspace_rid: "workspace".into(),
             ..Default::default()
         };
         let snapshot =
             crate::core::extractor::ContainerizedExtractor::from_proto(proto.clone()).unwrap();
         assert!(preflight(&snapshot, &ingest).is_err());
-        proto.active_container_image = Some(registry::ContainerImage::default());
+        proto.active_container_image = Some(registry::ContainerImage {
+            rid: "image".into(),
+            extractor_rid: "extractor".into(),
+            ..Default::default()
+        });
         let snapshot =
             crate::core::extractor::ContainerizedExtractor::from_proto(proto.clone()).unwrap();
         assert!(preflight(&snapshot, &ingest).is_ok());
@@ -287,5 +333,25 @@ mod request_tests {
             .unwrap();
         assert_eq!(result.job().rid(), "ri.ingest.main.job.test");
         server.join().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod acknowledgement_tests {
+    use super::*;
+    #[test]
+    fn malformed_destination_preserves_acknowledged_job_identity() {
+        let response = serde_json::from_value(serde_json::json!({
+            "ingestJobRid":"ri.ingest.main.job.acknowledged",
+            "details":{"type":"future","future":{}}
+        }))
+        .unwrap();
+        let error = ContainerizedSubmission::from_response(response).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("ri.ingest.main.job.acknowledged")
+        );
+        assert!(error.to_string().contains("acknowledged"));
     }
 }
