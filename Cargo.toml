@@ -1,4 +1,4 @@
 [workspace]
-members = ["nominal", "nominal-cli"]
+members = ["nominal", "nominal-cli", "nominal-extractor"]
 resolver = "2"
 

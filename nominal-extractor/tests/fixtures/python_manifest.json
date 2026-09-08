@@ -1,0 +1,124 @@
+{
+  "outputs": [
+    {
+      "ingestType": "TABULAR",
+      "relativePath": "data.csv",
+      "tagColumns": {
+        "vehicle": "veh_id"
+      },
+      "channelPrefix": "a/",
+      "timestampMetadata": {
+        "seriesName": "ts",
+        "epochTimeUnit": "MILLISECONDS",
+        "relativeOffset": "1969-12-31T23:59:59.999999999Z"
+      }
+    },
+    {
+      "ingestType": "TABULAR",
+      "relativePath": "data.csv",
+      "tagColumns": {},
+      "channelPrefix": "b/",
+      "timestampMetadata": null
+    },
+    {
+      "ingestType": "AVRO_STREAM",
+      "relativePath": "data.avro.gz",
+      "tagColumns": {},
+      "channelPrefix": null,
+      "timestampMetadata": {
+        "seriesName": "timestamps",
+        "epochTimeUnit": "NANOSECONDS",
+        "relativeOffset": null
+      }
+    },
+    {
+      "ingestType": "JSON_L",
+      "relativePath": "log.jsonl",
+      "tagColumns": {},
+      "channelPrefix": null,
+      "timestampMetadata": {
+        "seriesName": "t",
+        "epochTimeUnit": "SECONDS",
+        "relativeOffset": null
+      }
+    }
+  ],
+  "videoOutputs": [
+    {
+      "relativePath": "cam.mp4",
+      "channel": "start",
+      "timestampManifest": {
+        "type": "noManifest",
+        "noManifest": {
+          "startingTimestamp": {
+            "seconds": -1,
+            "nanos": 999999999
+          },
+          "scaleParameter": null
+        }
+      }
+    },
+    {
+      "relativePath": "cam.mp4",
+      "channel": "end",
+      "timestampManifest": {
+        "type": "noManifest",
+        "noManifest": {
+          "startingTimestamp": {
+            "seconds": 0,
+            "nanos": 0
+          },
+          "scaleParameter": {
+            "type": "endingTimestamp",
+            "endingTimestamp": {
+              "seconds": 1,
+              "nanos": 234567891
+            }
+          }
+        }
+      }
+    },
+    {
+      "relativePath": "cam.mp4",
+      "channel": "rate",
+      "timestampManifest": {
+        "type": "noManifest",
+        "noManifest": {
+          "startingTimestamp": {
+            "seconds": 0,
+            "nanos": 0
+          },
+          "scaleParameter": {
+            "type": "trueFrameRate",
+            "trueFrameRate": 59.94
+          }
+        }
+      }
+    },
+    {
+      "relativePath": "cam.mp4",
+      "channel": "factor",
+      "timestampManifest": {
+        "type": "noManifest",
+        "noManifest": {
+          "startingTimestamp": {
+            "seconds": 0,
+            "nanos": 0
+          },
+          "scaleParameter": {
+            "type": "scaleFactor",
+            "scaleFactor": -2.0
+          }
+        }
+      }
+    },
+    {
+      "relativePath": "cam.mp4",
+      "channel": "frames",
+      "timestampManifest": {
+        "type": "frameTimestampsRelativePath",
+        "frameTimestampsRelativePath": "cam.mp4.timestamps.4.json"
+      }
+    }
+  ]
+}
