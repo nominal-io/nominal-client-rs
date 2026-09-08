@@ -110,71 +110,72 @@ impl CatalogClient {
         mut files: Vec<DatasetFile>,
         options: WaitOptions,
     ) -> Result<Vec<DatasetFile>> {
+        use futures::{TryStreamExt, stream};
+        use tokio::time::{Instant, sleep_until, timeout_at};
+
+        const MAX_FILE_REFRESHES: usize = 8;
         options.validate()?;
-        let started = tokio::time::Instant::now();
-        loop {
-            let mut pending = Vec::new();
-            for file in &mut files {
-                if file.status.is_complete() {
-                    continue;
-                }
-                match file.status {
-                    DatasetFileStatus::Failed | DatasetFileStatus::Unknown(_) => {
-                        return Err(Error::Ingest {
-                            details: format!(
-                                "dataset file {} failed: {}",
-                                file.rid(),
-                                file.ingest_error().unwrap_or("unknown status")
-                            ),
-                        });
-                    }
-                    _ => {}
-                }
-                pending.push(file.id.clone());
-            }
-            if pending.is_empty() {
-                return Ok(files);
-            }
-            if options
-                .timeout_duration()
-                .is_some_and(|timeout| started.elapsed() >= timeout)
-            {
-                return Err(Error::Ingest {
-                    details: format!("timed out waiting for dataset files {}", pending.join(", ")),
-                });
-            }
-            for file in &mut files {
-                if !pending.contains(&file.id) {
-                    continue;
-                }
+        let deadline = options
+            .timeout_duration()
+            .map(|timeout| Instant::now() + timeout);
+        for file in &files {
+            file.check_ingest_failure()?;
+        }
+        while files.iter().any(|file| !file.status.is_complete()) {
+            // Borrow disjoint snapshots so responses can complete out of order while
+            // the caller's result order stays unchanged. Dropping this stream on a
+            // failure cancels the remaining read requests.
+            stream::iter(
+                files
+                    .iter_mut()
+                    .filter(|file| !file.status.is_complete())
+                    .map(Ok),
+            )
+            .try_for_each_concurrent(MAX_FILE_REFRESHES, |file| async move {
                 let dataset_rid = parse_rid(file.dataset_rid())?;
                 let refresh =
                     self.catalog_service
                         .get_dataset_file(&self.token, &dataset_rid, file.api.id());
-                let latest = if let Some(timeout) = options.timeout_duration() {
-                    tokio::time::timeout(timeout.saturating_sub(started.elapsed()), refresh)
-                        .await
-                        .map_err(|_| Error::Ingest {
-                            details: format!("timed out waiting for dataset file {}", file.id),
-                        })??
-                } else {
-                    refresh.await?
+                let latest = match deadline {
+                    Some(deadline) => {
+                        timeout_at(deadline, refresh)
+                            .await
+                            .map_err(|_| Error::Ingest {
+                                details: format!("timed out waiting for dataset file {}", file.id),
+                            })??
+                    }
+                    None => refresh.await?,
                 };
                 *file = DatasetFile::from_conjure(latest);
+                file.check_ingest_failure()
+            })
+            .await?;
+            if files.iter().any(|file| !file.status.is_complete()) {
+                let next_poll = Instant::now() + options.poll_interval();
+                sleep_until(deadline.map_or(next_poll, |deadline| deadline.min(next_poll))).await;
             }
-            let delay = options
-                .timeout_duration()
-                .map(|t| {
-                    t.saturating_sub(started.elapsed())
-                        .min(options.poll_interval())
-                })
-                .unwrap_or(options.poll_interval());
-            tokio::time::sleep(delay).await;
         }
+        Ok(files)
     }
 }
 
 impl DatasetFile {
+    fn check_ingest_failure(&self) -> Result<()> {
+        if matches!(
+            self.status,
+            DatasetFileStatus::Failed | DatasetFileStatus::Unknown(_)
+        ) {
+            return Err(Error::Ingest {
+                details: format!(
+                    "dataset file {} failed: {}",
+                    self.rid(),
+                    self.ingest_error().unwrap_or("unknown status")
+                ),
+            });
+        }
+        Ok(())
+    }
+
     /// Bounds in nanoseconds, using the coordinate system named by `bounds_timestamp_type`.
     pub fn bounds(&self) -> Option<(i128, i128)> {
         self.api.bounds().map(|b| {
@@ -258,6 +259,85 @@ impl DatasetFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn file_failure_is_reported_even_when_another_refresh_stalls() {
+        use std::io::{Read, Write};
+        use std::time::Duration;
+        let stalled = "00000000-0000-0000-0000-000000000001";
+        let failed = "00000000-0000-0000-0000-000000000002";
+        let snapshot = |id: &str, status: &str| {
+            serde_json::json!({
+                "id":id,"datasetRid":"ri.catalog.main.dataset.test","name":"output",
+                "handle":{"type":"future","future":{}},"uploadedAt":"2026-01-01T00:00:00Z",
+                "ingestStatus":{"type":status,status:{}}
+            })
+        };
+        // Exercise both an already-observed failure followed by a stalled request,
+        // and a stalled request ahead of the file whose failure needs discovering.
+        for ids in [[failed, stalled], [stalled, failed]] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let body = snapshot(failed, "futureFailure").to_string();
+            let (stop, done) = std::sync::mpsc::channel();
+            let server = std::thread::spawn(move || {
+                let mut held = Vec::new();
+                while done.try_recv().is_err() {
+                    let (mut stream, _) = match listener.accept() {
+                        Ok(connection) => connection,
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(1));
+                            continue;
+                        }
+                        Err(e) => panic!("{e}"),
+                    };
+                    stream.set_nonblocking(false).unwrap();
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(1)))
+                        .unwrap();
+                    let mut request = Vec::new();
+                    let mut buffer = [0; 1024];
+                    while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                        let n = stream.read(&mut buffer).unwrap();
+                        assert_ne!(n, 0);
+                        request.extend_from_slice(&buffer[..n]);
+                    }
+                    if String::from_utf8_lossy(&request).contains(failed) {
+                        write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+                    } else {
+                        held.push(stream);
+                    }
+                }
+            });
+            let client = crate::core::NominalClient::builder("token")
+                .base_url(format!("http://{address}/api"))
+                .build()
+                .unwrap();
+            let files = ids
+                .into_iter()
+                .map(|id| {
+                    DatasetFile::from_conjure(
+                        serde_json::from_value(snapshot(id, "inProgress")).unwrap(),
+                    )
+                })
+                .collect();
+            let result = client
+                .catalog()
+                .wait_for_dataset_files(
+                    files,
+                    WaitOptions::default().timeout(Duration::from_millis(250)),
+                )
+                .await;
+            stop.send(()).unwrap();
+            server.join().unwrap();
+            let error = result.unwrap_err().to_string();
+            assert!(
+                error.contains(failed) && error.contains("failed"),
+                "{error}"
+            );
+            assert!(!error.contains("timed out"), "{error}");
+        }
+    }
     #[test]
     fn dataset_file_completion_requires_success() {
         assert!(DatasetFileStatus::Success.is_complete());

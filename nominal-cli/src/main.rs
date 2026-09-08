@@ -1,8 +1,11 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
+mod args;
 mod commands;
 mod context;
+mod contract;
 mod output;
+mod timestamp;
 mod validate;
 use commands::api::ApiArgs;
 use commands::asset::AssetCommands;

@@ -88,7 +88,7 @@ temporary source was then removed.
 - Final CLI worker check: 40 tests plus strict CLI clippy passed.
 - Integrated doctests: 15 SDK (including consuming-batch compile-fail) and two runtime compile-fail tests passed.
 - Dependency inspection: `cargo tree -p nominal-extractor --edges normal` confirms no nominal/nominal-api/tonic/reqwest/Tokio dependency.
-- Final `cargo test --workspace --all-targets`: 144 SDK, 40 CLI and 20 runtime tests passed (204 total).
+- Final `cargo test --workspace --all-targets`: 146 SDK, 40 CLI and 20 runtime tests passed (206 total).
 - Final `cargo test --workspace --doc`: 15 SDK and two runtime doctests passed (17 total).
 - Final `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all -- --check` and `git diff --check`: passed.
 
@@ -115,3 +115,16 @@ regression was additionally reproduced and fixed during final documentation QA.
   the opt-in test-profile smoke recipe. Manifest videos require backend support.
 - Uploaded objects are not rolled back after partial failure. Generated local
   sidecars are cleaned up. Submission is not replayed after ambiguous failure.
+
+## Code-quality review follow-up
+
+The four self-review findings were addressed after PR creation. Shared CLI
+arguments, timestamp contracts and output helpers now live outside the command
+families. Batch format classification has one owner alongside `FileType`, with
+explicit native/batch MIME differences, and internal video timing remains an enum.
+Catalog file refreshes run with a limit of eight, share one deadline, and check
+failures as each response arrives while retaining the input order. The new
+`file_failure_is_reported_even_when_another_refresh_stalls` regression failed
+with the old sequential loop and passes for both file orders after the change.
+A focused independent review found no remaining material issues in these fixes.
+The final tests, doctests, strict clippy, formatting and whitespace checks passed.

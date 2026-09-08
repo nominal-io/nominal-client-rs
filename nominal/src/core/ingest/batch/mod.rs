@@ -5,13 +5,14 @@ mod rpc_tests;
 #[cfg(test)]
 mod tests;
 mod upload;
-use super::{ContainerizedIngest, FileType, IngestClient, IngestJobRef, UploadOptions, multipart};
+use super::filetype::IngestFileFormat;
+use super::{ContainerizedIngest, IngestClient, IngestJobRef, UploadOptions, multipart};
 use crate::{Error, Result};
 pub use items::{
     BatchAvroStream, BatchDataflash, BatchJournalJson, BatchMcap, BatchNumericTimestamp,
     BatchTabular, BatchVideoTiming, Topics,
 };
-use items::{PendingItem, PendingUpload, TabularFormat};
+use items::{PendingItem, PendingUpload, PendingVideoTiming};
 use std::{collections::BTreeMap, num::NonZeroUsize, path::PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -143,20 +144,11 @@ impl IngestBatch {
     }
     pub fn add_tabular(mut self, path: impl Into<PathBuf>, options: BatchTabular) -> Result<Self> {
         let path = path.into();
-        let name = path.to_string_lossy().to_ascii_lowercase();
-        let format = if name.ends_with(".csv") || name.ends_with(".csv.gz") {
-            TabularFormat::Csv
-        } else if name.ends_with(".parquet") || name.ends_with(".parquet.gz") {
-            TabularFormat::Parquet { archive: false }
-        } else if [".parquet.tar", ".parquet.tar.gz", ".parquet.zip"]
-            .iter()
-            .any(|suffix| name.ends_with(suffix))
-        {
-            TabularFormat::Parquet { archive: true }
-        } else {
-            return Err(invalid("unsupported batch tabular extension"));
-        };
-        let mime = batch_mime(&path);
+        let descriptor = format(&path)?;
+        let format = descriptor
+            .tabular()
+            .ok_or_else(|| invalid("unsupported batch tabular extension"))?;
+        let mime = descriptor.batch_mime();
         let file = self.upload(path, "file", mime);
         self.items.push(PendingItem::Tabular {
             file,
@@ -171,14 +163,8 @@ impl IngestBatch {
         options: BatchAvroStream,
     ) -> Result<Self> {
         let path = path.into();
-        if !path
-            .to_string_lossy()
-            .to_ascii_lowercase()
-            .ends_with(".avro.gz")
-        {
-            require_type(&path, &[FileType::AvroStream])?;
-        }
-        let file = self.upload(path, "file", "application/avro");
+        let descriptor = require_format(&path, IngestFileFormat::is_avro)?;
+        let file = self.upload(path, "file", descriptor.batch_mime());
         self.items.push(PendingItem::Avro { file, options });
         Ok(self)
     }
@@ -197,8 +183,8 @@ impl IngestBatch {
             return Err(invalid("journal JSON timestamps must be numeric"));
         }
         let path = path.into();
-        require_type(&path, &[FileType::JournalJsonl, FileType::JournalJsonlGz])?;
-        let file = self.upload(path, "file", "application/jsonl");
+        let descriptor = require_format(&path, IngestFileFormat::is_journal)?;
+        let file = self.upload(path, "file", descriptor.batch_mime());
         self.items.push(PendingItem::Journal { file, options });
         Ok(self)
     }
@@ -228,18 +214,9 @@ impl IngestBatch {
         tags: BTreeMap<String, String>,
     ) -> Result<Self> {
         let path = path.into();
-        if !path
-            .to_string_lossy()
-            .to_ascii_lowercase()
-            .ends_with(".m2ts")
-        {
-            require_type(
-                &path,
-                &[FileType::Mp4, FileType::Mkv, FileType::Avi, FileType::Ts],
-            )?;
-        }
-        let (sidecar, start) = match timing {
-            BatchVideoTiming::Start(start) => (None, Some(start)),
+        let descriptor = require_format(&path, IngestFileFormat::is_video)?;
+        let timing = match timing {
+            BatchVideoTiming::Start(start) => PendingVideoTiming::Start(start),
             BatchVideoTiming::FrameTimestamps(times) => {
                 if times.is_empty() {
                     return Err(invalid("frame timestamps must not be empty"));
@@ -252,15 +229,13 @@ impl IngestBatch {
                     .map_err(|e| invalid(&e.to_string()))?;
                 let upload = self.upload(temp.path().to_owned(), "timestamps", "application/json");
                 self.sidecars.push(temp);
-                (Some(upload), None)
+                PendingVideoTiming::Frames(upload)
             }
         };
-        let mime = batch_mime(&path);
-        let file = self.upload(path, "video", mime);
+        let file = self.upload(path, "video", descriptor.batch_mime());
         self.items.push(PendingItem::Video {
             file,
-            sidecar,
-            start,
+            timing,
             channel: channel.into(),
             tags,
         });
@@ -344,9 +319,21 @@ fn invalid(details: &str) -> Error {
         details: details.into(),
     }
 }
-fn require_type(path: &std::path::Path, allowed: &[FileType]) -> Result<()> {
-    if FileType::from_path(path).is_some_and(|t| allowed.contains(&t)) {
-        Ok(())
+fn format(path: &std::path::Path) -> Result<IngestFileFormat> {
+    IngestFileFormat::from_path(path).ok_or_else(|| {
+        invalid(&format!(
+            "unsupported batch file extension: {}",
+            path.display()
+        ))
+    })
+}
+fn require_format(
+    path: &std::path::Path,
+    accepts: fn(IngestFileFormat) -> bool,
+) -> Result<IngestFileFormat> {
+    let descriptor = format(path)?;
+    if accepts(descriptor) {
+        Ok(descriptor)
     } else {
         Err(invalid(&format!(
             "unsupported batch file extension: {}",
@@ -354,24 +341,8 @@ fn require_type(path: &std::path::Path, allowed: &[FileType]) -> Result<()> {
         )))
     }
 }
-
 fn batch_mime(path: &std::path::Path) -> &'static str {
-    let name = path.to_string_lossy().to_ascii_lowercase();
-    if name.ends_with(".avro.gz") {
-        "application/avro"
-    } else if name.ends_with(".csv.gz") {
-        "text/csv"
-    } else if name.ends_with(".m2ts") {
-        "video/mp2t"
-    } else if name.ends_with(".parquet.tar") || name.ends_with(".parquet.tar.gz") {
-        "application/x-tar"
-    } else if name.ends_with(".parquet.zip") {
-        "application/zip"
-    } else if name.ends_with(".json") {
-        "application/json"
-    } else {
-        FileType::from_path(path)
-            .map(|t| t.mime_type())
-            .unwrap_or("application/octet-stream")
-    }
+    IngestFileFormat::from_path(path)
+        .map(IngestFileFormat::batch_mime)
+        .unwrap_or("application/octet-stream")
 }

@@ -1,4 +1,4 @@
-use crate::commands::extractor::{args::WaitArgs, render::emit};
+use crate::{args::WaitArgs, output::emit, timestamp::TimestampView};
 use anyhow::Context;
 use nominal::core::*;
 use serde::Serialize;
@@ -64,7 +64,7 @@ pub struct FileView<'a> {
     bounds: Option<(i128, i128)>,
     bounds_timestamp_type: Option<String>,
     file_size_bytes: Option<i64>,
-    timestamp: Option<crate::commands::extractor::render::TimestampView>,
+    timestamp: Option<TimestampView>,
     ingest_status: String,
     uploaded_at: String,
     ingested_at: Option<String>,

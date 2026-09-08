@@ -1,4 +1,5 @@
 use super::*;
+use crate::args::{OutputArgs, WaitArgs};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use nominal::core::NominalClient;

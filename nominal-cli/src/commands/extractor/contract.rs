@@ -1,4 +1,4 @@
-use super::super::ingest::contract::{TimestampInput, version};
+use crate::contract::{TimestampInput, version};
 use nominal::core::{
     FileExtractionInput, FileExtractionParameter, ImageRegistration, RegisterableOutputFormat,
 };

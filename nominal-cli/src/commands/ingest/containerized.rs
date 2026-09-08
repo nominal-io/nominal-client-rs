@@ -1,5 +1,6 @@
-use super::{contract, render};
-use crate::commands::extractor::args::{OutputArgs, WaitArgs};
+use super::render;
+use crate::args::{OutputArgs, WaitArgs};
+use crate::contract;
 use anyhow::{Context, ensure};
 use clap::{ArgGroup, Args};
 use nominal::core::*;

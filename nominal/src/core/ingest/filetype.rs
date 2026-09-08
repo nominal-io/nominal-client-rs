@@ -97,9 +97,143 @@ impl FileType {
     }
 }
 
+/// Additional formats accepted by batch ingestion, without expanding native `FileType`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IngestFileFormat {
+    Native(FileType),
+    ParquetGz,
+    ParquetTar,
+    ParquetTarGz,
+    ParquetZip,
+    AvroGz,
+    M2ts,
+    Json,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TabularFormat {
+    Csv,
+    Parquet { archive: bool },
+}
+impl IngestFileFormat {
+    pub(crate) fn from_path(path: &Path) -> Option<Self> {
+        if let Some(native) = FileType::from_path(path) {
+            return Some(Self::Native(native));
+        }
+        let name = path.file_name()?.to_str()?.to_ascii_lowercase();
+        [
+            (".parquet.gz", Self::ParquetGz),
+            (".parquet.tar.gz", Self::ParquetTarGz),
+            (".parquet.tar", Self::ParquetTar),
+            (".parquet.zip", Self::ParquetZip),
+            (".avro.gz", Self::AvroGz),
+            (".m2ts", Self::M2ts),
+            (".json", Self::Json),
+        ]
+        .into_iter()
+        .find_map(|(suffix, format)| name.ends_with(suffix).then_some(format))
+    }
+    pub(crate) fn tabular(self) -> Option<TabularFormat> {
+        match self {
+            Self::Native(FileType::Csv | FileType::CsvGz) => Some(TabularFormat::Csv),
+            Self::Native(FileType::Parquet) | Self::ParquetGz => {
+                Some(TabularFormat::Parquet { archive: false })
+            }
+            Self::ParquetTar | Self::ParquetTarGz | Self::ParquetZip => {
+                Some(TabularFormat::Parquet { archive: true })
+            }
+            _ => None,
+        }
+    }
+    pub(crate) fn is_avro(self) -> bool {
+        matches!(self, Self::Native(FileType::AvroStream) | Self::AvroGz)
+    }
+    pub(crate) fn is_journal(self) -> bool {
+        matches!(
+            self,
+            Self::Native(FileType::JournalJsonl | FileType::JournalJsonlGz)
+        )
+    }
+    pub(crate) fn is_video(self) -> bool {
+        match self {
+            Self::Native(native) => native.is_video(),
+            Self::M2ts => true,
+            _ => false,
+        }
+    }
+    /// Python batch uses the uncompressed CSV MIME for gzip CSV; native uploads retain application/gzip.
+    pub(crate) fn batch_mime(self) -> &'static str {
+        match self {
+            Self::Native(FileType::CsvGz) => "text/csv",
+            Self::Native(native) => native.mime_type(),
+            Self::ParquetGz => "application/octet-stream",
+            Self::ParquetTar | Self::ParquetTarGz => "application/x-tar",
+            Self::ParquetZip => "application/zip",
+            Self::AvroGz => "application/avro",
+            Self::M2ts => "video/mp2t",
+            Self::Json => "application/json",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn batch_extended_formats_preserve_native_behavior_and_mime() {
+        for (path, mime, tabular) in [
+            ("a.csv.gz", "text/csv", Some(TabularFormat::Csv)),
+            (
+                "a.parquet.gz",
+                "application/octet-stream",
+                Some(TabularFormat::Parquet { archive: false }),
+            ),
+            (
+                "a.parquet.tar",
+                "application/x-tar",
+                Some(TabularFormat::Parquet { archive: true }),
+            ),
+            (
+                "a.parquet.tar.gz",
+                "application/x-tar",
+                Some(TabularFormat::Parquet { archive: true }),
+            ),
+            (
+                "a.parquet.zip",
+                "application/zip",
+                Some(TabularFormat::Parquet { archive: true }),
+            ),
+            ("a.avro.gz", "application/avro", None),
+            ("a.m2ts", "video/mp2t", None),
+        ] {
+            let format = IngestFileFormat::from_path(Path::new(path)).unwrap();
+            assert_eq!(format.batch_mime(), mime, "{path}");
+            assert_eq!(format.tabular(), tabular, "{path}");
+            assert_eq!(
+                IngestFileFormat::from_path(Path::new(&path.to_uppercase())),
+                Some(format)
+            );
+            if path != "a.csv.gz" {
+                assert_eq!(FileType::from_path(path), None);
+            }
+        }
+        assert_eq!(FileType::CsvGz.mime_type(), "application/gzip");
+        assert!(
+            IngestFileFormat::from_path(Path::new("a.avro.gz"))
+                .unwrap()
+                .is_avro()
+        );
+        assert!(
+            IngestFileFormat::from_path(Path::new("a.m2ts"))
+                .unwrap()
+                .is_video()
+        );
+        assert!(
+            IngestFileFormat::from_path(Path::new("a.jsonl.gz"))
+                .unwrap()
+                .is_journal()
+        );
+    }
 
     #[test]
     fn from_path_matches_known_extensions() {

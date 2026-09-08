@@ -1,7 +1,7 @@
 use super::render::{FileView, JobView, wait_job};
-use crate::commands::extractor::{
+use crate::{
     args::{OutputArgs, wait_options},
-    render::emit,
+    output::emit,
 };
 use clap::{Args, Subcommand, ValueEnum};
 use nominal::core::*;

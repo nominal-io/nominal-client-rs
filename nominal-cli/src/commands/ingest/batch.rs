@@ -1,8 +1,6 @@
-use super::{
-    contract::{self, TimestampInput, Unit},
-    render,
-};
-use crate::commands::extractor::args::{OutputArgs, WaitArgs};
+use super::render;
+use crate::args::{OutputArgs, WaitArgs};
+use crate::contract::{self, TimestampInput, Unit};
 use anyhow::Context;
 use clap::Args;
 use nominal::core::*;

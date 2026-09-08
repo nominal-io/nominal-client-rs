@@ -1,3 +1,4 @@
+use super::super::filetype::TabularFormat;
 use super::super::{ContainerizedIngest, TimeUnit, Timestamp};
 use chrono::{DateTime, Utc};
 use std::{collections::BTreeMap, path::PathBuf};
@@ -165,16 +166,15 @@ pub(super) enum PendingItem {
     },
     Video {
         file: PendingUpload,
-        sidecar: Option<PendingUpload>,
-        start: Option<DateTime<Utc>>,
+        timing: PendingVideoTiming,
         channel: String,
         tags: BTreeMap<String, String>,
     },
 }
-#[derive(Debug, Clone, Copy)]
-pub(super) enum TabularFormat {
-    Csv,
-    Parquet { archive: bool },
+#[derive(Debug)]
+pub(super) enum PendingVideoTiming {
+    Start(DateTime<Utc>),
+    Frames(PendingUpload),
 }
 impl PendingItem {
     pub fn uploads(&self) -> Vec<&PendingUpload> {
@@ -185,9 +185,10 @@ impl PendingItem {
             | Self::Journal { file, .. }
             | Self::Dataflash { file, .. } => vec![file],
             Self::Containerized { sources, .. } => sources.iter().collect(),
-            Self::Video { file, sidecar, .. } => {
-                std::iter::once(file).chain(sidecar.iter()).collect()
-            }
+            Self::Video { file, timing, .. } => match timing {
+                PendingVideoTiming::Start(_) => vec![file],
+                PendingVideoTiming::Frames(sidecar) => vec![file, sidecar],
+            },
         }
     }
 }

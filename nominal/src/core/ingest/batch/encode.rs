@@ -1,3 +1,4 @@
+use super::super::filetype::TabularFormat;
 use super::items::*;
 use nominal_api::tonic::nominal::ingest::v2 as p;
 use std::collections::BTreeMap;
@@ -123,19 +124,19 @@ pub(super) fn encode(item: &PendingItem, locations: &BTreeMap<usize, String>) ->
         ),
         PendingItem::Video {
             file,
-            sidecar,
-            start,
+            timing,
             channel,
             tags,
         } => {
-            let manifest = match sidecar {
-                Some(sidecar) => p::video_timestamp_manifest::Manifest::TimestampManifestFiles(
-                    p::TimestampManifestFiles {
-                        sources: vec![source(sidecar, locations)],
-                    },
-                ),
-                None => {
-                    let time = start.expect("video construction requires start or sidecar");
+            let manifest = match timing {
+                PendingVideoTiming::Frames(sidecar) => {
+                    p::video_timestamp_manifest::Manifest::TimestampManifestFiles(
+                        p::TimestampManifestFiles {
+                            sources: vec![source(sidecar, locations)],
+                        },
+                    )
+                }
+                PendingVideoTiming::Start(time) => {
                     p::video_timestamp_manifest::Manifest::NoManifest(p::NoTimestampManifest {
                         starting_timestamp: Some(nominal_api::tonic::google::protobuf::Timestamp {
                             seconds: time.timestamp(),

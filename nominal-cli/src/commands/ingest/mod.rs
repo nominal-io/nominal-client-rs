@@ -1,6 +1,5 @@
 mod batch;
 mod containerized;
-pub(crate) mod contract;
 mod jobs;
 mod native;
 mod render;

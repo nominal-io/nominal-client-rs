@@ -1,6 +1,7 @@
 pub mod args;
 mod contract;
 pub(crate) mod render;
+use crate::{args::wait_options, output::emit};
 pub use args::ExtractorCommands;
 use args::*;
 use nominal::core::*;
@@ -121,7 +122,7 @@ async fn images(cmd: ImageCommands, client: NominalClient) -> anyhow::Result<()>
             contract,
             scope,
         } => {
-            let dto: contract::ImageContract = super::ingest::contract::read(&contract)?;
+            let dto: contract::ImageContract = crate::contract::read(&contract)?;
             let registration = dto.try_into()?;
             let (e, i) = scoped(&client, &scope);
             let extractor = e.get(&extractor_rid).await?;
@@ -197,7 +198,7 @@ impl ExtractorCommands {
             command: ImageCommands::Register { contract: path, .. },
         } = self
         {
-            let dto: contract::ImageContract = super::ingest::contract::read(path)?;
+            let dto: contract::ImageContract = crate::contract::read(path)?;
             let _: ImageRegistration = dto.try_into()?;
         }
         Ok(())

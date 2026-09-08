@@ -181,7 +181,7 @@ mod tests {
         let b = "00000000-0000-0000-0000-000000000002";
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
-        let responses = vec![
+        let mut responses = vec![
             (
                 "/ingest-job/",
                 serde_json::json!({"files":[file(a,"inProgress")],"nextPage":"next"}),
@@ -195,7 +195,7 @@ mod tests {
             (b, file(b, "success")),
         ];
         let server = std::thread::spawn(move || {
-            for (expected, body) in responses {
+            while !responses.is_empty() {
                 let (mut stream, _) = listener.accept().unwrap();
                 stream
                     .set_read_timeout(Some(std::time::Duration::from_secs(2)))
@@ -207,13 +207,13 @@ mod tests {
                     assert_ne!(n, 0);
                     bytes.extend_from_slice(&buffer[..n]);
                 }
-                assert!(
-                    String::from_utf8_lossy(&bytes)
-                        .lines()
-                        .next()
-                        .unwrap()
-                        .contains(expected)
-                );
+                let request = String::from_utf8_lossy(&bytes);
+                let target = request.lines().next().unwrap();
+                let index = responses
+                    .iter()
+                    .position(|(expected, _)| target.contains(expected))
+                    .expect("unexpected catalog request");
+                let (_, body) = responses.remove(index);
                 let body = body.to_string();
                 write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
             }
@@ -237,6 +237,10 @@ mod tests {
             .await
             .unwrap();
         assert!(complete.iter().all(|f| f.ingest_status().is_complete()));
+        assert_eq!(
+            complete.iter().map(DatasetFile::rid).collect::<Vec<_>>(),
+            vec![a, b]
+        );
         server.join().unwrap();
     }
 }

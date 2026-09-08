@@ -133,6 +133,24 @@ async fn batch_builder_validation_and_sidecar_cleanup() {
         .unwrap();
     let path = batch.sidecars[0].path().to_owned();
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "[1,2]");
+    let locations = batch.items[0]
+        .uploads()
+        .into_iter()
+        .map(|u| (u.id, format!("s3://{}", u.name)))
+        .collect();
+    let encoded = encode::encode(&batch.items[0], &locations);
+    use nominal_api::tonic::nominal::ingest::v2::{
+        ingest_item::Item, video_timestamp_manifest::Manifest,
+    };
+    let Some(Item::Video(video)) = encoded.item else {
+        panic!("expected video")
+    };
+    let Some(Manifest::TimestampManifestFiles(manifest)) =
+        video.ingest.unwrap().timestamp_manifest.unwrap().manifest
+    else {
+        panic!("expected frame manifest")
+    };
+    assert_eq!(manifest.sources.len(), 1);
     drop(batch);
     assert!(!path.exists());
 }
