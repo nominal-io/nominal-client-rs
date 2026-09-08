@@ -117,7 +117,12 @@ impl IngestJobQuery {
 }
 impl IngestClient {
     pub async fn search_ingest_jobs(&self, query: IngestJobQuery) -> Result<Vec<IngestJob>> {
-        let filter = query.into_filter(self.workspace_rid_str())?;
+        let default_workspace = if matches!(query.workspace, WorkspaceSelection::Default) {
+            Some(self.resolved_workspace_rid().await?)
+        } else {
+            None
+        };
+        let filter = query.into_filter(default_workspace.as_ref().map(|rid| rid.0.as_str()))?;
         let mut token = None;
         let mut jobs = Vec::new();
         loop {

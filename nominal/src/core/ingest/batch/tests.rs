@@ -7,11 +7,12 @@ async fn batch_uploads_keep_repeated_path_identities() {
                 id,
                 name: "file".into(),
                 path: "same.bin".into(),
+                mime: "application/octet-stream",
             },
             options: BatchDataflash::default(),
         })
         .collect();
-    let report = upload::upload_all(&items, 2, FailurePolicy::AllowPartial, |_| async {
+    let report = upload::upload_all(&items, 2, FailurePolicy::AllowPartial, |_, _| async {
         Ok("s3://location".into())
     })
     .await;
@@ -26,22 +27,29 @@ async fn batch_failed_sibling_omits_whole_item() {
                 id: 0,
                 name: "good".into(),
                 path: "good".into(),
+                mime: "application/octet-stream",
             },
             PendingUpload {
                 id: 1,
                 name: "bad".into(),
                 path: "bad".into(),
+                mime: "application/octet-stream",
             },
         ],
         options: ContainerizedIngest::new("extractor"),
     }];
-    let report = upload::upload_all(&items, 2, FailurePolicy::AllowPartial, |path| async move {
-        if path == PathBuf::from("bad") {
-            Err(invalid("failed"))
-        } else {
-            Ok("s3://good".into())
-        }
-    })
+    let report = upload::upload_all(
+        &items,
+        2,
+        FailurePolicy::AllowPartial,
+        |path, _| async move {
+            if path == PathBuf::from("bad") {
+                Err(invalid("failed"))
+            } else {
+                Ok("s3://good".into())
+            }
+        },
+    )
     .await;
     assert_eq!(report.failures.len(), 1);
     assert_eq!(
@@ -62,6 +70,7 @@ async fn batch_upload_concurrency_is_bounded_and_fail_fast_stops_scheduling() {
                 id,
                 name: "file".into(),
                 path: format!("{id}.bin").into(),
+                mime: "application/octet-stream",
             },
             options: BatchDataflash::default(),
         })
@@ -69,7 +78,7 @@ async fn batch_upload_concurrency_is_bounded_and_fail_fast_stops_scheduling() {
     let active = Arc::new(AtomicUsize::new(0));
     let peak = Arc::new(AtomicUsize::new(0));
     let calls = Arc::new(AtomicUsize::new(0));
-    let report = upload::upload_all(&items, 2, FailurePolicy::FailFast, |_| {
+    let report = upload::upload_all(&items, 2, FailurePolicy::FailFast, |_, _| {
         let (active, peak, calls) = (active.clone(), peak.clone(), calls.clone());
         async move {
             calls.fetch_add(1, Ordering::SeqCst);
@@ -221,4 +230,79 @@ async fn batch_all_formats_encode_complete_options() {
         matches!(encoded[5].item,Some(Item::Containerized(ref c)) if c.arguments["MODE"]=="fast" && c.sources.contains_key("INPUT"))
     );
     assert!(matches!(encoded[6].item, Some(Item::Video(_))));
+}
+#[tokio::test]
+async fn batch_python_suffix_and_fixed_format_parity() {
+    let client = crate::core::NominalClient::builder("token")
+        .base_url("http://localhost:9999/api")
+        .build()
+        .unwrap();
+    let ingest = client.ingest();
+    assert!(
+        ingest
+            .batch("dataset")
+            .add_avro_stream("data.avro.gz", BatchAvroStream::default())
+            .is_ok()
+    );
+    assert!(
+        ingest
+            .batch("dataset")
+            .add_video(
+                "video.m2ts",
+                "video",
+                BatchVideoTiming::Start(chrono::Utc::now())
+            )
+            .is_ok()
+    );
+    assert!(
+        ingest
+            .batch("dataset")
+            .add_mcap("extensionless", BatchMcap::default())
+            .is_ok()
+    );
+    assert!(
+        ingest
+            .batch("dataset")
+            .add_dataflash("extensionless", BatchDataflash::default())
+            .is_ok()
+    );
+}
+#[tokio::test]
+async fn batch_partial_policy_only_admits_complete_survivors() {
+    let items: Vec<_> = (0..2)
+        .map(|id| PendingItem::Dataflash {
+            file: PendingUpload {
+                id,
+                name: "file".into(),
+                path: format!("{id}").into(),
+                mime: "application/octet-stream",
+            },
+            options: BatchDataflash::default(),
+        })
+        .collect();
+    let report = upload::upload_all(
+        &items,
+        2,
+        FailurePolicy::AllowPartial,
+        |path, _| async move {
+            if path == PathBuf::from("0") {
+                Err(invalid("failed"))
+            } else {
+                Ok("s3://good".into())
+            }
+        },
+    )
+    .await;
+    assert!(upload::completed_items(&items, &report, FailurePolicy::FailFast).is_none());
+    assert_eq!(
+        upload::completed_items(&items, &report, FailurePolicy::AllowPartial)
+            .unwrap()
+            .len(),
+        1
+    );
+    let failed = upload::upload_all(&items, 2, FailurePolicy::AllowPartial, |_, _| async {
+        Err(invalid("failed"))
+    })
+    .await;
+    assert!(upload::completed_items(&items, &failed, FailurePolicy::AllowPartial).is_none());
 }

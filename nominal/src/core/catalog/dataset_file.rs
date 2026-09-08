@@ -148,11 +148,19 @@ impl CatalogClient {
                     continue;
                 }
                 let dataset_rid = parse_rid(file.dataset_rid())?;
-                *file = DatasetFile::from_conjure(
+                let refresh =
                     self.catalog_service
-                        .get_dataset_file(&self.token, &dataset_rid, file.api.id())
-                        .await?,
-                );
+                        .get_dataset_file(&self.token, &dataset_rid, file.api.id());
+                let latest = if let Some(timeout) = options.timeout_duration() {
+                    tokio::time::timeout(timeout.saturating_sub(started.elapsed()), refresh)
+                        .await
+                        .map_err(|_| Error::Ingest {
+                            details: format!("timed out waiting for dataset file {}", file.id),
+                        })??
+                } else {
+                    refresh.await?
+                };
+                *file = DatasetFile::from_conjure(latest);
             }
             let delay = options
                 .timeout_duration()
@@ -174,5 +182,86 @@ mod tests {
         assert!(DatasetFileStatus::Deleted.is_complete());
         assert!(!DatasetFileStatus::Failed.is_complete());
         assert!(!DatasetFileStatus::Unknown("future".into()).is_complete());
+    }
+}
+
+impl DatasetFile {
+    /// Bounds in nanoseconds, using the coordinate system named by `bounds_timestamp_type`.
+    pub fn bounds(&self) -> Option<(i128, i128)> {
+        self.api.bounds().map(|b| {
+            let nanos = |t: &nominal_api::objects::api::Timestamp| {
+                i128::from(i64::from(t.seconds())) * 1_000_000_000
+                    + i128::from(i64::from(t.nanos()))
+            };
+            (nanos(b.start()), nanos(b.end()))
+        })
+    }
+    pub fn bounds_timestamp_type(&self) -> Option<String> {
+        self.api.bounds().map(|b| b.type_().to_string())
+    }
+    pub fn file_size_bytes(&self) -> Option<i64> {
+        self.api.file_size_bytes().map(i64::from)
+    }
+    /// Full timestamp interpretation including relative offset and custom defaults.
+    /// Unrecognized server encodings are reported explicitly.
+    pub fn timestamp(&self) -> Result<Option<crate::core::Timestamp>> {
+        use crate::core::{TimeUnit, Timestamp};
+        use nominal_api::objects::scout::catalog::{AbsoluteTimestamp as A, TimestampType as T};
+        let Some(metadata) = self.api.timestamp_metadata() else {
+            return Ok(None);
+        };
+        let unit = |u: &nominal_api::objects::api::TimeUnit| -> Result<TimeUnit> {
+            use nominal_api::objects::api::TimeUnit as U;
+            Ok(match u {
+                U::Nanoseconds => TimeUnit::Nanoseconds,
+                U::Microseconds => TimeUnit::Microseconds,
+                U::Milliseconds => TimeUnit::Milliseconds,
+                U::Seconds => TimeUnit::Seconds,
+                U::Minutes => TimeUnit::Minutes,
+                U::Hours => TimeUnit::Hours,
+                U::Days => TimeUnit::Days,
+                U::Unknown(_) => {
+                    return Err(Error::UnexpectedResponse {
+                        field: "dataset_file.timestamp.time_unit",
+                    });
+                }
+            })
+        };
+        let name = metadata.series_name();
+        let timestamp = match metadata.timestamp_type() {
+            T::Relative(r) => {
+                let timestamp = Timestamp::relative(name, unit(r.time_unit())?);
+                if let Some(offset) = r.offset() {
+                    timestamp.with_offset(offset)
+                } else {
+                    timestamp
+                }
+            }
+            T::Absolute(a) => match a.as_ref() {
+                A::Iso8601(_) => Timestamp::iso8601(name),
+                A::EpochOfTimeUnit(e) => Timestamp::epoch(name, unit(e.time_unit())?),
+                A::CustomFormat(c) => {
+                    let mut timestamp = Timestamp::custom(name, c.format());
+                    if let Some(year) = c.default_year() {
+                        timestamp = timestamp.with_default_year(year);
+                    }
+                    if let Some(day) = c.default_day_of_year() {
+                        timestamp = timestamp.with_default_day_of_year(day);
+                    }
+                    timestamp
+                }
+                A::Unknown(_) => {
+                    return Err(Error::UnexpectedResponse {
+                        field: "dataset_file.timestamp.absolute",
+                    });
+                }
+            },
+            T::Unknown(_) => {
+                return Err(Error::UnexpectedResponse {
+                    field: "dataset_file.timestamp",
+                });
+            }
+        };
+        Ok(Some(timestamp))
     }
 }

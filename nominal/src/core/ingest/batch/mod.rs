@@ -107,13 +107,19 @@ impl IngestClient {
     }
 }
 impl IngestBatch<'_> {
-    fn upload(&mut self, path: PathBuf, name: impl Into<String>) -> PendingUpload {
+    fn upload(
+        &mut self,
+        path: PathBuf,
+        name: impl Into<String>,
+        mime: &'static str,
+    ) -> PendingUpload {
         let id = self.next_id;
         self.next_id += 1;
         PendingUpload {
             id,
             name: name.into(),
             path,
+            mime,
         }
     }
     pub fn add_tags(mut self, tags: BTreeMap<String, String>) -> Self {
@@ -127,7 +133,7 @@ impl IngestBatch<'_> {
         let sources = options
             .sources
             .iter()
-            .map(|(name, path)| self.upload(path.clone(), name.clone()))
+            .map(|(name, path)| self.upload(path.clone(), name.clone(), batch_mime(path)))
             .collect();
         self.items
             .push(PendingItem::Containerized { sources, options });
@@ -148,7 +154,8 @@ impl IngestBatch<'_> {
         } else {
             return Err(invalid("unsupported batch tabular extension"));
         };
-        let file = self.upload(path, "file");
+        let mime = batch_mime(&path);
+        let file = self.upload(path, "file", mime);
         self.items.push(PendingItem::Tabular {
             file,
             options,
@@ -162,15 +169,20 @@ impl IngestBatch<'_> {
         options: BatchAvroStream,
     ) -> Result<Self> {
         let path = path.into();
-        require_type(&path, &[FileType::AvroStream])?;
-        let file = self.upload(path, "file");
+        if !path
+            .to_string_lossy()
+            .to_ascii_lowercase()
+            .ends_with(".avro.gz")
+        {
+            require_type(&path, &[FileType::AvroStream])?;
+        }
+        let file = self.upload(path, "file", "application/avro");
         self.items.push(PendingItem::Avro { file, options });
         Ok(self)
     }
     pub fn add_mcap(mut self, path: impl Into<PathBuf>, options: BatchMcap) -> Result<Self> {
         let path = path.into();
-        require_type(&path, &[FileType::Mcap])?;
-        let file = self.upload(path, "file");
+        let file = self.upload(path, "file", "application/octet-stream");
         self.items.push(PendingItem::Mcap { file, options });
         Ok(self)
     }
@@ -184,7 +196,7 @@ impl IngestBatch<'_> {
         }
         let path = path.into();
         require_type(&path, &[FileType::JournalJsonl, FileType::JournalJsonlGz])?;
-        let file = self.upload(path, "file");
+        let file = self.upload(path, "file", "application/jsonl");
         self.items.push(PendingItem::Journal { file, options });
         Ok(self)
     }
@@ -194,8 +206,7 @@ impl IngestBatch<'_> {
         options: BatchDataflash,
     ) -> Result<Self> {
         let path = path.into();
-        require_type(&path, &[FileType::Dataflash])?;
-        let file = self.upload(path, "file");
+        let file = self.upload(path, "file", "application/octet-stream");
         self.items.push(PendingItem::Dataflash { file, options });
         Ok(self)
     }
@@ -215,10 +226,16 @@ impl IngestBatch<'_> {
         tags: BTreeMap<String, String>,
     ) -> Result<Self> {
         let path = path.into();
-        require_type(
-            &path,
-            &[FileType::Mp4, FileType::Mkv, FileType::Avi, FileType::Ts],
-        )?;
+        if !path
+            .to_string_lossy()
+            .to_ascii_lowercase()
+            .ends_with(".m2ts")
+        {
+            require_type(
+                &path,
+                &[FileType::Mp4, FileType::Mkv, FileType::Avi, FileType::Ts],
+            )?;
+        }
         let (sidecar, start) = match timing {
             BatchVideoTiming::Start(start) => (None, Some(start)),
             BatchVideoTiming::FrameTimestamps(times) => {
@@ -231,12 +248,13 @@ impl IngestBatch<'_> {
                     .tempfile()?;
                 serde_json::to_writer(temp.as_file_mut(), &times)
                     .map_err(|e| invalid(&e.to_string()))?;
-                let upload = self.upload(temp.path().to_owned(), "timestamps");
+                let upload = self.upload(temp.path().to_owned(), "timestamps", "application/json");
                 self.sidecars.push(temp);
                 (Some(upload), None)
             }
         };
-        let file = self.upload(path, "video");
+        let mime = batch_mime(&path);
+        let file = self.upload(path, "video", mime);
         self.items.push(PendingItem::Video {
             file,
             sidecar,
@@ -252,26 +270,25 @@ impl IngestBatch<'_> {
         }
         let _: nominal_api::objects::api::rids::DatasetRid =
             crate::core::rid::parse_rid(&self.dataset_rid)?;
+        let upload_workspace = Some(self.client.resolved_workspace_rid().await?);
         let report = upload::upload_all(
             &self.items,
             options.max_uploads.get(),
             options.failure_policy,
-            |path| {
+            |path, mime| {
                 let upload_options = options.upload_options.clone();
+                let upload_workspace = upload_workspace.clone();
                 async move {
                     let filename = path
                         .file_name()
                         .and_then(|s| s.to_str())
                         .unwrap_or("input")
                         .to_owned();
-                    let mime = FileType::from_path(&path)
-                        .map(|t| t.mime_type())
-                        .unwrap_or("application/octet-stream");
                     multipart::upload_file(
                         self.client.conjure_client.clone(),
                         &self.client.runtime,
                         self.client.token.clone(),
-                        self.client.workspace_rid.clone(),
+                        upload_workspace,
                         &path,
                         filename,
                         mime.into(),
@@ -282,26 +299,13 @@ impl IngestBatch<'_> {
             },
         )
         .await;
-        let items: Vec<_> = self
-            .items
-            .iter()
-            .enumerate()
-            .filter(|(index, _)| {
-                !report
-                    .failures
-                    .iter()
-                    .any(|failure| failure.item_index == *index)
-            })
-            .map(|(_, item)| encode::encode(item, &report.locations))
-            .collect();
-        if items.is_empty()
-            || (options.failure_policy == FailurePolicy::FailFast && !report.failures.is_empty())
-        {
+        let Some(items) = upload::completed_items(&self.items, &report, options.failure_policy)
+        else {
             return Err(BatchUploadError {
                 failures: report.failures,
             }
             .into());
-        }
+        };
         use nominal_api::tonic::nominal::ingest::v2::{
             IngestRequest, ingest_service_client::IngestServiceClient,
         };
@@ -337,5 +341,26 @@ fn require_type(path: &std::path::Path, allowed: &[FileType]) -> Result<()> {
             "unsupported batch file extension: {}",
             path.display()
         )))
+    }
+}
+
+fn batch_mime(path: &std::path::Path) -> &'static str {
+    let name = path.to_string_lossy().to_ascii_lowercase();
+    if name.ends_with(".avro.gz") {
+        "application/avro"
+    } else if name.ends_with(".csv.gz") {
+        "text/csv"
+    } else if name.ends_with(".m2ts") {
+        "video/mp2t"
+    } else if name.ends_with(".parquet.tar") || name.ends_with(".parquet.tar.gz") {
+        "application/x-tar"
+    } else if name.ends_with(".parquet.zip") {
+        "application/zip"
+    } else if name.ends_with(".json") {
+        "application/json"
+    } else {
+        FileType::from_path(path)
+            .map(|t| t.mime_type())
+            .unwrap_or("application/octet-stream")
     }
 }

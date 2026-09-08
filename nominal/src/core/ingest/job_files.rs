@@ -66,3 +66,78 @@ impl IngestClient {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    fn file(id: &str, status: &str) -> serde_json::Value {
+        serde_json::json!({"id":id,"datasetRid":"ri.catalog.main.dataset.test","name":"output",
+            "handle":{"type":"future","future":{}},"uploadedAt":"2026-01-01T00:00:00Z",
+            "ingestStatus":{"type":status,status:{}}})
+    }
+    #[tokio::test]
+    async fn job_files_pages_then_waits_independent_fixed_snapshot() {
+        let a = "00000000-0000-0000-0000-000000000001";
+        let b = "00000000-0000-0000-0000-000000000002";
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let responses = vec![
+            (
+                "/ingest-job/",
+                serde_json::json!({"files":[file(a,"inProgress")],"nextPage":"next"}),
+            ),
+            (
+                "nextPageToken=next",
+                serde_json::json!({"files":[file(b,"inProgress")]}),
+            ),
+            (a, file(a, "success")),
+            (b, file(b, "inProgress")),
+            (b, file(b, "success")),
+        ];
+        let server = std::thread::spawn(move || {
+            for (expected, body) in responses {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+                    .unwrap();
+                let mut bytes = Vec::new();
+                let mut buffer = [0; 1024];
+                while !bytes.windows(4).any(|w| w == b"\r\n\r\n") {
+                    let n = stream.read(&mut buffer).unwrap();
+                    assert_ne!(n, 0);
+                    bytes.extend_from_slice(&buffer[..n]);
+                }
+                assert!(
+                    String::from_utf8_lossy(&bytes)
+                        .lines()
+                        .next()
+                        .unwrap()
+                        .contains(expected)
+                );
+                let body = body.to_string();
+                write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
+            }
+        });
+        let client = crate::core::NominalClient::builder("token")
+            .base_url(format!("http://{address}/api"))
+            .build()
+            .unwrap();
+        let files = client
+            .ingest()
+            .dataset_files("ri.ingest.main.job.test")
+            .await
+            .unwrap();
+        assert_eq!(files.len(), 2);
+        let complete = client
+            .catalog()
+            .wait_for_dataset_files(
+                files,
+                WaitOptions::default().interval(std::time::Duration::from_millis(1)),
+            )
+            .await
+            .unwrap();
+        assert!(complete.iter().all(|f| f.ingest_status().is_complete()));
+        server.join().unwrap();
+    }
+}

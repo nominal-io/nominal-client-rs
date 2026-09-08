@@ -89,9 +89,10 @@ impl IngestClient {
         ingest: ContainerizedIngest,
     ) -> Result<ContainerizedSubmission> {
         // Validate the target and active input contract before creating remote upload objects.
-        let target = target.into_api(self.workspace_rid_str())?;
         let extractor = self.extractors.get(&ingest.extractor_rid).await?;
+        let target = target.into_api(Some(extractor.workspace_rid()))?;
         let image = preflight(&extractor, &ingest)?;
+        let upload_workspace = Some(parse_rid(extractor.workspace_rid())?);
         let timestamp = ingest.timestamp.as_ref().or(image.default_timestamp());
         let mut sources = BTreeMap::new();
         for (name, path) in ingest.sources {
@@ -104,7 +105,7 @@ impl IngestClient {
                 self.conjure_client.clone(),
                 &self.runtime,
                 self.token.clone(),
-                self.workspace_rid.clone(),
+                upload_workspace.clone(),
                 &path,
                 filename,
                 "application/octet-stream".into(),

@@ -18,7 +18,7 @@ pub(super) async fn upload_all<F, Fut>(
     upload: F,
 ) -> UploadReport
 where
-    F: Fn(std::path::PathBuf) -> Fut,
+    F: Fn(std::path::PathBuf, &'static str) -> Fut,
     Fut: Future<Output = Result<String>>,
 {
     let mut pending = items
@@ -34,7 +34,7 @@ where
             let Some((index, input)) = pending.next() else {
                 break;
             };
-            let future = upload(input.path.clone());
+            let future = upload(input.path.clone(), input.mime);
             active.push(async move { (index, input, future.await) });
         }
         let Some((index, input, result)) = active.next().await else {
@@ -84,4 +84,26 @@ where
         locations,
         failures,
     }
+}
+
+pub(super) fn completed_items(
+    items: &[PendingItem],
+    report: &UploadReport,
+    policy: FailurePolicy,
+) -> Option<Vec<nominal_api::tonic::nominal::ingest::v2::IngestItem>> {
+    if policy == FailurePolicy::FailFast && !report.failures.is_empty() {
+        return None;
+    }
+    let items: Vec<_> = items
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| {
+            !report
+                .failures
+                .iter()
+                .any(|failure| failure.item_index == *index)
+        })
+        .map(|(_, item)| super::encode::encode(item, &report.locations))
+        .collect();
+    if items.is_empty() { None } else { Some(items) }
 }

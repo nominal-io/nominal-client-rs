@@ -134,6 +134,7 @@ pub(super) struct PendingUpload {
     pub id: usize,
     pub name: String,
     pub path: PathBuf,
+    pub mime: &'static str,
 }
 #[derive(Debug)]
 pub(super) enum PendingItem {

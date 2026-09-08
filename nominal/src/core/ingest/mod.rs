@@ -81,6 +81,18 @@ impl IngestClient {
         }
     }
 
+    async fn resolved_workspace_rid(&self) -> Result<WorkspaceRid> {
+        if let Some(workspace) = &self.workspace_rid {
+            return Ok(workspace.clone());
+        }
+        let workspaces = crate::core::workspace::WorkspacesClient::new(
+            self.conjure_client.clone(),
+            &self.runtime,
+            self.token.clone(),
+        );
+        Ok(parse_rid(workspaces.get_default_workspace().await?.rid())?)
+    }
+
     fn workspace_rid_str(&self) -> Option<&str> {
         self.workspace_rid.as_ref().map(|w| w.0.as_str())
     }
