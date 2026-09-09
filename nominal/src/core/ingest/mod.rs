@@ -12,7 +12,7 @@ pub use options::{
     ParquetIngest, UploadOptions, VideoIngest, VideoTarget,
 };
 pub use progress::{ProgressCallback, UploadEvent};
-pub use timestamp::{TimeUnit, Timestamp};
+pub use timestamp::{TimeUnit, Timestamp, TimestampKind};
 
 use std::path::Path;
 use std::sync::Arc;
