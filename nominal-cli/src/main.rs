@@ -246,6 +246,7 @@ mod extractor_tests {
                 "a b=c",
                 "--json",
             ],
+            vec!["nomctl", "ingest", "batch", "request.json"],
             vec!["nomctl", "ingest", "job", "files", "rid", "--wait"],
         ] {
             assert!(Cli::try_parse_from(args).is_ok());
@@ -284,6 +285,7 @@ mod extractor_tests {
                 "--timeout",
                 "1",
             ],
+            vec!["nomctl", "ingest", "batch", "x", "--timeout", "0"],
         ] {
             assert!(Cli::try_parse_from(args).is_err());
         }
@@ -340,6 +342,9 @@ mod extractor_extra_tests {
                 "--all-workspaces"
             ])
             .is_err()
+        );
+        assert!(
+            Cli::try_parse_from(["nomctl", "ingest", "batch", "x", "--max-uploads", "0"]).is_err()
         );
     }
     #[tokio::test]

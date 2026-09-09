@@ -1,6 +1,8 @@
+pub(crate) mod batch;
 mod containerized;
 mod job_files;
 mod job_query;
+pub use batch::*;
 pub use containerized::{ContainerizedIngest, ContainerizedSubmission, IngestJobRef};
 pub use job_query::{IngestJobQuery, WorkspaceSelection};
 mod filetype;
@@ -49,6 +51,7 @@ pub struct IngestClient {
     runtime: Arc<ConjureRuntime>,
     token: BearerToken,
     workspace_rid: Option<WorkspaceRid>,
+    grpc: crate::core::grpc::GrpcConnection,
     extractors: crate::core::extractor::ExtractorsClient,
     app_base_url: String,
     mutation_client: Client,
@@ -56,11 +59,13 @@ pub struct IngestClient {
 
 impl IngestClient {
     // Internal dependency wiring keeps read and mutation transports distinct.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         client: Client,
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
         workspace_rid: Option<WorkspaceRid>,
+        grpc: crate::core::grpc::GrpcConnection,
         extractors: crate::core::extractor::ExtractorsClient,
         app_base_url: String,
         mutation_client: Client,
@@ -72,6 +77,7 @@ impl IngestClient {
             runtime: runtime.clone(),
             token,
             workspace_rid,
+            grpc,
             extractors,
             app_base_url,
             mutation_client,

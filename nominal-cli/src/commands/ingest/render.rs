@@ -2,6 +2,7 @@ use crate::{args::WaitArgs, output::emit, timestamp::TimestampView};
 use anyhow::Context;
 use nominal::core::*;
 use serde::Serialize;
+use std::path::PathBuf;
 fn status(v: &IngestJobStatus) -> String {
     match v {
         IngestJobStatus::Submitted => "submitted".into(),
@@ -110,11 +111,40 @@ impl<'a> TryFrom<&'a DatasetFile> for FileView<'a> {
     }
 }
 #[derive(Serialize)]
+pub struct Omitted {
+    item_index: usize,
+    failed_sources: Vec<SourceFailure>,
+    uploaded_sources: Vec<PathBuf>,
+}
+#[derive(Serialize)]
+struct SourceFailure {
+    name: String,
+    path: PathBuf,
+    message: String,
+}
+impl From<BatchItemFailure> for Omitted {
+    fn from(v: BatchItemFailure) -> Self {
+        Self {
+            item_index: v.item_index,
+            failed_sources: v
+                .failed_sources
+                .into_iter()
+                .map(|s| SourceFailure {
+                    name: s.name,
+                    path: s.path,
+                    message: s.error.to_string(),
+                })
+                .collect(),
+            uploaded_sources: v.uploaded_sources,
+        }
+    }
+}
+#[derive(Serialize)]
 struct SubmissionView<'a> {
     job_rid: &'a str,
     dataset_rid: &'a str,
     status: Option<String>,
-    omitted: [(); 0],
+    omitted: Vec<Omitted>,
 }
 pub async fn wait_job(
     ingest: &IngestClient,
@@ -134,9 +164,17 @@ pub async fn submission(
     ingest: &IngestClient,
     rid: &str,
     dataset: &str,
+    omitted: Vec<Omitted>,
     wait: WaitArgs,
     json: bool,
 ) -> anyhow::Result<()> {
+    if !omitted.is_empty() {
+        eprintln!(
+            "warning: {} batch items omitted: {}",
+            omitted.len(),
+            serde_json::to_string(&omitted)?
+        );
+    }
     let status = if wait.no_wait {
         None
     } else {
@@ -147,7 +185,7 @@ pub async fn submission(
             job_rid: rid,
             dataset_rid: dataset,
             status,
-            omitted: [],
+            omitted,
         },
         json,
     )
@@ -155,6 +193,41 @@ pub async fn submission(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn extractor_partial_output_preserves_both_sibling_outcomes() {
+        let omitted = Omitted::from(BatchItemFailure {
+            item_index: 4,
+            failed_sources: vec![BatchSourceFailure {
+                name: "INPUT".into(),
+                path: "failed.flight".into(),
+                error: nominal::Error::Ingest {
+                    details: "upload failed".into(),
+                },
+            }],
+            uploaded_sources: vec!["uploaded.flight".into()],
+        });
+        let json = serde_json::to_string(&SubmissionView {
+            job_rid: "job",
+            dataset_rid: "dataset",
+            status: None,
+            omitted: vec![omitted],
+        })
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["job_rid"], "job");
+        assert_eq!(value["dataset_rid"], "dataset");
+        assert!(value["status"].is_null());
+        assert_eq!(value["omitted"][0]["item_index"], 4);
+        assert_eq!(value["omitted"][0]["failed_sources"][0]["name"], "INPUT");
+        assert_eq!(
+            value["omitted"][0]["failed_sources"][0]["path"],
+            "failed.flight"
+        );
+        assert_eq!(
+            value["omitted"][0]["uploaded_sources"][0],
+            "uploaded.flight"
+        );
+    }
     #[tokio::test]
     async fn no_wait_returns_the_job_id_without_fetching_metadata() {
         let client = NominalClient::builder("token")
@@ -165,6 +238,7 @@ mod tests {
             &client.ingest(),
             "acknowledged-job",
             "dataset",
+            vec![],
             WaitArgs {
                 timeout: None,
                 no_wait: true,

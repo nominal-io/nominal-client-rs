@@ -41,7 +41,10 @@ pub use ingest::{
     TimeUnit, Timestamp, TimestampKind, UploadEvent, UploadOptions, VideoIngest, VideoTarget,
 };
 pub use ingest::{
-    ContainerizedIngest, ContainerizedSubmission, IngestJobQuery, IngestJobRef, WorkspaceSelection,
+    BatchAvroStream, BatchDataflash, BatchItemFailure, BatchJournalJson, BatchMcap,
+    BatchNumericTimestamp, BatchOptions, BatchSourceFailure, BatchSubmission, BatchTabular,
+    BatchUploadError, BatchVideoTiming, ContainerizedIngest, ContainerizedSubmission,
+    FailurePolicy, IngestBatch, IngestJobQuery, IngestJobRef, Topics, WorkspaceSelection,
 };
 pub use run::{Run, RunCreate, RunQuery, RunUpdate, RunsClient};
 pub use template::{Template, TemplatesClient};

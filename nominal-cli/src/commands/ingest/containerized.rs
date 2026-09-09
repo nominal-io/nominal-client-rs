@@ -123,6 +123,7 @@ pub async fn handle(a: ContainerizedArgs, profile: Option<&str>) -> anyhow::Resu
         &ingest,
         submission.job().rid(),
         submission.dataset_rid(),
+        vec![],
         wait,
         json,
     )
