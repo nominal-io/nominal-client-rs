@@ -1793,7 +1793,7 @@ dependencies = [
  "futures",
  "http",
  "http-body-util",
- "nominal-api",
+ "nominal-api 0.1435.0",
  "nominal-streaming",
  "rand 0.9.2",
  "regex",
@@ -1815,8 +1815,18 @@ version = "0.1349.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "449e939b5d3ecc4855daa54b281b64c3530465e8c8c2a798e231d09fe9d63c71"
 dependencies = [
- "nominal-api-conjure",
- "nominal-api-proto",
+ "nominal-api-conjure 0.1349.0",
+ "nominal-api-proto 0.1349.0",
+]
+
+[[package]]
+name = "nominal-api"
+version = "0.1435.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a60172668ee3ef5267b7852c1554f1498664d927eb739f59a99391f6ac99581"
+dependencies = [
+ "nominal-api-conjure 0.1435.0",
+ "nominal-api-proto 0.1435.0",
 ]
 
 [[package]]
@@ -1831,10 +1841,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "nominal-api-conjure"
+version = "0.1435.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "534aad357abc732db2e3f005eb7abfc118d3ad8956ac2afe23e67f6bbaef8d59"
+dependencies = [
+ "conjure-error",
+ "conjure-http",
+ "conjure-object",
+]
+
+[[package]]
 name = "nominal-api-proto"
 version = "0.1349.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a97d9a46f6b2cd86c52ae5e36b36579e33336d119396f5b541f55b51ecac6b4"
+dependencies = [
+ "prost 0.13.5",
+ "tonic",
+]
+
+[[package]]
+name = "nominal-api-proto"
+version = "0.1435.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c85f1fb268d56ad8f94a6b1d24238e80a7581b63786c600b6657d9545338586"
 dependencies = [
  "prost 0.13.5",
  "tonic",
@@ -1854,7 +1885,7 @@ dependencies = [
  "dirs",
  "inquire",
  "nominal",
- "nominal-api",
+ "nominal-api 0.1435.0",
  "once_cell",
  "prost 0.13.5",
  "prost-reflect",
@@ -1884,7 +1915,7 @@ dependencies = [
  "crossbeam-channel",
  "derive_more",
  "futures",
- "nominal-api",
+ "nominal-api 0.1349.0",
  "parking_lot",
  "prost 0.13.5",
  "reqwest 0.13.4",
