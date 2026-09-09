@@ -3,6 +3,7 @@ pub(crate) mod catalog;
 pub(crate) mod client;
 pub(crate) mod datasource;
 pub(crate) mod datetime;
+pub(crate) mod extractor;
 pub(crate) mod fs;
 pub(crate) mod grpc;
 pub(crate) mod ingest;
@@ -11,6 +12,7 @@ pub(crate) mod run;
 pub(crate) mod template;
 pub(crate) mod user;
 pub(crate) mod utils;
+pub(crate) mod wait;
 pub(crate) mod workbook;
 pub(crate) mod workspace;
 
@@ -22,6 +24,12 @@ pub use catalog::{
 };
 pub use client::{NominalClient, NominalClientBuilder};
 pub use datasource::DataSource;
+pub use extractor::{
+    Activation, ContainerImage, ContainerImageQuery, ContainerImageStatus, ContainerImagesClient,
+    ContainerizedExtractor, ExtractorCreate, ExtractorError, ExtractorQuery, ExtractorUpdate,
+    ExtractorsClient, FileExtractionInput, FileExtractionParameter, FileOutputFormat,
+    ImageRegistration, RegisterableOutputFormat,
+};
 pub use fs::{
     Directory, Drive, DriveFilesClient, DriveKind, DriveMutability, DriveSource, DriveState,
     DrivesClient, FileEntry, FileOperationDestination, FileRevision, FileState, LogicalFile,
@@ -31,8 +39,10 @@ pub use ingest::{
     IngestJobStatus, IngestType, JournalJsonIngest, McapIngest, ParquetIngest, ProgressCallback,
     TimeUnit, Timestamp, TimestampKind, UploadEvent, UploadOptions, VideoIngest, VideoTarget,
 };
+
 pub use run::{Run, RunCreate, RunQuery, RunUpdate, RunsClient};
 pub use template::{Template, TemplatesClient};
 pub use user::{User, UsersClient};
+pub use wait::WaitOptions;
 pub use workbook::{Workbook, WorkbookCreate, WorkbookDataScope, WorkbookQuery, WorkbooksClient};
 pub use workspace::{Workspace, WorkspacesClient};
