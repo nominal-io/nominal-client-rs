@@ -43,6 +43,13 @@ mod codec_tests {
             timestamp.into_conjure()
         );
     }
+
+    #[test]
+    fn numeric_check_excludes_string_encodings() {
+        assert!(Timestamp::epoch("ts", TimeUnit::Seconds).is_numeric());
+        assert!(!Timestamp::iso8601("ts").is_numeric());
+        assert!(!Timestamp::custom("ts", "yyyy").is_numeric());
+    }
 }
 
 impl TimeUnit {
@@ -104,6 +111,13 @@ impl Timestamp {
         &self.series_name
     }
 
+    pub(crate) fn is_numeric(&self) -> bool {
+        matches!(
+            self.kind,
+            TimestampKind::Epoch(_) | TimestampKind::Relative { .. }
+        )
+    }
+
     pub(crate) fn to_proto_type(&self) -> nominal_api::tonic::nominal::types::time::TimestampType {
         use nominal_api::tonic::nominal::types::time as p;
         let option = match &self.kind {
@@ -153,6 +167,15 @@ impl Timestamp {
         nominal_api::tonic::nominal::registry::v2::TimestampMetadata {
             series_name: self.series_name.clone(),
             timestamp_type: Some(self.to_proto_type()),
+        }
+    }
+
+    pub(crate) fn to_ingest_proto(
+        &self,
+    ) -> nominal_api::tonic::nominal::ingest::v2::TimestampMetadata {
+        nominal_api::tonic::nominal::ingest::v2::TimestampMetadata {
+            column: self.series_name.clone(),
+            r#type: Some(self.to_proto_type()),
         }
     }
 

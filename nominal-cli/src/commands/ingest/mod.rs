@@ -1,3 +1,4 @@
+mod batch;
 mod containerized;
 mod jobs;
 mod native;
@@ -11,6 +12,8 @@ use native::*;
 pub enum IngestCommands {
     /// Run a containerized extractor with named input files
     Containerized(containerized::ContainerizedArgs),
+    /// Ingest a version 1 JSON batch into an existing dataset
+    Batch(batch::BatchArgs),
     /// Inspect, wait for, and cancel ingest jobs
     Job {
         #[command(subcommand)]
@@ -36,6 +39,7 @@ pub enum IngestCommands {
 
 pub async fn handle(cmd: IngestCommands, profile: Option<&str>) -> anyhow::Result<()> {
     match cmd {
+        IngestCommands::Batch(a) => batch::handle(a, profile).await,
         IngestCommands::Containerized(a) => containerized::handle(a, profile).await,
         IngestCommands::Job { command } => jobs::handle(command, load_client(profile)?).await,
         IngestCommands::Csv(args) => handle_csv(args, load_client(profile)?).await,

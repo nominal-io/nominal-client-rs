@@ -183,6 +183,7 @@ impl NominalClient {
             &self.runtime,
             self.token.clone(),
             self.workspace_rid.clone(),
+            self.grpc.clone(),
             self.extractors(),
             api_base_url_to_app_base_url(&self.base_url),
             self.mutation_client.clone(),
