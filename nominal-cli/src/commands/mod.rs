@@ -5,6 +5,7 @@ pub mod config;
 pub mod connection;
 pub mod dataset;
 pub mod endpoint;
+pub mod extractor;
 pub mod fs;
 pub mod grpc;
 pub mod ingest;

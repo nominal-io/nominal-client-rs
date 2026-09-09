@@ -73,6 +73,28 @@ impl NominalClient {
         self.workspace_rid.as_ref().map(|w| w.0.as_str())
     }
 
+    /// Access containerized extractor management.
+    pub fn extractors(&self) -> crate::core::ExtractorsClient {
+        crate::core::ExtractorsClient::new(
+            self.grpc.clone(),
+            self.client.clone(),
+            self.runtime.clone(),
+            self.token.clone(),
+            self.workspace_rid.clone(),
+        )
+    }
+
+    /// Access registered extractor images.
+    pub fn container_images(&self) -> crate::core::ContainerImagesClient {
+        crate::core::ContainerImagesClient::new(
+            self.grpc.clone(),
+            self.client.clone(),
+            self.runtime.clone(),
+            self.token.clone(),
+            self.workspace_rid.clone(),
+        )
+    }
+
     /// Access run operations.
     pub fn runs(&self) -> RunsClient {
         RunsClient::new(
