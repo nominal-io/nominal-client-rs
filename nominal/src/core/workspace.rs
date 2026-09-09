@@ -87,17 +87,18 @@ impl WorkspacesClient {
             return Ok(());
         }
 
-        // No explicit RID: ensure the tenant has a default workspace.
-        let workspaces = self
+        self.get_default_workspace().await?;
+        Ok(())
+    }
+
+    /// Return the server's default workspace for this caller.
+    pub async fn get_default_workspace(&self) -> Result<Workspace> {
+        let workspace = self
             .service
             .get_default_workspace(&self.token)
             .await
-            .map_err(Error::from)?;
-
-        if workspaces.is_none() {
-            return Err(Error::NoDefaultWorkspace);
-        }
-
-        Ok(())
+            .map_err(Error::from)?
+            .ok_or(Error::NoDefaultWorkspace)?;
+        Ok(Workspace::from_conjure(workspace))
     }
 }
