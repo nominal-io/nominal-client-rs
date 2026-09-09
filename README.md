@@ -4,7 +4,7 @@ The canonical Nominal Rust SDK.
 
 See the [Rust extractor guide](docs/extractor.md) to write manifest-producing
 containers with `nominal::extractor`, and the [containerized extractor guide](docs/containerized-extractors.md)
-for image registration and management.
+for image registration, direct ingestion and job inspection.
 
 ### Install
 ```sh

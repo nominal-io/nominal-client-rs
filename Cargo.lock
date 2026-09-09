@@ -1793,6 +1793,8 @@ dependencies = [
  "futures",
  "http",
  "http-body-util",
+ "hyper",
+ "hyper-util",
  "nominal-api",
  "nominal-streaming",
  "prost 0.13.5",

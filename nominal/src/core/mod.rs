@@ -22,6 +22,7 @@ pub use catalog::{
     ConnectionUpdate, Dataset, DatasetCreate, DatasetQuery, DatasetUpdate, Video, VideoCreate,
     VideoQuery, VideoUpdate,
 };
+pub use catalog::{DatasetFile, DatasetFileStatus};
 pub use client::{NominalClient, NominalClientBuilder};
 pub use datasource::DataSource;
 pub use extractor::{
@@ -39,7 +40,9 @@ pub use ingest::{
     IngestJobStatus, IngestType, JournalJsonIngest, McapIngest, ParquetIngest, ProgressCallback,
     TimeUnit, Timestamp, TimestampKind, UploadEvent, UploadOptions, VideoIngest, VideoTarget,
 };
-
+pub use ingest::{
+    ContainerizedIngest, ContainerizedSubmission, IngestJobQuery, IngestJobRef, WorkspaceSelection,
+};
 pub use run::{Run, RunCreate, RunQuery, RunUpdate, RunsClient};
 pub use template::{Template, TemplatesClient};
 pub use user::{User, UsersClient};

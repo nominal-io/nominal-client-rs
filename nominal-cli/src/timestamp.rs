@@ -61,6 +61,20 @@ fn unit(v: TimeUnit) -> &'static str {
         TimeUnit::Days => "days",
     }
 }
+/// Parse the numeric units accepted by ingestion commands.
+pub(crate) fn parse_time_unit(value: &str) -> Result<TimeUnit, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "ns" | "nanos" | "nanoseconds" => Ok(TimeUnit::Nanoseconds),
+        "us" | "micros" | "microseconds" => Ok(TimeUnit::Microseconds),
+        "ms" | "millis" | "milliseconds" => Ok(TimeUnit::Milliseconds),
+        "s" | "secs" | "seconds" => Ok(TimeUnit::Seconds),
+        "minutes" => Ok(TimeUnit::Minutes),
+        "hours" => Ok(TimeUnit::Hours),
+        "days" => Ok(TimeUnit::Days),
+        _ => Err(format!("unknown timestamp unit: {value}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

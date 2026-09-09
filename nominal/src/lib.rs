@@ -8,3 +8,6 @@ pub use core::{NominalClient, NominalClientBuilder, User, Workspace};
 pub use error::{Error, Result};
 pub use error::{FileStoreError, TransportError, UnexpectedError};
 pub use nominal_streaming as streaming;
+
+#[cfg(test)]
+mod test_support;
