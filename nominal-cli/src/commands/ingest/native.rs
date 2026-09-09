@@ -3,32 +3,12 @@ use std::str::FromStr;
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use clap::{ArgGroup, Args, Subcommand};
+use clap::{ArgGroup, Args};
 use nominal::core::{
     AvroStreamIngest, CsvIngest, DataflashIngest, DatasetCreate, DatasetTarget, IngestJob,
     JournalJsonIngest, McapIngest, NominalClient, ParquetIngest, TimeUnit, Timestamp, VideoCreate,
     VideoIngest, VideoTarget,
 };
-
-#[derive(Subcommand)]
-pub enum IngestCommands {
-    /// Upload a CSV file and ingest it into a dataset
-    Csv(CsvArgs),
-    /// Upload a Parquet file and ingest it into a dataset
-    Parquet(ParquetArgs),
-    /// Upload an MCAP file and ingest its protobuf timeseries messages into a dataset
-    Mcap(McapArgs),
-    /// Upload a journald JSON (.jsonl / .jsonl.gz) file and ingest it
-    JournalJson(JournalJsonArgs),
-    /// Upload a Nominal Avro-stream (.avro) file and ingest it
-    AvroStream(AvroStreamArgs),
-    /// Upload an ArduPilot DataFlash (.bin) file and ingest it
-    ArdupilotDataflash(DataflashArgs),
-    /// Upload a video file (.mp4 / .mkv / .avi / .ts) and ingest it
-    Video(VideoArgs),
-    /// Upload an MCAP file and ingest a single video stream from it by topic
-    McapVideo(McapVideoArgs),
-}
 
 #[derive(Args)]
 pub struct CsvArgs {
@@ -276,31 +256,20 @@ impl FromStr for TimestampSpec {
 }
 
 fn parse_time_unit(s: &str) -> Result<TimeUnit, String> {
-    match s.trim().to_ascii_lowercase().as_str() {
-        "ns" | "nanos" | "nanoseconds" => Ok(TimeUnit::Nanoseconds),
-        "us" | "micros" | "microseconds" => Ok(TimeUnit::Microseconds),
-        "ms" | "millis" | "milliseconds" => Ok(TimeUnit::Milliseconds),
-        "s" | "secs" | "seconds" => Ok(TimeUnit::Seconds),
-        other => Err(format!(
-            "unknown timestamp type '{other}': expected iso8601 or a time unit (nanoseconds, microseconds, milliseconds, seconds)"
+    match crate::timestamp::parse_time_unit(s) {
+        Ok(
+            unit @ (TimeUnit::Nanoseconds
+            | TimeUnit::Microseconds
+            | TimeUnit::Milliseconds
+            | TimeUnit::Seconds),
+        ) => Ok(unit),
+        _ => Err(format!(
+            "unknown timestamp type '{s}': expected iso8601 or a time unit (nanoseconds, microseconds, milliseconds, seconds)"
         )),
     }
 }
 
-pub async fn handle(cmd: IngestCommands, client: NominalClient) -> anyhow::Result<()> {
-    match cmd {
-        IngestCommands::Csv(args) => handle_csv(args, client).await,
-        IngestCommands::Parquet(args) => handle_parquet(args, client).await,
-        IngestCommands::Mcap(args) => handle_mcap(args, client).await,
-        IngestCommands::JournalJson(args) => handle_journal_json(args, client).await,
-        IngestCommands::AvroStream(args) => handle_avro_stream(args, client).await,
-        IngestCommands::ArdupilotDataflash(args) => handle_dataflash(args, client).await,
-        IngestCommands::Video(args) => handle_video(args, client).await,
-        IngestCommands::McapVideo(args) => handle_mcap_video(args, client).await,
-    }
-}
-
-async fn handle_csv(args: CsvArgs, client: NominalClient) -> anyhow::Result<()> {
+pub(super) async fn handle_csv(args: CsvArgs, client: NominalClient) -> anyhow::Result<()> {
     let CsvArgs { common } = args;
     let target = build_target(&common.target);
     let timestamp = build_timestamp(&common)?;
@@ -329,7 +298,7 @@ async fn handle_csv(args: CsvArgs, client: NominalClient) -> anyhow::Result<()> 
     print_result(&job, &dataset_rid, "Dataset", common.target.no_wait, client).await
 }
 
-async fn handle_parquet(args: ParquetArgs, client: NominalClient) -> anyhow::Result<()> {
+pub(super) async fn handle_parquet(args: ParquetArgs, client: NominalClient) -> anyhow::Result<()> {
     let ParquetArgs { common, archive } = args;
     let target = build_target(&common.target);
     let timestamp = build_timestamp(&common)?;
@@ -361,7 +330,7 @@ async fn handle_parquet(args: ParquetArgs, client: NominalClient) -> anyhow::Res
     print_result(&job, &dataset_rid, "Dataset", common.target.no_wait, client).await
 }
 
-async fn handle_mcap(args: McapArgs, client: NominalClient) -> anyhow::Result<()> {
+pub(super) async fn handle_mcap(args: McapArgs, client: NominalClient) -> anyhow::Result<()> {
     let McapArgs {
         target: target_args,
         include_topics,
@@ -395,7 +364,10 @@ async fn handle_mcap(args: McapArgs, client: NominalClient) -> anyhow::Result<()
     print_result(&job, &dataset_rid, "Dataset", target_args.no_wait, client).await
 }
 
-async fn handle_journal_json(args: JournalJsonArgs, client: NominalClient) -> anyhow::Result<()> {
+pub(super) async fn handle_journal_json(
+    args: JournalJsonArgs,
+    client: NominalClient,
+) -> anyhow::Result<()> {
     let JournalJsonArgs {
         target: target_args,
         channel,
@@ -417,7 +389,10 @@ async fn handle_journal_json(args: JournalJsonArgs, client: NominalClient) -> an
     print_result(&job, &dataset_rid, "Dataset", target_args.no_wait, client).await
 }
 
-async fn handle_avro_stream(args: AvroStreamArgs, client: NominalClient) -> anyhow::Result<()> {
+pub(super) async fn handle_avro_stream(
+    args: AvroStreamArgs,
+    client: NominalClient,
+) -> anyhow::Result<()> {
     let AvroStreamArgs {
         target: target_args,
     } = args;
@@ -433,7 +408,10 @@ async fn handle_avro_stream(args: AvroStreamArgs, client: NominalClient) -> anyh
     print_result(&job, &dataset_rid, "Dataset", target_args.no_wait, client).await
 }
 
-async fn handle_dataflash(args: DataflashArgs, client: NominalClient) -> anyhow::Result<()> {
+pub(super) async fn handle_dataflash(
+    args: DataflashArgs,
+    client: NominalClient,
+) -> anyhow::Result<()> {
     let DataflashArgs {
         target: target_args,
         file_tags,
@@ -455,7 +433,7 @@ async fn handle_dataflash(args: DataflashArgs, client: NominalClient) -> anyhow:
     print_result(&job, &dataset_rid, "Dataset", target_args.no_wait, client).await
 }
 
-async fn handle_video(args: VideoArgs, client: NominalClient) -> anyhow::Result<()> {
+pub(super) async fn handle_video(args: VideoArgs, client: NominalClient) -> anyhow::Result<()> {
     let VideoArgs {
         target: target_args,
         start,
@@ -473,7 +451,10 @@ async fn handle_video(args: VideoArgs, client: NominalClient) -> anyhow::Result<
     print_result(&job, &video_rid, "Video", target_args.no_wait, client).await
 }
 
-async fn handle_mcap_video(args: McapVideoArgs, client: NominalClient) -> anyhow::Result<()> {
+pub(super) async fn handle_mcap_video(
+    args: McapVideoArgs,
+    client: NominalClient,
+) -> anyhow::Result<()> {
     let McapVideoArgs {
         target: target_args,
         topic,

@@ -166,8 +166,7 @@ async fn run() -> anyhow::Result<()> {
             commands::fs::handle(fs_command, client).await
         }
         Commands::Ingest { ingest_command } => {
-            let client = commands::load_client(cli.profile.as_deref())?;
-            commands::ingest::handle(*ingest_command, client).await
+            commands::ingest::handle(*ingest_command, cli.profile.as_deref()).await
         }
         Commands::Run { run_command } => {
             let client = commands::load_client(cli.profile.as_deref())?;
@@ -223,7 +222,7 @@ fn render_help_recursive<W: std::io::Write>(
 mod extractor_tests {
     use super::*;
     #[test]
-    fn extractor_commands_parse() {
+    fn extractor_command_contract() {
         for args in [
             vec!["nomctl", "extractor", "create", "test", "--json"],
             vec![
@@ -235,14 +234,47 @@ mod extractor_tests {
                 "--timeout",
                 "2",
             ],
+            vec![
+                "nomctl",
+                "ingest",
+                "containerized",
+                "rid",
+                "--name",
+                "test",
+                "--source",
+                "INPUT",
+                "a b=c",
+                "--json",
+            ],
+            vec!["nomctl", "ingest", "job", "files", "rid", "--wait"],
         ] {
             assert!(Cli::try_parse_from(args).is_ok());
         }
     }
     #[test]
-    fn activation_rejects_timeout_with_no_wait() {
-        assert!(
-            Cli::try_parse_from([
+    fn extractor_rejects_conflicting_arguments() {
+        for args in [
+            vec![
+                "nomctl",
+                "ingest",
+                "containerized",
+                "rid",
+                "--name",
+                "n",
+                "--dataset",
+                "d",
+            ],
+            vec![
+                "nomctl",
+                "ingest",
+                "containerized",
+                "rid",
+                "--name",
+                "n",
+                "--timestamp-column",
+                "ts",
+            ],
+            vec![
                 "nomctl",
                 "extractor",
                 "activate",
@@ -250,9 +282,92 @@ mod extractor_tests {
                 "i",
                 "--no-wait",
                 "--timeout",
-                "1"
+                "1",
+            ],
+        ] {
+            assert!(Cli::try_parse_from(args).is_err());
+        }
+    }
+}
+
+#[cfg(test)]
+mod extractor_extra_tests {
+    use super::*;
+    #[test]
+    fn extractor_timestamp_conflicts_and_optional_sources() {
+        assert!(
+            Cli::try_parse_from([
+                "nomctl",
+                "ingest",
+                "containerized",
+                "extractor",
+                "--name",
+                "new"
+            ])
+            .is_ok()
+        );
+        for tail in [
+            vec![
+                "--timestamp-json",
+                "t.json",
+                "--timestamp-column",
+                "ts",
+                "--timestamp-type",
+                "seconds",
+            ],
+            vec!["--relative-to", "2026-09-08T00:00:00Z"],
+            vec!["--no-wait", "--timeout", "1"],
+        ] {
+            let mut args = vec![
+                "nomctl",
+                "ingest",
+                "containerized",
+                "extractor",
+                "--name",
+                "new",
+            ];
+            args.extend(tail);
+            assert!(Cli::try_parse_from(args).is_err());
+        }
+        assert!(
+            Cli::try_parse_from([
+                "nomctl",
+                "ingest",
+                "job",
+                "search",
+                "--workspace",
+                "w",
+                "--all-workspaces"
             ])
             .is_err()
+        );
+    }
+    #[tokio::test]
+    async fn containerized_rejects_duplicate_source_flags() {
+        let cli = Cli::try_parse_from([
+            "nomctl",
+            "ingest",
+            "containerized",
+            "extractor",
+            "--name",
+            "new",
+            "--source",
+            "INPUT",
+            "a",
+            "--source",
+            "INPUT",
+            "b",
+        ])
+        .unwrap();
+        let Commands::Ingest { ingest_command } = cli.command else {
+            panic!()
+        };
+        assert!(
+            commands::ingest::handle(*ingest_command, Some("unused-profile"))
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("duplicate source")
         );
     }
 }
