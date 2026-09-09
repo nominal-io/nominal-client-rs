@@ -80,6 +80,13 @@ pub struct IngestJob {
     status: IngestJobStatus,
     origin_files: Vec<String>,
     ingest_type: IngestType,
+    dataset_rid: Option<String>,
+    produced_file_count: Option<i32>,
+    created_by_rid: Option<String>,
+    created_at: Option<chrono::DateTime<chrono::Utc>>,
+    start_time: Option<chrono::DateTime<chrono::Utc>>,
+    end_time: Option<chrono::DateTime<chrono::Utc>>,
+    app_base_url: String,
 }
 
 impl IngestJob {
@@ -100,6 +107,36 @@ impl IngestJob {
         &self.ingest_type
     }
 
+    pub fn dataset_rid(&self) -> Option<&str> {
+        self.dataset_rid.as_deref()
+    }
+    pub fn produced_file_count(&self) -> Option<i32> {
+        self.produced_file_count
+    }
+    pub fn created_by_rid(&self) -> Option<&str> {
+        self.created_by_rid.as_deref()
+    }
+    pub fn created_at(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.created_at
+    }
+    pub fn start_time(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.start_time
+    }
+    pub fn end_time(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.end_time
+    }
+    pub fn nominal_url(&self) -> String {
+        format!(
+            "{}/ingestion/{}",
+            self.app_base_url.trim_end_matches('/'),
+            self.rid
+        )
+    }
+    pub(crate) fn with_app_base_url(mut self, url: &str) -> Self {
+        self.app_base_url = url.into();
+        self
+    }
+
     pub(crate) fn from_conjure(job: ApiIngestJob) -> Self {
         let rid = job.ingest_job_rid().to_string();
         let status = IngestJobStatus::from(job.status());
@@ -113,6 +150,34 @@ impl IngestJob {
             status,
             origin_files,
             ingest_type,
+            dataset_rid: job.dataset_rid().map(ToString::to_string),
+            produced_file_count: job.produced_file_count(),
+            created_by_rid: job.created_by_rid().map(ToString::to_string),
+            created_at: job.created_at(),
+            start_time: job.start_time(),
+            end_time: job.end_time(),
+            app_base_url: String::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn job_metadata_preserves_optional_fields() {
+        let api = serde_json::from_value(serde_json::json!({
+            "ingestJobRid":"ri.ingest.main.job.test", "status":"COMPLETED",
+            "createdBy":"00000000-0000-0000-0000-000000000000",
+            "orgUuid":"00000000-0000-0000-0000-000000000000", "ingestType":"MULTI",
+            "datasetRid":"ri.catalog.main.dataset.test", "producedFileCount":2,
+            "createdAt":"2026-01-01T00:00:00Z"
+        }))
+        .unwrap();
+        let job = IngestJob::from_conjure(api);
+        assert_eq!(job.dataset_rid(), Some("ri.catalog.main.dataset.test"));
+        assert_eq!(job.produced_file_count(), Some(2));
+        assert!(job.created_at().is_some());
+        assert!(job.start_time().is_none());
     }
 }

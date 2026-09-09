@@ -21,6 +21,7 @@ const DEFAULT_BASE_URL: &str = "https://api.gov.nominal.io/api";
 #[derive(Clone)]
 pub struct NominalClient {
     client: Client,
+    mutation_client: Client,
     runtime: Arc<ConjureRuntime>,
     token: BearerToken,
     workspace_rid: Option<WorkspaceRid>,
@@ -182,6 +183,9 @@ impl NominalClient {
             &self.runtime,
             self.token.clone(),
             self.workspace_rid.clone(),
+            self.extractors(),
+            api_base_url_to_app_base_url(&self.base_url),
+            self.mutation_client.clone(),
         )
     }
 }
@@ -234,7 +238,8 @@ impl NominalClientBuilder {
 
     pub fn build(self) -> Result<NominalClient> {
         let bearer_token = create_bearer_token(&self.token)?;
-        let client = create_client(&self.base_url, self.user_agent)?;
+        let client = create_client(&self.base_url, self.user_agent.clone(), 4)?;
+        let mutation_client = create_client(&self.base_url, self.user_agent, 0)?;
         let grpc = crate::core::grpc::GrpcConnection::connect_lazy(&self.base_url, &bearer_token)?;
         let workspace_rid = self
             .workspace_rid
@@ -243,6 +248,7 @@ impl NominalClientBuilder {
             .transpose()?;
         Ok(NominalClient {
             client,
+            mutation_client,
             runtime: Arc::new(ConjureRuntime::default()),
             token: bearer_token,
             workspace_rid,
@@ -262,7 +268,7 @@ fn default_user_agent() -> UserAgent {
     UserAgent::new(Agent::new(SDK_USER_AGENT_NAME, SDK_USER_AGENT_VERSION))
 }
 
-fn create_client(url: &str, user_agent: UserAgent) -> Result<Client> {
+fn create_client(url: &str, user_agent: UserAgent, max_retries: u32) -> Result<Client> {
     let uri = url.try_into().map_err(|e| Error::InvalidServiceUrl {
         url: url.to_string(),
         reason: format!("{e:?}"),
@@ -272,6 +278,7 @@ fn create_client(url: &str, user_agent: UserAgent) -> Result<Client> {
         .service(SDK_USER_AGENT_NAME)
         .user_agent(user_agent)
         .uri(uri)
+        .max_num_retries(max_retries)
         .build()
         .map_err(Error::from)
 }

@@ -1,3 +1,8 @@
+mod containerized;
+mod job_files;
+mod job_query;
+pub use containerized::{ContainerizedIngest, ContainerizedSubmission, IngestJobRef};
+pub use job_query::{IngestJobQuery, WorkspaceSelection};
 mod filetype;
 mod job;
 pub(crate) mod multipart;
@@ -36,6 +41,7 @@ use crate::{Error, Result};
 const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Client for uploading files and managing ingest jobs.
+#[derive(Clone)]
 pub struct IngestClient {
     ingest_service: AsyncIngestServiceClient<Client>,
     ingest_job_service: AsyncIngestJobServiceClient<Client>,
@@ -43,14 +49,21 @@ pub struct IngestClient {
     runtime: Arc<ConjureRuntime>,
     token: BearerToken,
     workspace_rid: Option<WorkspaceRid>,
+    extractors: crate::core::extractor::ExtractorsClient,
+    app_base_url: String,
+    mutation_client: Client,
 }
 
 impl IngestClient {
+    // Internal dependency wiring keeps read and mutation transports distinct.
     pub(crate) fn new(
         client: Client,
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
         workspace_rid: Option<WorkspaceRid>,
+        extractors: crate::core::extractor::ExtractorsClient,
+        app_base_url: String,
+        mutation_client: Client,
     ) -> Self {
         Self {
             ingest_service: AsyncIngestServiceClient::new(client.clone(), runtime),
@@ -59,7 +72,22 @@ impl IngestClient {
             runtime: runtime.clone(),
             token,
             workspace_rid,
+            extractors,
+            app_base_url,
+            mutation_client,
         }
+    }
+
+    async fn resolved_workspace_rid(&self) -> Result<WorkspaceRid> {
+        if let Some(workspace) = &self.workspace_rid {
+            return Ok(workspace.clone());
+        }
+        let workspaces = crate::core::workspace::WorkspacesClient::new(
+            self.conjure_client.clone(),
+            &self.runtime,
+            self.token.clone(),
+        );
+        Ok(parse_rid(workspaces.get_default_workspace().await?.rid())?)
     }
 
     fn workspace_rid_str(&self) -> Option<&str> {
@@ -353,7 +381,7 @@ impl IngestClient {
             .get_ingest_job(&self.token, &job_rid)
             .await
             .map_err(Error::from)?;
-        Ok(IngestJob::from_conjure(job))
+        Ok(IngestJob::from_conjure(job).with_app_base_url(&self.app_base_url))
     }
 
     /// Poll an ingest job until it reaches a terminal state.
