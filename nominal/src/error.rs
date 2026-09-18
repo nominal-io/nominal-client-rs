@@ -83,6 +83,9 @@ pub enum Error {
     #[error("invalid timestamp: seconds={seconds}, nanos={nanos}")]
     InvalidTimestamp { seconds: i64, nanos: i64 },
 
+    #[error("duration out of representable range: seconds={seconds}, nanos={nanos}")]
+    DurationOutOfRange { seconds: u64, nanos: u32 },
+
     #[error("invalid bearer token: {reason}")]
     InvalidBearerToken { reason: String },
 

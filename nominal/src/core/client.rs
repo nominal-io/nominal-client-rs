@@ -8,9 +8,9 @@ use nominal_api::objects::api::rids::WorkspaceRid;
 use crate::config::{Config, Profile};
 use crate::core::rid::parse_rid;
 use crate::core::{
-    asset::AssetsClient, catalog::CatalogClient, ingest::IngestClient, run::RunsClient,
-    template::TemplatesClient, user::UsersClient, utils::api_base_url_to_app_base_url,
-    workbook::WorkbooksClient, workspace::WorkspacesClient,
+    asset::AssetsClient, catalog::CatalogClient, checklist::ChecklistsClient, ingest::IngestClient,
+    run::RunsClient, template::TemplatesClient, user::UsersClient,
+    utils::api_base_url_to_app_base_url, workbook::WorkbooksClient, workspace::WorkspacesClient,
 };
 use crate::{Error, Result};
 
@@ -122,6 +122,17 @@ impl NominalClient {
             self.client.clone(),
             &self.runtime,
             self.token.clone(),
+            api_base_url_to_app_base_url(&self.base_url),
+        )
+    }
+
+    /// Access checklist operations.
+    pub fn checklists(&self) -> ChecklistsClient {
+        ChecklistsClient::new(
+            self.client.clone(),
+            &self.runtime,
+            self.token.clone(),
+            self.workspace_rid.clone(),
             api_base_url_to_app_base_url(&self.base_url),
         )
     }

@@ -1,5 +1,6 @@
 pub(crate) mod asset;
 pub(crate) mod catalog;
+pub(crate) mod checklist;
 pub(crate) mod client;
 pub(crate) mod datasource;
 pub(crate) mod datetime;
@@ -19,6 +20,10 @@ pub use catalog::{
     CatalogClient, Channel, ChannelDataType, ChannelQuery, ChannelUpdate, Connection,
     ConnectionUpdate, Dataset, DatasetCreate, DatasetQuery, DatasetUpdate, Video, VideoCreate,
     VideoQuery, VideoUpdate,
+};
+pub use checklist::{
+    CheckLiveStatus, CheckStatus, Checklist, ChecklistLiveStatus, ChecklistQuery, ChecklistState,
+    ChecklistsClient, ExecuteStreamingChecklist,
 };
 pub use client::{NominalClient, NominalClientBuilder};
 pub use datasource::DataSource;
