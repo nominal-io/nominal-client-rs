@@ -2,6 +2,9 @@
 
 The canonical Nominal Rust SDK.
 
+See the [Rust extractor guide](docs/extractor.md) to write manifest-producing
+containers with `nominal::extractor`.
+
 ### Install
 ```sh
 cargo add nominal

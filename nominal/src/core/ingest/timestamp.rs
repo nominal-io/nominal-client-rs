@@ -42,21 +42,40 @@ pub struct Timestamp {
 }
 
 #[derive(Debug, Clone)]
-enum TimestampKind {
+/// Timestamp encoding and its format-specific settings.
+pub enum TimestampKind {
+    /// ISO 8601 strings.
     Iso8601,
+    /// Numeric values since the Unix epoch.
     Epoch(TimeUnit),
+    /// Strings parsed with a Java DateTimeFormatter pattern.
     Custom {
+        /// Pattern used to parse each timestamp.
         format: String,
+        /// Year used when the pattern does not include one.
         default_year: Option<i32>,
+        /// Day of year used when the pattern does not include one.
         default_day_of_year: Option<i32>,
     },
+    /// Numeric offsets from a reference instant.
     Relative {
+        /// Unit of the numeric values.
         unit: TimeUnit,
+        /// Reference instant, when explicitly supplied.
         offset: Option<DateTime<Utc>>,
     },
 }
 
 impl Timestamp {
+    /// The encoding and its format-specific options.
+    pub fn encoding(&self) -> &TimestampKind {
+        &self.kind
+    }
+    /// The column or field containing timestamps.
+    pub fn series_name(&self) -> &str {
+        &self.series_name
+    }
+
     /// Timestamps are ISO 8601 strings.
     pub fn iso8601(series_name: impl Into<String>) -> Self {
         Self {
