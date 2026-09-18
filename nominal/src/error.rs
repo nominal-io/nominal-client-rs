@@ -53,6 +53,8 @@ pub enum FileStoreError {
 #[non_exhaustive]
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error(transparent)]
+    Extractor(#[from] crate::core::ExtractorError),
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 

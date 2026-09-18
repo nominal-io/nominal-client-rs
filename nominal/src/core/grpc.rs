@@ -20,7 +20,7 @@ const MAX_RETRIES: u32 = 4;
 const INITIAL_BACKOFF: Duration = Duration::from_millis(250);
 const MAX_BACKOFF: Duration = Duration::from_secs(120);
 
-/// A gRPC-aware Tower layer which retries replayable unary requests before generated clients decode them.
+/// Retries unary read requests before the generated gRPC client decodes the response.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct RetryLayer;
 
@@ -109,6 +109,7 @@ pub(crate) struct AuthInterceptor {
 }
 
 pub(crate) type GrpcTransport = InterceptedService<RetryService<Channel>, AuthInterceptor>;
+pub(crate) type GrpcMutationTransport = InterceptedService<Channel, AuthInterceptor>;
 
 impl Interceptor for AuthInterceptor {
     fn call(
@@ -129,6 +130,7 @@ impl Interceptor for AuthInterceptor {
 #[derive(Clone)]
 pub(crate) struct GrpcConnection {
     channel: RetryService<Channel>,
+    mutation_channel: Channel,
     auth: AuthInterceptor,
 }
 
@@ -151,14 +153,21 @@ impl GrpcConnection {
             .map_err(|e| Error::InvalidBearerToken {
                 reason: e.to_string(),
             })?;
+        let channel = endpoint.connect_lazy();
         Ok(Self {
-            channel: RetryLayer.layer(endpoint.connect_lazy()),
+            channel: RetryLayer.layer(channel.clone()),
+            mutation_channel: channel,
             auth: AuthInterceptor { header },
         })
     }
 
     pub(crate) fn channel(&self) -> RetryService<Channel> {
         self.channel.clone()
+    }
+
+    /// Mutations must not replay after an ambiguous service response.
+    pub(crate) fn mutation_channel(&self) -> Channel {
+        self.mutation_channel.clone()
     }
 
     pub(crate) fn interceptor(&self) -> AuthInterceptor {

@@ -1,8 +1,11 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
+mod args;
 mod commands;
 mod context;
+mod contract;
 mod output;
+mod timestamp;
 mod validate;
 use commands::api::ApiArgs;
 use commands::asset::AssetCommands;
@@ -29,6 +32,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Manage extractors and container images
+    Extractor {
+        #[command(subcommand)]
+        extractor_command: commands::extractor::ExtractorCommands,
+    },
     /// Send a request to a REST or gRPC endpoint
     Api(ApiArgs),
     /// Asset management commands
@@ -128,6 +136,9 @@ async fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Extractor { extractor_command } => {
+            commands::extractor::handle(extractor_command, cli.profile.as_deref()).await
+        }
         Commands::Api(args) => {
             let profile = commands::load_profile(cli.profile.as_deref())?;
             commands::api::handle(args, profile.base_url(), profile.token()).await
@@ -206,4 +217,42 @@ fn render_help_recursive<W: std::io::Write>(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod extractor_tests {
+    use super::*;
+    #[test]
+    fn extractor_commands_parse() {
+        for args in [
+            vec!["nomctl", "extractor", "create", "test", "--json"],
+            vec![
+                "nomctl",
+                "extractor",
+                "image",
+                "wait",
+                "rid",
+                "--timeout",
+                "2",
+            ],
+        ] {
+            assert!(Cli::try_parse_from(args).is_ok());
+        }
+    }
+    #[test]
+    fn activation_rejects_timeout_with_no_wait() {
+        assert!(
+            Cli::try_parse_from([
+                "nomctl",
+                "extractor",
+                "activate",
+                "r",
+                "i",
+                "--no-wait",
+                "--timeout",
+                "1"
+            ])
+            .is_err()
+        );
+    }
 }
