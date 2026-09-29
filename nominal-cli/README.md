@@ -2,28 +2,22 @@
 
 `nomctl` is the command-line interface for Nominal.
 
-## Install from a GitHub release
+## Install
 
-1. Open the [latest release](https://github.com/nominal-io/nominal-client-rs/releases/latest) and download the archive that matches your operating system and CPU architecture.
-2. Extract the archive. It contains `nomctl` (`nomctl.exe` on Windows) and this README.
-3. Move the binary to a directory on your `PATH` and make it executable on macOS or Linux.
-
-For example, on macOS or Linux:
+Install the latest release for your system on macOS/Linux:
 
 ```sh
-tar -xzf nomctl-<version>-<target>.tar.gz
-mkdir -p ~/.local/bin
-mv nomctl-<version>-<target>/nomctl ~/.local/bin/
-chmod +x ~/.local/bin/nomctl
+curl -fsSL https://raw.githubusercontent.com/nominal-io/nominal-client-rs/main/scripts/install.sh | sh
 ```
 
-Ensure `~/.local/bin` is on your `PATH`, then verify the installation:
+Windows (PowerShell):
 
-```sh
-nomctl --version
+```powershell
+irm https://raw.githubusercontent.com/nominal-io/nominal-client-rs/main/scripts/install.ps1 | iex
 ```
 
-On Windows, extract the ZIP and add the directory containing `nomctl.exe` to your user `PATH`.
+On macOS/Linux, add `~/.local/bin` to your `PATH`. Windows updates your user `PATH` automatically.
+Rerun to update, or install from source with `cargo install nominal-cli --locked`.
 
 ## First-time setup
 
