@@ -602,10 +602,9 @@ impl App {
             if self.register_click(ClickTarget::Entry {
                 column: column_index,
                 row,
-            }) {
-                if is_folder {
-                    self.open_selected_directory(client).await;
-                }
+            }) && is_folder
+            {
+                self.open_selected_directory(client).await;
             }
             break;
         }
@@ -658,7 +657,7 @@ impl App {
         let Some(drive) = &self.drive else { return };
         match client.files(drive.rid()).list_revisions(&file_rid).await {
             Ok(mut revisions) => {
-                revisions.sort_by(|left, right| right.created_at().cmp(&left.created_at()));
+                revisions.sort_by_key(|revision| std::cmp::Reverse(revision.created_at()));
                 self.history = revisions;
             }
             Err(error) => self.history_message = Some(format!("Could not load history: {error}")),
