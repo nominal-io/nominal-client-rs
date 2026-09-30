@@ -22,12 +22,21 @@ async fn main() -> anyhow::Result<()> {
 
 ## `nomctl` CLI
 
-The repository also contains `nomctl`, a CLI for Nominal. Install it from a
-GitHub release or with Cargo:
+`nomctl` is the command-line interface for Nominal.
+
+Install the latest release for your system on macOS/Linux:
 
 ```sh
-cargo install nominal-cli
+curl -fsSL https://raw.githubusercontent.com/nominal-io/nominal-client-rs/main/scripts/install.sh | sh
 ```
 
-See the [CLI README](nominal-cli/README.md) for installation from release
-artifacts, configuration, and usage.
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/nominal-io/nominal-client-rs/main/scripts/install.ps1 | iex
+```
+
+On macOS/Linux, add `~/.local/bin` to your `PATH`. Windows updates your user `PATH` automatically.
+Rerun to update, or install from source with `cargo install nominal-cli --locked`.
+
+See the [CLI README](nominal-cli/README.md) for configuration and usage.
