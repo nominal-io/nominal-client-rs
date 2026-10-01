@@ -46,3 +46,4 @@ tempfile = "3"
 
 [dev-dependencies]
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
+prost = "0.13"

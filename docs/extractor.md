@@ -272,3 +272,6 @@ Run `cargo test -p nominal --all-targets` to check extraction with registered
 and local inputs, manifest publication, and video timestamp
 files. Tests inspect the files an extractor writes and check that invalid inputs or
 failed callbacks do not publish a manifest. They do not decode video or contact Nominal.
+
+For registration, activation, SDK ingestion and nomctl commands, see the
+[client guide](containerized-extractors.md).

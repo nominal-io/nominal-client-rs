@@ -17,6 +17,34 @@ pub enum TimeUnit {
     Days,
 }
 
+#[cfg(test)]
+mod codec_tests {
+    use super::*;
+
+    #[test]
+    fn registry_timestamp_preserves_custom_defaults() {
+        let timestamp = Timestamp::custom("clock", "yyyy-DDD")
+            .with_default_year(2026)
+            .with_default_day_of_year(4);
+        let encoded = timestamp.to_registry_proto();
+        let decoded = Timestamp::from_registry_proto(encoded).unwrap();
+        assert_eq!(decoded.into_conjure(), timestamp.into_conjure());
+    }
+
+    #[test]
+    fn relative_timestamp_round_trips_nanoseconds() {
+        let timestamp = Timestamp::relative("elapsed", TimeUnit::Nanoseconds)
+            .with_offset(DateTime::from_timestamp(-1, 999_999_999).unwrap());
+        let encoded = timestamp.to_registry_proto();
+        assert_eq!(
+            Timestamp::from_registry_proto(encoded)
+                .unwrap()
+                .into_conjure(),
+            timestamp.into_conjure()
+        );
+    }
+}
+
 impl TimeUnit {
     pub(crate) fn into_conjure(self) -> ApiTimeUnit {
         match self {
@@ -76,6 +104,107 @@ impl Timestamp {
         &self.series_name
     }
 
+    pub(crate) fn to_proto_type(&self) -> nominal_api::tonic::nominal::types::time::TimestampType {
+        use nominal_api::tonic::nominal::types::time as p;
+        let option = match &self.kind {
+            TimestampKind::Relative { unit, offset } => {
+                p::timestamp_type::Option::Relative(p::RelativeTimestamp {
+                    time_unit: unit.into_conjure().to_string(),
+                    offset: offset.map(|value| nominal_api::tonic::google::protobuf::Timestamp {
+                        seconds: value.timestamp(),
+                        nanos: value.timestamp_subsec_nanos() as i32,
+                    }),
+                })
+            }
+            kind => {
+                let absolute = match kind {
+                    TimestampKind::Iso8601 => {
+                        p::absolute_timestamp::Option::Iso8601(p::Iso8601Timestamp {})
+                    }
+                    TimestampKind::Epoch(unit) => {
+                        p::absolute_timestamp::Option::EpochOfTimeUnit(p::EpochTimestamp {
+                            time_unit: unit.into_conjure().to_string(),
+                        })
+                    }
+                    TimestampKind::Custom {
+                        format,
+                        default_year,
+                        default_day_of_year,
+                    } => p::absolute_timestamp::Option::CustomFormat(p::CustomTimestamp {
+                        format: format.clone(),
+                        default_year: *default_year,
+                        default_day_of_year: *default_day_of_year,
+                    }),
+                    TimestampKind::Relative { .. } => unreachable!(),
+                };
+                p::timestamp_type::Option::Absolute(p::AbsoluteTimestamp {
+                    option: Some(absolute),
+                })
+            }
+        };
+        p::TimestampType {
+            option: Some(option),
+        }
+    }
+
+    pub(crate) fn to_registry_proto(
+        &self,
+    ) -> nominal_api::tonic::nominal::registry::v2::TimestampMetadata {
+        nominal_api::tonic::nominal::registry::v2::TimestampMetadata {
+            series_name: self.series_name.clone(),
+            timestamp_type: Some(self.to_proto_type()),
+        }
+    }
+
+    pub(crate) fn from_registry_proto(
+        value: nominal_api::tonic::nominal::registry::v2::TimestampMetadata,
+    ) -> crate::Result<Self> {
+        use nominal_api::tonic::nominal::types::time as p;
+        let missing = || crate::Error::UnexpectedResponse {
+            field: "timestamp_type",
+        };
+        let kind = match value
+            .timestamp_type
+            .and_then(|v| v.option)
+            .ok_or_else(missing)?
+        {
+            p::timestamp_type::Option::Relative(v) => TimestampKind::Relative {
+                unit: parse_proto_unit(&v.time_unit)?,
+                offset: v
+                    .offset
+                    .map(|t| {
+                        if !(0..1_000_000_000).contains(&t.nanos) {
+                            return Err(crate::Error::InvalidTimestamp {
+                                seconds: t.seconds,
+                                nanos: t.nanos as i64,
+                            });
+                        }
+                        DateTime::from_timestamp(t.seconds, t.nanos as u32).ok_or(
+                            crate::Error::InvalidTimestamp {
+                                seconds: t.seconds,
+                                nanos: t.nanos as i64,
+                            },
+                        )
+                    })
+                    .transpose()?,
+            },
+            p::timestamp_type::Option::Absolute(v) => match v.option.ok_or_else(missing)? {
+                p::absolute_timestamp::Option::Iso8601(_) => TimestampKind::Iso8601,
+                p::absolute_timestamp::Option::EpochOfTimeUnit(v) => {
+                    TimestampKind::Epoch(parse_proto_unit(&v.time_unit)?)
+                }
+                p::absolute_timestamp::Option::CustomFormat(v) => TimestampKind::Custom {
+                    format: v.format,
+                    default_year: v.default_year,
+                    default_day_of_year: v.default_day_of_year,
+                },
+            },
+        };
+        Ok(Self {
+            series_name: value.series_name,
+            kind,
+        })
+    }
     /// Timestamps are ISO 8601 strings.
     pub fn iso8601(series_name: impl Into<String>) -> Self {
         Self {
@@ -178,5 +307,20 @@ impl Timestamp {
             }
         };
         TimestampMetadata::new(self.series_name, ts_type)
+    }
+}
+
+fn parse_proto_unit(value: &str) -> crate::Result<TimeUnit> {
+    match value.to_ascii_lowercase().as_str() {
+        "nanoseconds" => Ok(TimeUnit::Nanoseconds),
+        "microseconds" => Ok(TimeUnit::Microseconds),
+        "milliseconds" => Ok(TimeUnit::Milliseconds),
+        "seconds" => Ok(TimeUnit::Seconds),
+        "minutes" => Ok(TimeUnit::Minutes),
+        "hours" => Ok(TimeUnit::Hours),
+        "days" => Ok(TimeUnit::Days),
+        _ => Err(crate::Error::Ingest {
+            details: format!("unknown timestamp time unit: {value}"),
+        }),
     }
 }
