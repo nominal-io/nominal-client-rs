@@ -1,7 +1,9 @@
 use anyhow::Context;
 use chrono::SecondsFormat;
 use clap::Subcommand;
-use nominal::core::{Drive, DrivesClient, FileEntry, FileState, NominalClient};
+use nominal::core::{
+    Drive, DrivesClient, FileEntry, FileOperationDestination, FileState, NominalClient,
+};
 
 #[cfg(feature = "fs-tui")]
 mod tui;
@@ -30,12 +32,18 @@ pub enum FsCommands {
         include_removed: bool,
     },
     /// Put a local file in a drive.
+    #[command(
+        after_help = "Examples:\n  nomctl fs put flight.csv eng:/telemetry/flight.csv\n  nomctl fs put flight.csv eng:/telemetry/flight.csv --overwrite"
+    )]
     Put {
         /// Path to the local file to upload
         local_path: std::path::PathBuf,
         /// Drive-qualified destination path, formatted as DRIVE:/PATH.
         #[arg(value_name = "DRIVE:/PATH")]
         destination_path: String,
+        /// Replace the file if one already exists at the destination, adding a new revision.
+        #[arg(long)]
+        overwrite: bool,
     },
     /// Download a file from a drive to a local file.
     #[command(alias = "dl")]
@@ -141,14 +149,29 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
         FsCommands::Put {
             local_path,
             destination_path,
+            overwrite,
         } => {
             let (drive, destination_path) = parse_qualified_path(&destination_path)?;
             let drive_rid = drive_rid_for_id(&client.drives(), &drive).await?;
-            let file = client
-                .files(drive_rid)
+            let files = client.files(drive_rid);
+            // Overwriting targets the current revision, so the server rejects the
+            // put if the file changes between this lookup and the upload.
+            let destination = match files.get(&destination_path).await {
+                Ok(existing) if overwrite => {
+                    let revision_rid = existing.current_revision_rid().with_context(|| {
+                        format!("'{destination_path}' has no managed revision to overwrite")
+                    })?;
+                    FileOperationDestination::file_revision_rid(revision_rid)
+                }
+                Ok(_) => anyhow::bail!(
+                    "'{destination_path}' already exists in drive '{drive}'; pass --overwrite to replace it"
+                ),
+                Err(_) => FileOperationDestination::path(destination_path.as_str()),
+            };
+            let file = files
                 .put(
                     &local_path,
-                    &destination_path,
+                    destination,
                     nominal::core::UploadOptions::new(),
                 )
                 .await
