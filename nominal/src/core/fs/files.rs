@@ -263,20 +263,25 @@ impl DriveFilesClient {
         &self.drive_rid
     }
 
-    /// Upload a local file and place it at `destination_path` in the drive,
-    /// creating the file. Fails if a file already exists at that path.
+    /// Upload a local file and place it at `destination` in the drive.
+    ///
+    /// A path destination creates a new file and fails if the path already
+    /// exists. To overwrite an existing file, pass
+    /// [`FileOperationDestination::FileRevisionRid`] with the file's current
+    /// revision; this fails if the file has changed since that revision.
     pub async fn put(
         &self,
         local_path: impl AsRef<Path>,
-        destination_path: &str,
+        destination: impl Into<FileOperationDestination>,
         options: UploadOptions,
     ) -> Result<LogicalFile> {
+        let destination = destination.into();
         let local_path = local_path.as_ref();
         let size_bytes = tokio::fs::metadata(local_path).await?.len();
         let filename = local_path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| destination_path.to_string());
+            .unwrap_or_else(|| "upload".to_string());
         let upload = multipart::upload_file_to(
             self.conjure_client.clone(),
             &self.runtime,
@@ -289,7 +294,7 @@ impl DriveFilesClient {
             options,
         )
         .await?;
-        self.put_uploaded_object(destination_path, upload.object_key, size_bytes)
+        self.put_uploaded_object(destination, upload.object_key, size_bytes)
             .await
     }
 
@@ -400,11 +405,11 @@ impl DriveFilesClient {
 
     async fn put_uploaded_object(
         &self,
-        path: &str,
+        destination: FileOperationDestination,
         object_key: String,
         size_bytes: u64,
     ) -> Result<LogicalFile> {
-        self.apply_one(put_change(path, object_key, size_bytes))
+        self.apply_one(put_change(destination, object_key, size_bytes))
             .await
     }
 
@@ -530,12 +535,16 @@ impl From<&str> for FileOperationDestination {
     }
 }
 
-fn put_change(path: &str, object_key: String, size_bytes: u64) -> proto::FileChange {
+fn put_change(
+    destination: FileOperationDestination,
+    object_key: String,
+    size_bytes: u64,
+) -> proto::FileChange {
     proto::FileChange {
         change: Some(proto::file_change::Change::Put(proto::PutFile {
             object: Some(proto::UploadedObjectRef { object_key }),
             size_bytes,
-            destination: Some(FileOperationDestination::path(path).into_proto()),
+            destination: Some(destination.into_proto()),
         })),
     }
 }
@@ -547,12 +556,26 @@ mod tests {
     #[test]
     fn put_change_uses_the_multipart_object_key() {
         let object_key = "file-store/uploads/abc123";
-        let change = put_change("example.txt", object_key.to_string(), 42);
+        let change = put_change("example.txt".into(), object_key.to_string(), 42);
 
         let Some(proto::file_change::Change::Put(put)) = change.change else {
             panic!("expected put change");
         };
         assert_eq!(put.object.unwrap().object_key, object_key);
+    }
+
+    #[test]
+    fn put_change_can_overwrite_a_file_revision() {
+        let destination = FileOperationDestination::file_revision_rid("ri.file-revision.123");
+        let change = put_change(destination, "file-store/uploads/abc123".to_string(), 42);
+
+        let Some(proto::file_change::Change::Put(put)) = change.change else {
+            panic!("expected put change");
+        };
+        assert!(matches!(
+            put.destination.unwrap().target,
+            Some(proto::destination::Target::FileRevisionRid(rid)) if rid == "ri.file-revision.123"
+        ));
     }
 
     #[test]
