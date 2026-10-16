@@ -1856,7 +1856,7 @@ dependencies = [
  "nominal",
  "nominal-api",
  "once_cell",
- "prost 0.13.5",
+ "prost 0.14.3",
  "prost-reflect",
  "protoc-bin-vendored",
  "reqwest 0.12.28",
