@@ -42,3 +42,10 @@ tokio = { version = "1", features = [
 ] }
 tokio-util = { version = "0.7", features = ["io"] }
 tracing = "0.1"
+
+[package.metadata.docs.rs]
+# Only build docs for the default target (x86_64-unknown-linux-gnu).
+targets = []
+# The nominal-api crates are very large, so build serially to stay under the
+# docs.rs memory limit.
+cargo-args = ["-j1"]
