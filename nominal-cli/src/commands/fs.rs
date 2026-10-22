@@ -3,8 +3,17 @@ use chrono::SecondsFormat;
 use clap::Subcommand;
 use nominal::core::{Drive, DrivesClient, FileEntry, FileState, NominalClient};
 
+#[cfg(feature = "fs-tui")]
+mod tui;
+
 #[derive(Subcommand)]
 pub enum FsCommands {
+    /// Browse and manage Nominal Drives in an interactive terminal UI.
+    #[cfg(feature = "fs-tui")]
+    Tui {
+        /// Open this drive directly. If omitted, show a drive picker.
+        drive: Option<String>,
+    },
     /// Drive management commands
     Drive {
         #[command(subcommand)]
@@ -112,6 +121,8 @@ pub enum DriveCommands {
 
 pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()> {
     match cmd {
+        #[cfg(feature = "fs-tui")]
+        FsCommands::Tui { drive } => tui::run(client, drive).await,
         FsCommands::Drive { drive_command } => handle_drive(drive_command, client).await,
         FsCommands::Ls {
             path,
