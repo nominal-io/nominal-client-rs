@@ -42,6 +42,10 @@ tokio = { version = "1", features = [
 ] }
 tokio-util = { version = "0.7", features = ["io"] }
 tracing = "0.1"
+# Not used directly: floors for the TLS root bundles pulled in by conjure-runtime,
+# since releases before 1.0.11 bundle the distrusted eMudhra emSign roots.
+webpki-root-certs = "1.0.11"
+webpki-roots = "1.0.11"
 
 [package.metadata.docs.rs]
 # Only build docs for the default target (x86_64-unknown-linux-gnu).
