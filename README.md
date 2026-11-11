@@ -86,6 +86,63 @@ rich status details, complete that receipt with an error, and are not automatica
 retried; other outstanding messages continue. Acceptance means durable queue/retry
 acceptance, not immediate query visibility. V2 unary `Write` remains unsupported.
 
+### Fixed-size streaming pool
+
+Use `write_stream_pool` to spread concurrent `write_chunk` calls across a fixed set
+of streams, without changing the chunk-writing API:
+
+```rust,ignore
+use nominal::channel_writer::{WriteStreamOptions, WriteStreamPoolOptions};
+
+let pool = client.channel_writer().write_stream_pool(
+    schemas,
+    WriteStreamPoolOptions {
+        stream_count: 2,
+        max_pending_messages: 32,             // GLOBAL, not multiplied by streams
+        max_pending_bytes: 64 * 1024 * 1024,  // GLOBAL retained payload budget
+        stream_options: WriteStreamOptions {
+            max_in_flight_messages: 16,       // Per stream
+            ..Default::default()
+        },
+    },
+).await?;
+
+futures::try_join!(pool.write_chunk(first_channels), pool.write_chunk(second_channels))?;
+pool.finish().await?;
+```
+
+Defaults match the example: two streams, 32 globally pending messages and 64 MiB
+of globally retained payloads. All streams open and acknowledge initial schemas
+before construction succeeds; startup failure or cancellation closes any streams
+already opened. Writes choose the least-loaded worker with sufficient count/byte
+capacity, with round-robin tie-breaking. If all workers are full, admission waits
+for any worker to free capacity. A cancelled admitted write keeps both its local
+and global permits until its terminal response.
+
+Each worker reconnects/redeclares/replays its own unanswered messages; the pool
+never concurrently reassigns those messages to another worker. Healthy workers
+can keep sending while another reconnects. A permanent worker failure or retry
+exhaustion closes admission for the pool; already admitted work on other workers
+can still drain through `finish`. A per-message rejection alone does not close
+admission. `finish` drains every worker and reports failures. Pool-wide payload
+limits exclude transport buffers and each stream's bounded schema registry.
+
+`pool.declare_schemas` installs the new schemas on every worker and blocks new
+chunk admission until all declarations are acknowledged. Its declarations also
+use the shared payload window. If broadcast fails or is cancelled mid-operation,
+admission closes because immutable schemas cannot be rolled back atomically
+across streams. Finish/drop that pool before constructing a replacement.
+
+There is **no cross-stream ordering guarantee**, adaptive resizing, or stream
+creation in response to rate limiting. More streams do not bypass server-wide or
+per-organization admission/caps. Configure the pool within your server's stream
+limits. Sequential `.write_chunk(...).await` calls are still serial; poll futures
+concurrently, as in the runnable two-stream example:
+
+```sh
+cargo run -p nominal --example write_stream_pool
+```
+
 The unreleased v2 contract is temporarily snapshotted in `nominal/proto` from
 Scout commit `51f4b6ca4e3b859c8e9b875375c1e9b455a7ffe0`, with validation/codegen
 options removed but wire fields unchanged. Replace this snapshot with generated

@@ -47,6 +47,9 @@ impl Writer {
 
     pub async fn run(mut self) {
         let result = self.drive().await;
+        if let (Some(pool), Err(error)) = (&self.shared.pool, &result) {
+            pool.fail(error.clone());
+        }
         self.shared.close();
         let error = result.clone().err().unwrap_or(WriteStreamError::Closed);
         for (_, pending) in std::mem::take(&mut self.pending) {

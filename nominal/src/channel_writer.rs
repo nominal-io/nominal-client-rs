@@ -22,6 +22,8 @@ use crate::core::grpc::GrpcConnection;
 
 mod actor;
 mod connection;
+mod pool;
+pub use pool::{WriteStreamPool, WriteStreamPoolOptions};
 mod wire {
     pub mod google {
         pub mod rpc {
@@ -124,12 +126,23 @@ impl ChannelWriterClient {
         schemas: Vec<proto::Schema>,
         options: WriteStreamOptions,
     ) -> Result<WriteStream> {
+        self.open_stream(schemas, options, Arc::new(AtomicU64::new(1)), None)
+            .await
+    }
+
+    async fn open_stream(
+        &self,
+        schemas: Vec<proto::Schema>,
+        options: WriteStreamOptions,
+        ids: Arc<AtomicU64>,
+        pool: Option<Arc<pool::Budget>>,
+    ) -> Result<WriteStream> {
         options.validate()?;
-        let ids = Arc::new(AtomicU64::new(1));
         let connection =
             connection::open_with_retry(&self.connection, &schemas, &ids, options).await?;
         let (commands, receiver) = mpsc::channel(options.max_in_flight_messages);
         let shared = Arc::new(Shared {
+            pool,
             commands,
             ids,
             messages: Arc::new(Semaphore::new(options.max_in_flight_messages)),
@@ -177,6 +190,7 @@ impl WriteStreamOptions {
 }
 
 struct Shared {
+    pool: Option<Arc<pool::Budget>>,
     commands: mpsc::Sender<Command>,
     ids: Arc<AtomicU64>,
     messages: Arc<Semaphore>,
@@ -248,8 +262,14 @@ impl WriteStream {
     }
 
     async fn submit(&self, request: proto::WriteStreamRequest) -> Result<WriteReceipt> {
-        #[cfg(test)]
-        let id = request_id(&request);
+        self.submit_pooled(request, None).await
+    }
+
+    async fn submit_pooled(
+        &self,
+        request: proto::WriteStreamRequest,
+        pool: Option<pool::Permits>,
+    ) -> Result<WriteReceipt> {
         if self.shared.closed.load(Ordering::Acquire) {
             return Err(WriteStreamError::Closed);
         }
@@ -274,6 +294,21 @@ impl WriteStream {
             .acquire_many_owned(size as u32)
             .await
             .map_err(|_| WriteStreamError::Closed)?;
+        self.send(request, Admission { messages, bytes }, pool)
+            .await
+    }
+
+    async fn send(
+        &self,
+        request: proto::WriteStreamRequest,
+        admission: Admission,
+        pool: Option<pool::Permits>,
+    ) -> Result<WriteReceipt> {
+        #[cfg(test)]
+        let id = request_id(&request);
+        if let Some(budget) = &self.shared.pool {
+            budget.check()?;
+        }
         if self.shared.closed.load(Ordering::Acquire) {
             return Err(WriteStreamError::Closed);
         }
@@ -283,8 +318,9 @@ impl WriteStream {
             .send(Command::Submit(Pending {
                 request,
                 reply,
-                _messages: messages,
-                _bytes: bytes,
+                _messages: admission.messages,
+                _bytes: admission.bytes,
+                _pool: pool,
                 sent_at: None,
                 replays: 0,
             }))
@@ -323,11 +359,18 @@ enum Command {
     Finish(oneshot::Sender<Result<()>>),
 }
 
+struct Admission {
+    messages: OwnedSemaphorePermit,
+    bytes: OwnedSemaphorePermit,
+}
+
 struct Pending {
     request: proto::WriteStreamRequest,
     reply: oneshot::Sender<Result<()>>,
     _messages: OwnedSemaphorePermit,
     _bytes: OwnedSemaphorePermit,
+    // Declared after local permits so pool waiters wake after worker capacity is released.
+    _pool: Option<pool::Permits>,
     sent_at: Option<tokio::time::Instant>,
     replays: u32,
 }

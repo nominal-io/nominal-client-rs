@@ -10,6 +10,7 @@ use tokio::net::TcpListener;
 use tokio_stream::wrappers::{ReceiverStream, TcpListenerStream};
 use tonic::{Code, Request, Response, Status, Streaming};
 
+mod pool;
 mod recovery;
 
 type WireReply = std::result::Result<proto::WriteStreamResponse, Status>;
