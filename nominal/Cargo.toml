@@ -23,6 +23,8 @@ conjure-runtime = { package = "conjure-runtime-rustls-platform-verifier", versio
 dirs = "5"
 nominal-api = "0.1349.0"
 nominal-streaming = "0.9.3"
+prost = "0.13"
+prost-types = "0.13"
 regex = "1.12"
 reqwest = { version = "0.12", default-features = false, features = ["http2", "rustls-tls-native-roots", "stream"] }
 rand = "0.9"
@@ -40,8 +42,17 @@ tokio = { version = "1", features = [
     "sync",
     "time",
 ] }
+tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["io"] }
 tracing = "0.1"
+
+[build-dependencies]
+prost-build = "0.13"
+protoc-bin-vendored = "3"
+tonic-build = "0.13"
+
+[dev-dependencies]
+tokio-stream = { version = "0.1", features = ["net"] }
 
 [package.metadata.docs.rs]
 # Only build docs for the default target (x86_64-unknown-linux-gnu).
