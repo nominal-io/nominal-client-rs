@@ -143,6 +143,46 @@ concurrently, as in the runnable two-stream example:
 cargo run -p nominal --example write_stream_pool
 ```
 
+### Matched unary/streaming bandwidth benchmark
+
+`bandwidth_compare` is a bounded, paced double-column benchmark. It compares native
+v1 `WriteColumnBatches` with the SDK's v2 stream pool over the same TLS endpoint;
+compression and retries are disabled in both modes. The v1 codec is an example-only
+wire-compatible subset, not another public SDK writing API. Disable the ingress's
+**whole-request** body cap for long-lived streaming RPCs (NGINX
+`proxy-body-size: "0"`); the server's 50 MiB **per-message** limit remains enforced.
+A 50 MiB ingress cap applies to the entire streaming RPC body and can terminate
+an otherwise healthy stream after only seconds of sustained traffic.
+
+```sh
+# Set NOMINAL_TOKEN and NOMINAL_BASE_URL securely, as above.
+# Both native RPC paths must be routed by the test environment's ingress.
+export BENCH_TIMESTAMP_BASE="$(date +%s)" # keep identical for both runs
+BENCH_MODE=unary BENCH_DATASET_RID='<fresh-unary-dataset>' \
+  cargo run --release -p nominal --example bandwidth_compare
+BENCH_MODE=stream BENCH_DATASET_RID='<fresh-stream-dataset>' \
+  cargo run --release -p nominal --example bandwidth_compare
+```
+
+Defaults: 100 channels, 500 points per channel per batch (50,000 points/request),
+1,000,000 scheduled points/sec, 20 seconds, concurrency 16; streaming uses four
+workers with four outstanding messages each. `BENCH_RATE`, `BENCH_CHANNELS`,
+`BENCH_SAMPLES`, and `BENCH_SECONDS` configure the shape (duration is capped at 60
+seconds). Each run prints JSON with acknowledged point count/rate, elapsed time
+including final acknowledgment drain, scheduling lag and failures. Initial stream
+schema declarations occur before the paced interval. Run the generator inside the
+test cluster for high-rate tests; a remote client's bandwidth/RTT can limit throughput.
+
+Measure ingress request/response byte-counter deltas from before process startup
+until after all RPCs have closed, split by RPC path, with no other traffic to those
+paths. This includes schema declarations and acknowledgments. Validate exact RPC
+counts (unary: batch count; streaming: four connections) and divide bytes by the
+acknowledged point count. NGINX-observed sizes are not TCP/TLS wire sizes. Pod RX/TX
+include dependency traffic and cached kubelet sampling, so are not an exact substitute.
+Do not use the converted internal-request histogram as a network bandwidth metric.
+Use fresh, equally configured datasets and report actual achieved rates, not merely
+the configured target; large batches amortize metadata overhead substantially.
+
 The unreleased v2 contract is temporarily snapshotted in `nominal/proto` from
 Scout commit `51f4b6ca4e3b859c8e9b875375c1e9b455a7ffe0`, with validation/codegen
 options removed but wire fields unchanged. Replace this snapshot with generated
