@@ -168,7 +168,33 @@ Defaults: 100 channels, 500 points per channel per batch (50,000 points/request)
 1,000,000 scheduled points/sec, 20 seconds, concurrency 16; streaming uses four
 workers with four outstanding messages each. `BENCH_RATE`, `BENCH_CHANNELS`,
 `BENCH_SAMPLES`, and `BENCH_SECONDS` configure the shape (duration is capped at 60
-seconds). Each run prints JSON with acknowledged point count/rate, elapsed time
+seconds). `BENCH_CHANNELS_PER_REQUEST` defaults to all channels; a smaller divisor
+rotates disjoint channel groups round-robin, preserving per-channel timestamp
+continuity. Total points/request = channels/request × samples/channel.
+
+For a metadata-heavy profile with **20 points total per request**, keep 100 channels
+but send one channel/request, with 32 long tags/channel (the maximum accepted by
+both protocols: native v1 permits 64 tags, but v2 schema validation permits 32):
+
+```sh
+export BENCH_CHANNELS=100 BENCH_CHANNELS_PER_REQUEST=1 BENCH_SAMPLES=20
+export BENCH_TAG_COUNT=32 BENCH_TAG_KEY_BYTES=128 BENCH_TAG_VALUE_BYTES=128
+export BENCH_RATE=400 BENCH_SECONDS=60 # 20 requests/sec, not a capacity test
+# Run each mode against a fresh dataset using the commands above.
+```
+
+Nonzero `BENCH_TAG_COUNT` generates distinct, fixed-length ASCII keys and values;
+zero (the default) retains the original two short tags. Both modes use identical
+tags; no body compression is enabled. A four-worker pool declares all 100 channel
+schemas on each worker, so cold-start declaration bytes can be substantial. They
+must be included in total-byte comparisons rather than excluded as warmup.
+`BENCH_SCHEMA_BATCH` (default 100, range 1..=100) can split initial registration:
+the first batch opens the pool, and subsequent batches use `declare_schemas`.
+All schemas are acknowledged on every worker before pacing starts. Oversized
+validation-error headers may appear as ingress 502s; smaller declaration batches
+make the underlying per-schema validation errors easier to inspect.
+
+Each run prints JSON with acknowledged point count/rate, elapsed time
 including final acknowledgment drain, scheduling lag and failures. Initial stream
 schema declarations occur before the paced interval. Run the generator inside the
 test cluster for high-rate tests; a remote client's bandwidth/RTT can limit throughput.

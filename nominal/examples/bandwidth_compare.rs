@@ -49,6 +49,8 @@ struct UnaryResponse {}
 
 struct Shape {
     channels: u64,
+    channels_per_request: u64,
+    tags: BTreeMap<String, String>,
     samples: u64,
     rate: u64,
     timestamp_base: i64,
@@ -60,6 +62,25 @@ impl Shape {
             ("rack".into(), "rack-01".into()),
         ])
     }
+    fn long_tags(count: u64, key_bytes: usize, value_bytes: usize) -> BTreeMap<String, String> {
+        (0..count)
+            .map(|i| {
+                let key = format!("tag_{i:05}_");
+                let value = format!("value_{i:05}_");
+                (
+                    format!("{key}{}", "k".repeat(key_bytes - key.len())),
+                    format!("{value}{}", "v".repeat(value_bytes - value.len())),
+                )
+            })
+            .collect()
+    }
+    fn request_channels(&self, batch: u64) -> std::ops::Range<u64> {
+        let first = (batch * self.channels_per_request) % self.channels;
+        first..first + self.channels_per_request
+    }
+    fn channel_batch(&self, batch: u64) -> u64 {
+        batch / (self.channels / self.channels_per_request)
+    }
     fn name(channel: u64) -> String {
         format!("bandwidth.channel.{channel:05}")
     }
@@ -67,7 +88,7 @@ impl Shape {
         let samples_per_second = self.rate / self.channels;
         (0..self.samples)
             .map(|i| {
-                let sample = batch * self.samples + i;
+                let sample = self.channel_batch(batch) * self.samples + i;
                 Timestamp {
                     seconds: self.timestamp_base + (sample / samples_per_second) as i64,
                     nanos: ((sample % samples_per_second) * 1_000_000_000 / samples_per_second)
@@ -79,7 +100,10 @@ impl Shape {
     fn doubles(&self, batch: u64, channel: u64) -> proto::Doubles {
         proto::Doubles {
             values: (0..self.samples)
-                .map(|i| ((batch * self.samples + i + channel * 31) % 10007) as f64 / 100.0)
+                .map(|i| {
+                    ((self.channel_batch(batch) * self.samples + i + channel * 31) % 10007) as f64
+                        / 100.0
+                })
                 .collect(),
         }
     }
@@ -89,7 +113,7 @@ impl Shape {
                 schema_id: c as u32 + 1,
                 dataset_rid: dataset.into(),
                 channel: Self::name(c),
-                tags: Self::tags().into_iter().collect(),
+                tags: self.tags.clone().into_iter().collect(),
                 r#type: proto::ChannelType::Double as i32,
                 ..Default::default()
             })
@@ -99,10 +123,11 @@ impl Shape {
         let timestamps = self.timestamps(batch);
         UnaryRequest {
             dataset: dataset.into(),
-            batches: (0..self.channels)
+            batches: self
+                .request_channels(batch)
                 .map(|c| UnaryBatch {
                     channel: Self::name(c),
-                    tags: Self::tags(),
+                    tags: self.tags.clone(),
                     timestamps: timestamps.clone(),
                     values: Some(UnaryValues {
                         doubles: Some(self.doubles(batch, c)),
@@ -113,7 +138,7 @@ impl Shape {
     }
     fn streaming(&self, batch: u64) -> Vec<proto::ChannelData> {
         let timestamps = self.timestamps(batch);
-        (0..self.channels)
+        self.request_channels(batch)
             .map(|c| proto::ChannelData {
                 schema_id: c as u32 + 1,
                 timestamps: timestamps.clone(),
@@ -133,6 +158,8 @@ mod tests {
     fn both_protocols_contain_identical_points_and_channel_metadata() {
         let shape = Shape {
             channels: 2,
+            channels_per_request: 2,
+            tags: Shape::tags(),
             samples: 3,
             rate: 6,
             timestamp_base: 1234,
@@ -164,9 +191,92 @@ mod tests {
     }
 
     #[test]
+    fn small_requests_rotate_channels_with_exact_long_tags_and_identical_payloads() {
+        let shape = Shape {
+            channels: 100,
+            channels_per_request: 1,
+            tags: Shape::long_tags(32, 128, 128),
+            samples: 20,
+            rate: 2000,
+            timestamp_base: 1234,
+        };
+        assert_eq!(shape.tags.len(), 32);
+        assert!(
+            shape
+                .tags
+                .iter()
+                .all(|(k, v)| k.len() == 128 && v.len() == 128)
+        );
+        let schemas = shape.schemas("dataset");
+        for i in 0..200 {
+            let unary = shape.unary("dataset", i);
+            let stream = shape.streaming(i);
+            assert_eq!(unary.batches.len(), 1);
+            assert_eq!(stream.len(), 1);
+            let column = &unary.batches[0];
+            let schema = &schemas[(i % 100) as usize];
+            assert_eq!(column.channel, schema.channel);
+            assert_eq!(stream[0].schema_id, schema.schema_id);
+            assert_eq!(column.tags, shape.tags);
+            assert_eq!(column.timestamps, stream[0].timestamps);
+            assert_eq!(column.timestamps.len(), 20);
+            assert_eq!(
+                column.timestamps[0],
+                Timestamp {
+                    seconds: 1234 + (i / 100) as i64,
+                    nanos: 0
+                }
+            );
+            assert_eq!(column.timestamps[19].nanos, 950_000_000);
+            assert_eq!(
+                stream[0].data,
+                Some(proto::channel_data::Data::Values(proto::Values {
+                    values: Some(proto::values::Values::Doubles(
+                        column.values.as_ref().unwrap().doubles.clone().unwrap()
+                    )),
+                }))
+            );
+            assert_eq!(schema.tags, shape.tags.clone().into_iter().collect());
+        }
+    }
+
+    #[test]
+    fn low_rate_round_robin_timestamps_continue_across_seconds() {
+        let shape = Shape {
+            channels: 100,
+            channels_per_request: 1,
+            tags: Shape::tags(),
+            samples: 20,
+            rate: 400,
+            timestamp_base: 1234,
+        };
+        for cycle in 0..12 {
+            let timestamps = shape.timestamps(cycle * 100);
+            assert_eq!(timestamps.len(), 20);
+            assert_eq!(
+                timestamps[0],
+                Timestamp {
+                    seconds: 1234 + cycle as i64 * 5,
+                    nanos: 0
+                }
+            );
+            assert_eq!(
+                timestamps[19],
+                Timestamp {
+                    seconds: 1238 + cycle as i64 * 5,
+                    nanos: 750_000_000
+                }
+            );
+            assert_eq!(timestamps, shape.timestamps(cycle * 100 + 99));
+        }
+    }
+
+    #[test]
     fn timestamps_are_distinct_and_continue_across_batches() {
         let shape = Shape {
             channels: 100,
+            channels_per_request: 100,
+            tags: Shape::tags(),
             samples: 500,
             rate: 1_000_000,
             timestamp_base: 1234,
@@ -216,8 +326,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
     let seconds = setting("BENCH_SECONDS", 20)?;
     let rate = setting("BENCH_RATE", 1_000_000)?;
+    let tag_count = setting("BENCH_TAG_COUNT", 0)?;
+    let tag_key_bytes = setting("BENCH_TAG_KEY_BYTES", 128)?;
+    let tag_value_bytes = setting("BENCH_TAG_VALUE_BYTES", 128)?;
+    if tag_count > 32
+        || !(16..=256).contains(&tag_key_bytes)
+        || !(16..=512).contains(&tag_value_bytes)
+    {
+        return Err(
+            "invalid tag shape: at most 32 tags; keys 16..=256 bytes; values 16..=512 bytes".into(),
+        );
+    }
+    let channels = setting("BENCH_CHANNELS", 100)?;
     let shape = Shape {
-        channels: setting("BENCH_CHANNELS", 100)?,
+        channels,
+        channels_per_request: setting("BENCH_CHANNELS_PER_REQUEST", channels)?,
+        tags: if tag_count == 0 {
+            Shape::tags()
+        } else {
+            Shape::long_tags(tag_count, tag_key_bytes as usize, tag_value_bytes as usize)
+        },
         samples: setting("BENCH_SAMPLES", 500)?,
         rate,
         timestamp_base: setting(
@@ -229,6 +357,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         || seconds > 60
         || shape.channels == 0
         || shape.channels > 100
+        || shape.channels_per_request == 0
+        || shape.channels_per_request > shape.channels
+        || shape.channels % shape.channels_per_request != 0
         || shape.samples == 0
         || shape.samples > 50_000
         || rate == 0
@@ -236,10 +367,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     {
         return Err("invalid bounded benchmark shape/rate/duration".into());
     }
-    let points_per_batch = shape.channels * shape.samples;
+    let points_per_batch = shape.channels_per_request * shape.samples;
     let batches = rate * seconds / points_per_batch;
     if batches == 0 || rate * seconds % points_per_batch != 0 {
         return Err("duration must contain an integer number of batches".into());
+    }
+    let schema_batch = setting("BENCH_SCHEMA_BATCH", 100)? as usize;
+    if schema_batch == 0 || schema_batch > 100 {
+        return Err("schema declaration batches require 1..=100 schemas".into());
     }
     let concurrency = 16;
     let client = NominalClient::builder(token.clone())
@@ -260,25 +395,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
     let auth: MetadataValue<_> = format!("Bearer {token}").parse()?;
     let pool = if mode == "stream" {
-        Some(
-            client
-                .channel_writer()
-                .write_stream_pool(
-                    shape.schemas(&dataset),
-                    WriteStreamPoolOptions {
-                        stream_count: 4,
-                        max_pending_messages: concurrency,
-                        max_pending_bytes: 64 * 1024 * 1024,
-                        stream_options: WriteStreamOptions {
-                            max_in_flight_messages: 4,
-                            max_retries: 0,
-                            response_timeout: Duration::from_secs(15),
-                            ..Default::default()
-                        },
+        let schemas = shape.schemas(&dataset);
+        let first = schema_batch.min(schemas.len());
+        let pool = client
+            .channel_writer()
+            .write_stream_pool(
+                schemas[..first].to_vec(),
+                WriteStreamPoolOptions {
+                    stream_count: 4,
+                    max_pending_messages: concurrency,
+                    max_pending_bytes: 64 * 1024 * 1024,
+                    stream_options: WriteStreamOptions {
+                        max_in_flight_messages: 4,
+                        max_retries: 0,
+                        response_timeout: Duration::from_secs(15),
+                        ..Default::default()
                     },
-                )
-                .await?,
-        )
+                },
+            )
+            .await?;
+        for batch in schemas[first..].chunks(schema_batch) {
+            pool.declare_schemas(batch.to_vec()).await?;
+        }
+        Some(pool)
     } else {
         None
     };
@@ -320,7 +459,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let total = acknowledged.load(Ordering::Relaxed);
     println!(
         "{}",
-        serde_json::json!({"mode":mode,"dataset":dataset,"target_points_per_second":rate,"scheduled_seconds":seconds,"channels":shape.channels,"samples_per_channel":shape.samples,"points_per_batch":points_per_batch,"batches":batches,"acknowledged_points":total,"elapsed_including_ack_drain_seconds":elapsed,"acknowledged_points_per_second":total as f64/elapsed,"max_scheduling_lag_ms":max_lag_us.load(Ordering::Relaxed) as f64/1000.0,"start_ms":wall_start,"end_ms":chrono::Utc::now().timestamp_millis(),"timestamp_base":shape.timestamp_base,"compression":"none","retries":0,"error":error,"drain_error":drain_error})
+        serde_json::json!({"mode":mode,"dataset":dataset,"target_points_per_second":rate,"scheduled_seconds":seconds,"channels":shape.channels,"channels_per_request":shape.channels_per_request,"tags_per_channel":shape.tags.len(),"schema_batch":schema_batch,"tag_key_bytes":shape.tags.keys().map(String::len).max(),"tag_value_bytes":shape.tags.values().map(String::len).max(),"samples_per_channel":shape.samples,"points_per_batch":points_per_batch,"batches":batches,"acknowledged_points":total,"elapsed_including_ack_drain_seconds":elapsed,"acknowledged_points_per_second":total as f64/elapsed,"max_scheduling_lag_ms":max_lag_us.load(Ordering::Relaxed) as f64/1000.0,"start_ms":wall_start,"end_ms":chrono::Utc::now().timestamp_millis(),"timestamp_base":shape.timestamp_base,"compression":"none","retries":0,"error":error,"drain_error":drain_error})
     );
     if error.is_some() || drain_error.is_some() {
         return Err("benchmark failed; see JSON result".into());
