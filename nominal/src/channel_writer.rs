@@ -1,22 +1,27 @@
-//! Native bidirectional gRPC writes with stream-local schemas.
+//! Bounded, pipelined native gRPC writes with automatic reconnect and replay.
 //!
-//! Each operation waits for its acknowledgment: at most one message is outstanding, so
-//! memory is bounded and callers naturally respect server backpressure. A declaration
-//! must succeed before its schema IDs can be used. IDs belong to one connection only.
+//! Enqueue up to a configured message/byte window and await receipts independently.
+//! A background task reads acknowledgments concurrently with sending. It retains each
+//! request until its terminal response; transient failures and acknowledgment timeouts
+//! reconnect, redeclare installed schemas, and replay only unanswered requests.
 //!
-//! Disconnects, timeouts and cancelled operations close the session. Reopen a stream,
-//! redeclare schemas and explicitly replay unanswered chunks. Delivery is **at least
-//! once**: an error does not prove a chunk had no effects. There are no transparent retries.
+//! Delivery is **at least once**: replay may duplicate data. Cancelling a receipt does
+//! not cancel an already enqueued write. Dropping the stream cancels its background task;
+//! use [`WriteStream::finish`] to drain pending writes and half-close gracefully.
 
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicU64, Ordering},
+};
 use std::time::Duration;
 
 use prost::Message;
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
-use tonic::{Code, Status, Streaming};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
 
 use crate::core::grpc::GrpcConnection;
 
+mod actor;
+mod connection;
 mod wire {
     pub mod google {
         pub mod rpc {
@@ -33,57 +38,69 @@ mod wire {
 }
 
 pub use prost_types::Timestamp;
-/// The v2 wire types, including all numeric, string, array, struct and log variants.
+/// All v2 wire types, including numeric, string, array, struct and log values.
 pub use wire::nominal::channel_writer::v2 as proto;
-
-use proto::nominal_channel_writer_service_client::NominalChannelWriterServiceClient;
-use proto::write_stream_request::Request;
-use proto::write_stream_response::Response;
-use proto::{ChannelData, DeclareSchemas, Schema, WriteChunk, WriteStreamRequest};
 
 #[cfg(test)]
 mod tests;
 
 const MAX_MESSAGE_BYTES: usize = 50 * 1024 * 1024;
+type Result<T> = std::result::Result<T, WriteStreamError>;
 
-/// Per-operation limits. There is intentionally no call-lifetime deadline on a stream.
+/// Limits apply to retained, unacknowledged protobuf messages, not transport buffers.
 #[derive(Clone, Copy, Debug)]
 pub struct WriteStreamOptions {
-    /// Maximum time to open a stream, receive an acknowledgment, or finish draining.
+    /// Maximum number of queued or sent messages awaiting a terminal response.
+    pub max_in_flight_messages: usize,
+    /// Maximum total encoded size of retained messages. Transport encoding adds overhead.
+    pub max_in_flight_bytes: usize,
+    /// Time from handing a message to the transport until acknowledgment; also bounds opening/draining.
     pub response_timeout: Duration,
+    /// Maximum replays of any individual message (in addition to its first attempt).
+    pub max_retries: u32,
+    /// Full-jitter exponential reconnect backoff, capped at `max_backoff`.
+    pub initial_backoff: Duration,
+    pub max_backoff: Duration,
 }
 
 impl Default for WriteStreamOptions {
     fn default() -> Self {
         Self {
+            max_in_flight_messages: 16,
+            max_in_flight_bytes: 64 * 1024 * 1024,
             response_timeout: Duration::from_secs(30),
+            max_retries: 3,
+            initial_backoff: Duration::from_millis(250),
+            max_backoff: Duration::from_secs(5),
         }
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum WriteStreamError {
-    /// Transport, authentication, authorization or server stream termination.
     #[error("stream terminated: {0}")]
-    Rpc(#[source] Box<Status>),
-    /// A per-message rejection; this stream remains usable. Partial effects are possible.
-    #[error("message rejected: {0}")]
-    Rejected(#[source] Box<Status>),
-    #[error("stream operation timed out; reopen and redeclare schemas before replaying")]
+    Rpc(#[source] Box<tonic::Status>),
+    /// Terminal response for one message; other pending writes continue.
+    #[error("message rejected (partial effects are possible): {0}")]
+    Rejected(#[source] Box<tonic::Status>),
+    #[error("stream operation timed out")]
     Timeout,
-    #[error("stream is closed; reopen and redeclare schemas before replaying")]
+    #[error("retry budget exhausted; unanswered writes may have partial effects")]
+    RetryExhausted,
+    #[error("stream is closed")]
     Closed,
     #[error("invalid stream response: {0}")]
     Protocol(&'static str),
     #[error("stream message exceeds the 50 MiB limit")]
     MessageTooLarge,
-    #[error("response_timeout must be positive")]
-    InvalidTimeout,
+    #[error("message exceeds max_in_flight_bytes")]
+    MessageBudgetExceeded,
+    #[error("invalid streaming options: {0}")]
+    InvalidOptions(&'static str),
+    #[error("invalid schema registry: {0}")]
+    InvalidSchemas(&'static str),
 }
 
-type Result<T> = std::result::Result<T, WriteStreamError>;
-
-/// Opens authenticated streaming writes against the same API host as [`crate::NominalClient`].
 #[derive(Clone)]
 pub struct ChannelWriterClient {
     connection: GrpcConnection,
@@ -96,202 +113,233 @@ impl ChannelWriterClient {
         }
     }
 
-    /// Open a stream and wait for the initial schemas to be acknowledged.
-    pub async fn write_stream(&self, schemas: Vec<Schema>) -> Result<WriteStream> {
+    /// Install initial schemas before returning a pipelined stream.
+    pub async fn write_stream(&self, schemas: Vec<proto::Schema>) -> Result<WriteStream> {
         self.write_stream_with_options(schemas, WriteStreamOptions::default())
             .await
     }
 
     pub async fn write_stream_with_options(
         &self,
-        schemas: Vec<Schema>,
+        schemas: Vec<proto::Schema>,
         options: WriteStreamOptions,
     ) -> Result<WriteStream> {
-        if options.response_timeout.is_zero() {
-            return Err(WriteStreamError::InvalidTimeout);
-        }
-        let request = declaration(1, schemas);
-        check_size(&request)?;
-        let (sender, receiver) = mpsc::channel(1);
-        // Java gRPC may withhold response headers until the first response. Queue the
-        // declaration before awaiting headers, rather than opening an empty stream.
-        sender
-            .try_send(request)
-            .map_err(|_| WriteStreamError::Closed)?;
-        let mut client =
-            NominalChannelWriterServiceClient::new(self.connection.streaming_channel())
-                .max_encoding_message_size(MAX_MESSAGE_BYTES)
-                .max_decoding_message_size(MAX_MESSAGE_BYTES);
-        let state = tokio::time::timeout(options.response_timeout, async {
-            let responses = client
-                .write_stream(ReceiverStream::new(receiver))
-                .await
-                .map_err(|status| WriteStreamError::Rpc(Box::new(status)))?
-                .into_inner();
-            let mut state = State { sender, responses };
-            acknowledge(&mut state.responses, 1, Expected::Declaration).await?;
-            Ok(state)
-        })
-        .await
-        .map_err(|_| WriteStreamError::Timeout)??;
-        Ok(WriteStream {
-            state: Some(state),
-            next_id: 2,
+        options.validate()?;
+        let ids = Arc::new(AtomicU64::new(1));
+        let connection =
+            connection::open_with_retry(&self.connection, &schemas, &ids, options).await?;
+        let (commands, receiver) = mpsc::channel(options.max_in_flight_messages);
+        let shared = Arc::new(Shared {
+            commands,
+            ids,
+            messages: Arc::new(Semaphore::new(options.max_in_flight_messages)),
+            bytes: Arc::new(Semaphore::new(options.max_in_flight_bytes)),
+            closed: AtomicBool::new(false),
             options,
-        })
-    }
-}
-
-struct State {
-    sender: mpsc::Sender<WriteStreamRequest>,
-    responses: Streaming<proto::WriteStreamResponse>,
-}
-
-/// One schema namespace and an ordered sequence of acknowledged operations.
-///
-/// A mutable borrow serializes operations (one outstanding message). Use independent
-/// streams for parallelism. Dropping the stream cancels it; use [`Self::finish`] for
-/// a graceful half-close. Server rotation is surfaced as a terminal RPC error.
-pub struct WriteStream {
-    state: Option<State>,
-    next_id: u64,
-    options: WriteStreamOptions,
-}
-
-impl WriteStream {
-    /// Atomically add schemas, waiting for acknowledgment before returning.
-    pub async fn declare_schemas(&mut self, schemas: Vec<Schema>) -> Result<()> {
-        self.exchange(declaration(self.next_id, schemas), Expected::Declaration)
-            .await
-    }
-
-    /// Write parallel timestamp/value columns and wait for durable acceptance.
-    /// Acceptance is not a guarantee of immediate downstream visibility.
-    pub async fn write_chunk(&mut self, channels: Vec<ChannelData>) -> Result<()> {
-        self.exchange(
-            WriteStreamRequest {
-                request: Some(Request::Chunk(WriteChunk {
-                    message_id: self.next_id,
-                    channels,
-                })),
-            },
-            Expected::Chunk,
-        )
-        .await
-    }
-
-    async fn exchange(&mut self, request: WriteStreamRequest, expected: Expected) -> Result<()> {
-        check_size(&request)?;
-        let id = self.next_id;
-        let next_id = id
-            .checked_add(1)
-            .ok_or(WriteStreamError::Protocol("message IDs exhausted"))?;
-        // Taking ownership before the first await makes cancellation safe: an abandoned
-        // operation drops the connection instead of leaving an unread ack for the next call.
-        let mut state = self.state.take().ok_or(WriteStreamError::Closed)?;
-        self.next_id = next_id;
-        let result = tokio::time::timeout(self.options.response_timeout, async {
-            state
-                .sender
-                .send(request)
-                .await
-                .map_err(|_| WriteStreamError::Closed)?;
-            acknowledge(&mut state.responses, id, expected).await
-        })
-        .await
-        .map_err(|_| WriteStreamError::Timeout)?;
-        if result.is_ok() || matches!(result, Err(WriteStreamError::Rejected(_))) {
-            self.state = Some(state);
-        }
-        result
-    }
-
-    /// Half-close the request side and wait for clean server completion.
-    pub async fn finish(mut self) -> Result<()> {
-        let State {
-            sender,
-            mut responses,
-        } = self.state.take().ok_or(WriteStreamError::Closed)?;
-        drop(sender);
-        tokio::time::timeout(self.options.response_timeout, async {
-            while let Some(response) = responses.message().await.map_err(|status| WriteStreamError::Rpc(Box::new(status)))? {
-                if !matches!(response.response, Some(Response::Accepted(ref ack)) if ack.message_ids.is_empty()) {
-                    return Err(WriteStreamError::Protocol("unexpected response while draining"));
-                }
-            }
-            Ok(())
-        }).await.map_err(|_| WriteStreamError::Timeout)?
-    }
-}
-
-#[derive(Clone, Copy)]
-enum Expected {
-    Declaration,
-    Chunk,
-}
-
-fn declaration(message_id: u64, schemas: Vec<Schema>) -> WriteStreamRequest {
-    WriteStreamRequest {
-        request: Some(Request::DeclareSchemas(DeclareSchemas {
-            message_id,
+        });
+        let actor = actor::Writer::new(
+            self.connection.clone(),
+            connection,
             schemas,
-        })),
+            shared.clone(),
+            receiver,
+        );
+        Ok(WriteStream {
+            shared,
+            task: tokio::spawn(actor.run()),
+        })
     }
 }
 
-fn check_size(request: &WriteStreamRequest) -> Result<()> {
-    if request.encoded_len() > MAX_MESSAGE_BYTES {
-        Err(WriteStreamError::MessageTooLarge)
-    } else {
+impl WriteStreamOptions {
+    fn validate(self) -> Result<()> {
+        if self.max_in_flight_messages == 0 || self.max_in_flight_messages > Semaphore::MAX_PERMITS
+        {
+            return Err(WriteStreamError::InvalidOptions(
+                "max_in_flight_messages must be positive and fit a semaphore",
+            ));
+        }
+        if self.max_in_flight_bytes == 0
+            || self.max_in_flight_bytes > u32::MAX as usize
+            || self.max_in_flight_bytes > Semaphore::MAX_PERMITS
+        {
+            return Err(WriteStreamError::InvalidOptions(
+                "max_in_flight_bytes must fit a positive u32 and semaphore",
+            ));
+        }
+        if self.response_timeout.is_zero() || self.initial_backoff > self.max_backoff {
+            return Err(WriteStreamError::InvalidOptions(
+                "positive response_timeout and initial_backoff <= max_backoff required",
+            ));
+        }
         Ok(())
     }
 }
 
-async fn acknowledge(
-    responses: &mut Streaming<proto::WriteStreamResponse>,
-    id: u64,
-    expected: Expected,
-) -> Result<()> {
-    loop {
-        let response = responses
-            .message()
+struct Shared {
+    commands: mpsc::Sender<Command>,
+    ids: Arc<AtomicU64>,
+    messages: Arc<Semaphore>,
+    bytes: Arc<Semaphore>,
+    closed: AtomicBool,
+    options: WriteStreamOptions,
+}
+
+impl Shared {
+    fn close(&self) {
+        self.closed.store(true, Ordering::Release);
+        self.messages.close();
+        self.bytes.close();
+    }
+}
+
+/// Share by reference (or `Arc`) to submit concurrently. The actor owns the wire stream.
+pub struct WriteStream {
+    shared: Arc<Shared>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+/// Completion of one message. Dropping this receipt does not discard the retained write.
+pub struct WriteReceipt {
+    message_id: u64,
+    result: oneshot::Receiver<Result<()>>,
+}
+
+impl WriteReceipt {
+    pub fn message_id(&self) -> u64 {
+        self.message_id
+    }
+    pub async fn acknowledged(self) -> Result<()> {
+        self.result.await.unwrap_or(Err(WriteStreamError::Closed))
+    }
+}
+
+impl WriteStream {
+    /// Wait only for a slot in the message/byte window, not for server acknowledgment.
+    pub async fn enqueue_chunk(&self, channels: Vec<proto::ChannelData>) -> Result<WriteReceipt> {
+        let id = next_id(&self.shared.ids)?;
+        self.submit(
+            proto::WriteStreamRequest {
+                request: Some(proto::write_stream_request::Request::Chunk(
+                    proto::WriteChunk {
+                        message_id: id,
+                        channels,
+                    },
+                )),
+            },
+            id,
+        )
+        .await
+    }
+
+    /// Concurrent calls pipeline messages; each future resolves on its own terminal response.
+    pub async fn write_chunk(&self, channels: Vec<proto::ChannelData>) -> Result<()> {
+        self.enqueue_chunk(channels).await?.acknowledged().await
+    }
+
+    /// Wait for acknowledgment before using new schema IDs in chunks.
+    pub async fn declare_schemas(&self, schemas: Vec<proto::Schema>) -> Result<()> {
+        let id = next_id(&self.shared.ids)?;
+        self.submit(connection::declaration(id, schemas), id)
+            .await?
+            .acknowledged()
             .await
-            .map_err(|status| WriteStreamError::Rpc(Box::new(status)))?
-            .ok_or(WriteStreamError::Protocol(
-                "server completed before acknowledging message",
-            ))?;
-        match response.response {
-            Some(Response::Accepted(ack)) if ack.message_ids.is_empty() => continue,
-            Some(Response::SchemasDeclared(ack))
-                if matches!(expected, Expected::Declaration) && ack.message_id == id =>
-            {
-                return Ok(());
-            }
-            Some(Response::Accepted(ack))
-                if matches!(expected, Expected::Chunk) && ack.message_ids == [id] =>
-            {
-                return Ok(());
-            }
-            Some(Response::Rejected(rejected)) if rejected.message_id == id => {
-                let status = rejected
-                    .status
-                    .ok_or(WriteStreamError::Protocol("rejection has no status"))?;
-                if !(1..=16).contains(&status.code) {
-                    return Err(WriteStreamError::Protocol(
-                        "rejection has invalid status code",
-                    ));
-                }
-                return Err(WriteStreamError::Rejected(Box::new(Status::with_details(
-                    Code::from_i32(status.code),
-                    status.message.clone(),
-                    status.encode_to_vec().into(),
-                ))));
-            }
-            _ => {
-                return Err(WriteStreamError::Protocol(
-                    "response kind or message ID does not match request",
-                ));
-            }
+    }
+
+    async fn submit(&self, request: proto::WriteStreamRequest, id: u64) -> Result<WriteReceipt> {
+        if self.shared.closed.load(Ordering::Acquire) {
+            return Err(WriteStreamError::Closed);
         }
+        let size = request.encoded_len();
+        if size > MAX_MESSAGE_BYTES {
+            return Err(WriteStreamError::MessageTooLarge);
+        }
+        if size > self.shared.options.max_in_flight_bytes {
+            return Err(WriteStreamError::MessageBudgetExceeded);
+        }
+        let messages = self
+            .shared
+            .messages
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| WriteStreamError::Closed)?;
+        let bytes = self
+            .shared
+            .bytes
+            .clone()
+            .acquire_many_owned(size as u32)
+            .await
+            .map_err(|_| WriteStreamError::Closed)?;
+        if self.shared.closed.load(Ordering::Acquire) {
+            return Err(WriteStreamError::Closed);
+        }
+        let (reply, result) = oneshot::channel();
+        self.shared
+            .commands
+            .send(Command::Submit(Pending {
+                request,
+                reply,
+                _messages: messages,
+                _bytes: bytes,
+                sent_at: None,
+                replays: 0,
+            }))
+            .await
+            .map_err(|_| WriteStreamError::Closed)?;
+        Ok(WriteReceipt {
+            message_id: id,
+            result,
+        })
+    }
+
+    /// Stop admission, await all terminal responses (including retries), then half-close.
+    /// Also reports the first per-message rejection, even if its receipt was dropped.
+    pub async fn finish(self) -> Result<()> {
+        self.shared.close();
+        let (reply, result) = oneshot::channel();
+        self.shared
+            .commands
+            .send(Command::Finish(reply))
+            .await
+            .map_err(|_| WriteStreamError::Closed)?;
+        result.await.unwrap_or(Err(WriteStreamError::Closed))
+    }
+}
+
+impl Drop for WriteStream {
+    fn drop(&mut self) {
+        self.shared.close();
+        self.task.abort();
+    }
+}
+
+enum Command {
+    Submit(Pending),
+    Finish(oneshot::Sender<Result<()>>),
+}
+
+struct Pending {
+    request: proto::WriteStreamRequest,
+    reply: oneshot::Sender<Result<()>>,
+    _messages: OwnedSemaphorePermit,
+    _bytes: OwnedSemaphorePermit,
+    sent_at: Option<tokio::time::Instant>,
+    replays: u32,
+}
+
+fn next_id(ids: &AtomicU64) -> Result<u64> {
+    ids.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+        .map_err(|_| WriteStreamError::Protocol("message IDs exhausted"))
+}
+
+fn request_id(request: &proto::WriteStreamRequest) -> u64 {
+    match request
+        .request
+        .as_ref()
+        .expect("SDK requests always have a variant")
+    {
+        proto::write_stream_request::Request::DeclareSchemas(declaration) => declaration.message_id,
+        proto::write_stream_request::Request::Chunk(chunk) => chunk.message_id,
     }
 }

@@ -38,20 +38,49 @@ export NOMINAL_DATASET_RID='ri.catalog.main.dataset.<uuid>'
 cargo run -p nominal --example write_stream
 ```
 
-The client permits **one outstanding message per stream**, providing bounded
-backpressure without a background queue. Await each call before sending more data;
-open independent streams for parallelism. Each message is limited to 50 MiB. The
-acknowledgment timeout defaults to 30 seconds and can be configured through
-`write_stream_with_options`; there is no fixed RPC-lifetime timeout.
+The client pipelines **up to N outstanding messages on one stream**, with a
+background sender/acknowledgment loop. `enqueue_chunk` waits for count/byte capacity
+and returns a receipt, not an acknowledgment:
 
-**No automatic reconnect/replay:** stream termination, server rotation, operation
-cancellation and timeouts invalidate the session. Open a new stream, redeclare
-schemas, then explicitly replay unanswered chunks. Delivery is at least once:
-replayed chunks can duplicate data, and even a rejected chunk can have partial
-effects. `WriteStreamError::Rejected` preserves the rich gRPC status and leaves the
-session usable; other stream errors require reopening. Acceptance means durable
-queue/retry acceptance, not immediate query visibility. V2 unary `Write` is not
-implemented by this API.
+```rust,ignore
+let first = stream.enqueue_chunk(first_channels).await?;
+let second = stream.enqueue_chunk(second_channels).await?;
+// Both messages can be on the wire before either acknowledgment arrives.
+first.acknowledged().await?;
+second.acknowledged().await?;
+```
+
+Alternatively, concurrent `write_chunk(&self, ...)` futures each resolve on their
+own acknowledgment. Batched and out-of-order acknowledgments remove only the
+matching retained messages and release capacity immediately, even if the caller
+has not awaited its receipt. Once enqueued, cancelling/dropping a receipt does not
+cancel the write. Dropping the stream cancels all pending work. `finish` stops
+admission, drains outstanding messages (with retries), and half-closes; it also
+reports the first per-message rejection so dropping a receipt cannot hide failure.
+
+Configure `WriteStreamOptions` through `write_stream_with_options`: defaults are
+16 retained messages, 64 MiB of retained encoded payloads, 30-second acknowledgment
+timeouts, and 3 retries per message. Each message is limited to 50 MiB; a message
+larger than the configured byte window is rejected locally, never left waiting
+for impossible capacity. Transport encoding/HTTP2 buffering adds memory overhead.
+Initial schemas and all restored schemas must fit the server's 10,000-schema / 8
+MiB registry limit. There is no fixed RPC-lifetime timeout.
+
+**Automatic reconnect/replay:** transient RPC failures (UNAVAILABLE,
+RESOURCE_EXHAUSTED, DEADLINE_EXCEEDED, CANCELLED), EOF and acknowledgment timeouts
+close the old connection, wait with capped exponential full-jitter backoff,
+redeclare all acknowledged schemas, and replay only unanswered messages. Each
+message has its own retry budget, so unrelated successful messages cannot keep an
+unacknowledged write retrying forever. Pending declarations are replayed too;
+rejected declarations are never installed. A connection lost while idle is
+reopened when another message is submitted. Permanent authentication/authorization
+and protocol errors fail the stream without retry.
+
+Delivery is **at least once**: replay can duplicate data if the server persisted a
+write but its acknowledgment was lost. Per-message `Rejected` responses preserve
+rich status details, complete that receipt with an error, and are not automatically
+retried; other outstanding messages continue. Acceptance means durable queue/retry
+acceptance, not immediate query visibility. V2 unary `Write` remains unsupported.
 
 The unreleased v2 contract is temporarily snapshotted in `nominal/proto` from
 Scout commit `51f4b6ca4e3b859c8e9b875375c1e9b455a7ffe0`, with validation/codegen
