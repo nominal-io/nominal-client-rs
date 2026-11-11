@@ -2,8 +2,9 @@
 //! Sends eight chunks through a four-message window on one native TLS gRPC stream.
 use std::error::Error;
 
+use futures::{StreamExt, TryStreamExt};
 use nominal::NominalClient;
-use nominal::channel_writer::{Timestamp, WriteStreamOptions, proto};
+use nominal::channel_writer::{Timestamp, WriteStreamError, WriteStreamOptions, proto};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -29,35 +30,36 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await?;
     println!("Schema acknowledged; max_in_flight_messages=4");
 
-    // Admission waits for window capacity, not for this chunk's acknowledgment.
+    // Poll four writes concurrently. Each future resolves on its own acknowledgment;
+    // the stream handles admission, retention, response matching and retries internally.
     let seconds = chrono::Utc::now().timestamp();
-    let mut receipts = Vec::new();
-    for chunk in 0..8 {
-        let receipt = stream
-            .enqueue_chunk(vec![proto::ChannelData {
-                schema_id: 1,
-                timestamps: (0..3)
-                    .map(|offset| Timestamp {
-                        seconds: seconds + chunk * 3 + offset,
-                        nanos: 0,
-                    })
-                    .collect(),
-                data: Some(proto::channel_data::Data::Values(proto::Values {
-                    values: Some(proto::values::Values::Doubles(proto::Doubles {
-                        values: vec![42.125, 43.25, 44.5],
-                    })),
-                })),
-            }])
-            .await?;
-        println!("Enqueued message {}", receipt.message_id());
-        receipts.push(receipt);
-    }
-    // Responses are consumed in the background and may arrive out of order or batched.
-    for receipt in receipts {
-        let id = receipt.message_id();
-        receipt.acknowledged().await?;
-        println!("Acknowledged message {id}");
-    }
+    futures::stream::iter(0..8)
+        .map(|chunk| {
+            let stream = &stream;
+            async move {
+                stream
+                    .write_chunk(vec![proto::ChannelData {
+                        schema_id: 1,
+                        timestamps: (0..3)
+                            .map(|offset| Timestamp {
+                                seconds: seconds + chunk * 3 + offset,
+                                nanos: 0,
+                            })
+                            .collect(),
+                        data: Some(proto::channel_data::Data::Values(proto::Values {
+                            values: Some(proto::values::Values::Doubles(proto::Doubles {
+                                values: vec![42.125, 43.25, 44.5],
+                            })),
+                        })),
+                    }])
+                    .await?;
+                println!("Acknowledged chunk {chunk}");
+                Ok::<(), WriteStreamError>(())
+            }
+        })
+        .buffer_unordered(4)
+        .try_collect::<Vec<_>>()
+        .await?;
     stream.finish().await?;
     println!(
         "Stream drained: dataset={dataset_rid}, channel=rust_write_stream_smoke, seconds={seconds}, chunks=8, points=24"

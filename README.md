@@ -39,24 +39,28 @@ cargo run -p nominal --example write_stream
 ```
 
 The client pipelines **up to N outstanding messages on one stream**, with a
-background sender/acknowledgment loop. `enqueue_chunk` waits for count/byte capacity
-and returns a receipt, not an acknowledgment:
+background sender/acknowledgment loop. `write_chunk(&self, ...)` is the public
+chunk-writing API: each future waits for count/byte capacity and then its own
+acknowledgment. Poll writes concurrently to pipeline them:
 
 ```rust,ignore
-let first = stream.enqueue_chunk(first_channels).await?;
-let second = stream.enqueue_chunk(second_channels).await?;
-// Both messages can be on the wire before either acknowledgment arrives.
-first.acknowledged().await?;
-second.acknowledged().await?;
+futures::try_join!(
+    stream.write_chunk(first_channels),
+    stream.write_chunk(second_channels),
+)?;
+stream.finish().await?;
 ```
 
-Alternatively, concurrent `write_chunk(&self, ...)` futures each resolve on their
-own acknowledgment. Batched and out-of-order acknowledgments remove only the
-matching retained messages and release capacity immediately, even if the caller
-has not awaited its receipt. Once enqueued, cancelling/dropping a receipt does not
-cancel the write. Dropping the stream cancels all pending work. `finish` stops
-admission, drains outstanding messages (with retries), and half-closes; it also
-reports the first per-message rejection so dropping a receipt cannot hide failure.
+For a larger input stream, use `StreamExt::buffer_unordered(n)` as shown in the
+example. Sequentially awaiting `write_chunk` calls is still serial. Enqueueing,
+message IDs and completion handles are internal implementation details.
+
+Batched and out-of-order acknowledgments remove only matching retained messages
+and release capacity immediately. Cancelling a write future after admission does
+not cancel the retained write or its retries. Dropping the stream cancels all
+pending work. `finish` stops admission, drains outstanding messages (with retries),
+and half-closes; it also reports the first per-message rejection so a cancelled
+write future cannot hide failure.
 
 Configure `WriteStreamOptions` through `write_stream_with_options`: defaults are
 16 retained messages, 64 MiB of retained encoded payloads, 30-second acknowledgment

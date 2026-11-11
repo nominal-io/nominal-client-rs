@@ -169,6 +169,33 @@ async fn cancellation_while_waiting_for_admission_does_not_submit_a_message() {
 }
 
 #[tokio::test]
+async fn cancelling_public_write_after_admission_still_allows_finish_to_drain_it() {
+    let mut h = Harness::start().await;
+    let (stream, mut s) = h.open(options()).await;
+    let mut write = Box::pin(stream.write_chunk(data()));
+    let request = tokio::select! {
+        request = s.next() => request,
+        result = &mut write => panic!("write completed without acknowledgment: {result:?}"),
+    };
+    drop(write);
+    assert_eq!(
+        stream.shared.messages.available_permits(),
+        options().max_in_flight_messages - 1
+    );
+    let finish = tokio::spawn(stream.finish());
+    s.ack(vec![request_id(&request)]).await;
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(5), s.requests.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        None
+    );
+    drop(s.replies.take());
+    finish.await.unwrap().unwrap();
+}
+
+#[tokio::test]
 async fn individual_message_size_limit_is_checked_before_enqueueing() {
     let mut h = Harness::start().await;
     let (stream, _) = h.open(options()).await;

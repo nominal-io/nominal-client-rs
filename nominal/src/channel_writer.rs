@@ -1,12 +1,12 @@
 //! Bounded, pipelined native gRPC writes with automatic reconnect and replay.
 //!
-//! Enqueue up to a configured message/byte window and await receipts independently.
+//! Concurrent `write_chunk` futures share a configured message/byte window.
 //! A background task reads acknowledgments concurrently with sending. It retains each
 //! request until its terminal response; transient failures and acknowledgment timeouts
 //! reconnect, redeclare installed schemas, and replay only unanswered requests.
 //!
-//! Delivery is **at least once**: replay may duplicate data. Cancelling a receipt does
-//! not cancel an already enqueued write. Dropping the stream cancels its background task;
+//! Delivery is **at least once**: replay may duplicate data. Cancelling a write future
+//! does not cancel a write already admitted. Dropping the stream cancels its background task;
 //! use [`WriteStream::finish`] to drain pending writes and half-close gracefully.
 
 use std::sync::{
@@ -199,40 +199,41 @@ pub struct WriteStream {
     task: tokio::task::JoinHandle<()>,
 }
 
-/// Completion of one message. Dropping this receipt does not discard the retained write.
-pub struct WriteReceipt {
+// Internal completion handle. Dropping it does not discard the retained write.
+struct WriteReceipt {
+    #[cfg(test)]
     message_id: u64,
     result: oneshot::Receiver<Result<()>>,
 }
 
 impl WriteReceipt {
-    pub fn message_id(&self) -> u64 {
+    #[cfg(test)]
+    fn message_id(&self) -> u64 {
         self.message_id
     }
-    pub async fn acknowledged(self) -> Result<()> {
+    async fn acknowledged(self) -> Result<()> {
         self.result.await.unwrap_or(Err(WriteStreamError::Closed))
     }
 }
 
 impl WriteStream {
-    /// Wait only for a slot in the message/byte window, not for server acknowledgment.
-    pub async fn enqueue_chunk(&self, channels: Vec<proto::ChannelData>) -> Result<WriteReceipt> {
+    // Admission and completion are separate internally so the actor can pipeline writes.
+    async fn enqueue_chunk(&self, channels: Vec<proto::ChannelData>) -> Result<WriteReceipt> {
         let id = next_id(&self.shared.ids)?;
-        self.submit(
-            proto::WriteStreamRequest {
-                request: Some(proto::write_stream_request::Request::Chunk(
-                    proto::WriteChunk {
-                        message_id: id,
-                        channels,
-                    },
-                )),
-            },
-            id,
-        )
+        self.submit(proto::WriteStreamRequest {
+            request: Some(proto::write_stream_request::Request::Chunk(
+                proto::WriteChunk {
+                    message_id: id,
+                    channels,
+                },
+            )),
+        })
         .await
     }
 
-    /// Concurrent calls pipeline messages; each future resolves on its own terminal response.
+    /// Wait for window capacity, then send and await this message's terminal response.
+    /// Poll multiple write futures concurrently to pipeline chunks on one stream.
+    /// Cancelling after admission does not cancel the retained write or its retries.
     pub async fn write_chunk(&self, channels: Vec<proto::ChannelData>) -> Result<()> {
         self.enqueue_chunk(channels).await?.acknowledged().await
     }
@@ -240,13 +241,15 @@ impl WriteStream {
     /// Wait for acknowledgment before using new schema IDs in chunks.
     pub async fn declare_schemas(&self, schemas: Vec<proto::Schema>) -> Result<()> {
         let id = next_id(&self.shared.ids)?;
-        self.submit(connection::declaration(id, schemas), id)
+        self.submit(connection::declaration(id, schemas))
             .await?
             .acknowledged()
             .await
     }
 
-    async fn submit(&self, request: proto::WriteStreamRequest, id: u64) -> Result<WriteReceipt> {
+    async fn submit(&self, request: proto::WriteStreamRequest) -> Result<WriteReceipt> {
+        #[cfg(test)]
+        let id = request_id(&request);
         if self.shared.closed.load(Ordering::Acquire) {
             return Err(WriteStreamError::Closed);
         }
@@ -288,13 +291,14 @@ impl WriteStream {
             .await
             .map_err(|_| WriteStreamError::Closed)?;
         Ok(WriteReceipt {
+            #[cfg(test)]
             message_id: id,
             result,
         })
     }
 
     /// Stop admission, await all terminal responses (including retries), then half-close.
-    /// Also reports the first per-message rejection, even if its receipt was dropped.
+    /// Also reports the first per-message rejection, even if its write future was cancelled.
     pub async fn finish(self) -> Result<()> {
         self.shared.close();
         let (reply, result) = oneshot::channel();
