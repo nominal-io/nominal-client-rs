@@ -115,6 +115,7 @@ impl Run {
             rid: rid_to_string(run.rid()),
             name: run.title().to_string(),
             description: run.description().to_string(),
+            #[allow(deprecated)]
             properties: run
                 .properties()
                 .iter()
@@ -950,6 +951,7 @@ mod tests {
     // --- RunUpdate::into_request ---
 
     #[test]
+    #[allow(deprecated)]
     fn update_empty_request_has_no_optional_fields() {
         let req = RunUpdate::new().into_request().unwrap();
         assert!(req.title().is_none());
@@ -972,6 +974,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn update_properties() {
         let req = RunUpdate::new()
             .properties([("k", "v")])
@@ -1015,6 +1018,7 @@ mod tests {
     // --- RunCreate::into_request ---
 
     #[test]
+    #[allow(deprecated)]
     fn create_minimal_request() {
         let start = Utc.timestamp_opt(1_700_000_000, 0).single().unwrap();
         let req = RunCreate::new("my-run", start).into_request(None).unwrap();
@@ -1032,6 +1036,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn create_full_request() {
         let start = Utc.timestamp_opt(1_700_000_000, 0).single().unwrap();
         let end = Utc.timestamp_opt(1_700_003_600, 0).single().unwrap();

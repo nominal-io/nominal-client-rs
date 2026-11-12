@@ -65,6 +65,7 @@ impl Dataset {
                 .description()
                 .filter(|s| !s.is_empty())
                 .map(|s| s.to_string()),
+            #[allow(deprecated)]
             properties: dataset
                 .properties()
                 .iter()
@@ -474,6 +475,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn update_empty() {
         let req = DatasetUpdate::new().into_request();
         assert!(req.name().is_none());
@@ -490,6 +492,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn update_all_fields() {
         let req = DatasetUpdate::new()
             .name("name")
