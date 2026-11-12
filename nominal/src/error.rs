@@ -89,6 +89,9 @@ pub enum Error {
     #[error("invalid bearer token: {reason}")]
     InvalidBearerToken { reason: String },
 
+    #[error("invalid user agent: {reason}")]
+    InvalidUserAgent { reason: String },
+
     #[error("invalid service URL '{url}': {reason}")]
     InvalidServiceUrl { url: String, reason: String },
 
