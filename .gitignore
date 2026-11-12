@@ -1,2 +1,8 @@
 /target
 /testdata
+
+# Docs: Python toolchain, build output, and the nomctl reference generated at build time
+/.venv
+/docs/_build
+/docs/ref/cli
+__pycache__/
