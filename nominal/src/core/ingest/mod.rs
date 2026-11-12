@@ -298,7 +298,9 @@ impl IngestClient {
         .await?;
 
         let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
-        self.trigger_video_ingest(IngestOptions::Video(opts)).await
+        #[allow(deprecated)]
+        let options = IngestOptions::Video(opts);
+        self.trigger_video_ingest(options).await
     }
 
     async fn trigger_ingest(&self, options: IngestOptions) -> Result<(IngestJob, String)> {
@@ -314,6 +316,7 @@ impl IngestClient {
         Ok((job, dataset_rid))
     }
 
+    #[allow(deprecated)]
     async fn trigger_video_ingest(&self, options: IngestOptions) -> Result<(IngestJob, String)> {
         let (job, details) = self.send_ingest(options).await?;
         let video_rid = match details {

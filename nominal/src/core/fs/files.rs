@@ -199,7 +199,9 @@ impl TryFrom<proto::ManagedFileRevision> for FileRevision {
         let path = revision.path.required("ManagedFileRevision.path")?.path;
         let (created_at, created_by) = attribution_parts(revision.created);
         Ok(Self {
+            #[allow(deprecated)]
             file_revision_rid: revision.file_revision_rid,
+            #[allow(deprecated)]
             file_rid: revision.file_rid,
             path,
             size_bytes: revision.size_bytes,
@@ -304,6 +306,7 @@ impl DriveFilesClient {
                 include_removed,
                 page_size: None,
                 page_token: page_token.take(),
+                recursive: false,
             };
             let response = self.service().list_files(request).await?.into_inner();
             for entry in response.entries {
@@ -471,14 +474,30 @@ impl DriveFilesClient {
             }
             proto::file_change_result::Result::Failure(failure) => {
                 Err(FileStoreError::ChangeFailed {
-                    code: proto::FileStoreError::try_from(failure.code)
-                        .map(|c| c.as_str_name().to_string())
-                        .unwrap_or_else(|_| failure.code.to_string()),
+                    code: file_change_failure_code(failure.error),
                     message: failure.message,
                 }
                 .into())
             }
+            proto::file_change_result::Result::DirectoryMoved(_) => {
+                Err(crate::Error::UnexpectedResponse {
+                    field: "FileChangeResult.success",
+                })
+            }
         }
+    }
+}
+
+fn file_change_failure_code(error: Option<proto::file_change_failure::Error>) -> String {
+    use proto::file_change_failure::Error;
+    match error {
+        Some(Error::Common(code)) => proto::FileStoreCommonError::try_from(code)
+            .map(|c| c.as_str_name().to_string())
+            .unwrap_or_else(|_| code.to_string()),
+        Some(Error::Change(code)) => proto::FileChangeError::try_from(code)
+            .map(|c| c.as_str_name().to_string())
+            .unwrap_or_else(|_| code.to_string()),
+        None => "UNSPECIFIED".to_string(),
     }
 }
 
@@ -542,6 +561,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn file_change_failure_code_names_common_and_change_errors() {
+        use proto::file_change_failure::Error;
+
+        assert_eq!(
+            file_change_failure_code(Some(Error::Change(
+                proto::FileChangeError::PathAlreadyExists as i32
+            ))),
+            "FILE_CHANGE_ERROR_PATH_ALREADY_EXISTS"
+        );
+        assert_eq!(
+            file_change_failure_code(Some(Error::Common(
+                proto::FileStoreCommonError::FileNotFound as i32
+            ))),
+            proto::FileStoreCommonError::FileNotFound.as_str_name()
+        );
+        assert_eq!(file_change_failure_code(Some(Error::Change(-1))), "-1");
+        assert_eq!(file_change_failure_code(None), "UNSPECIFIED");
+    }
+
+    #[test]
     fn put_change_uses_the_multipart_object_key() {
         let object_key = "file-store/uploads/abc123";
         let change = put_change("example.txt", object_key.to_string(), 42);
@@ -586,6 +625,7 @@ mod tests {
             size_bytes: 42,
             observed: None,
             current_revision: None,
+            download_availability: 0,
         };
 
         let entry = proto::FileEntry {

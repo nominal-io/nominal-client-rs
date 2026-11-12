@@ -35,7 +35,9 @@ impl From<&ApiIngestJobStatus> for IngestJobStatus {
             ApiIngestJobStatus::Completed => Self::Completed,
             ApiIngestJobStatus::Failed => Self::Failed,
             ApiIngestJobStatus::Cancelled => Self::Cancelled,
-            ApiIngestJobStatus::Unknown(u) => Self::Unknown(u.to_string()),
+            ApiIngestJobStatus::DeletionInProgress
+            | ApiIngestJobStatus::Deleted
+            | ApiIngestJobStatus::Unknown(_) => Self::Unknown(s.to_string()),
         }
     }
 }
