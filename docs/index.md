@@ -15,6 +15,7 @@ Quickstart <self>
 :caption: Guides
 
 guides/index
+guides/api-keys-setup
 guides/connect
 guides/upload
 guides/stream
@@ -37,17 +38,9 @@ cargo add nominal
 cargo add tokio --features full
 ```
 
-## 2. Save your API key in a profile
+## 2. Set up your API key
 
-The client reads your API key, Nominal URL and workspace from a profile in `~/.config/nominal/config.yml`. nomctl and the Python client read the same file.
-
-To create a profile, [install nomctl](https://dev.nominal.io/nomctl/) and run:
-
-```shell
-nomctl config init
-```
-
-Or follow [API keys setup](https://dev.nominal.io/quickstart/api-keys-setup/). The examples use a profile named `default`.
+Follow [API Keys Setup](guides/api-keys-setup.md) to save your API key in a profile. The examples use the profile it creates, `default`.
 
 ## 3. Make a first call
 
