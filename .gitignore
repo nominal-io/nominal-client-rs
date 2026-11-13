@@ -1,2 +1,9 @@
 /target
 /testdata
+
+# Docs: Python toolchain, build output, and the nomctl and Rust API references generated at build time
+/.venv
+/docs/_build
+/docs/ref/cli
+/docs/ref/rust
+__pycache__/

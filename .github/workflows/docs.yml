@@ -1,0 +1,56 @@
+name: Docs
+
+# Pull requests: builds the docs with warnings as errors and links a preview of them. The docs are
+# deployed by deploy-docs.yml.
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build-docs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The nomctl command reference runs nomctl from this repo. The Rust API reference reads
+      # rustdoc's JSON, whose format changes between Rust releases: 1.98 writes the one
+      # sphinx-rustdoc reads.
+      - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
+        with:
+          toolchain: "1.98.1"
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: false
+          python-version: "3.13"
+      - name: Install just
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
+      - name: Build docs (warnings fail the build)
+        run: just build-docs
+      - name: "Built docs: upload and preview"
+        if: always()
+        uses: nominal-io/nominal-sphinx-theme/.github/actions/docs-preview@243a7cc937780d23876a320ca376c8fdb9f61b55 # main, 2026-11-12
+        with:
+          path: docs/_build/dirhtml
+          job-status: ${{ job.status }}
+
+  # The check main's ruleset requires: a theme bump PR needs a passing docs build, and every other
+  # PR passes. See nominal-sphinx-theme's README, "CI".
+  docs-gate:
+    needs: build-docs
+    if: always()
+    uses: nominal-io/nominal-sphinx-theme/.github/workflows/docs-gate.yml@243a7cc937780d23876a320ca376c8fdb9f61b55 # main, 2026-11-12
+    with:
+      docs-result: ${{ needs.build-docs.result }}
