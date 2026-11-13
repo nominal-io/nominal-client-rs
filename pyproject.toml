@@ -16,6 +16,8 @@ docs = [
     "sphinx-design>=0.7",
     "sphinx-copybutton>=0.5.2",
     "nominal-sphinx-theme",
+    # license scanning flags docutils 0.23, though its license is the same as 0.22's
+    "docutils<0.23",
 ]
 
 [tool.uv.sources]
