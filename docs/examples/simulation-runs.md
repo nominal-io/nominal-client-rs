@@ -71,4 +71,4 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
-The `nominal` crate's `RunCreate` can't filter a dataset by tags, so the runs are created through the REST API, as in [Call the REST API directly](../guides/rest-api.md). Each run's `altitude` channel covers the same 60 seconds from 1970-01-01T00:00:00Z.
+The `nominal` crate's `RunCreate` can't filter a dataset by tags, so the runs are created through the REST API, as in [Call the REST API directly](../guides/rest-api.md). [`CreateRunDataSource`](https://dev.nominal.io/api/rest/run-service/#createrundatasource) lists the fields of a run's data source. Each run's `altitude` channel covers the same 60 seconds from 1970-01-01T00:00:00Z.

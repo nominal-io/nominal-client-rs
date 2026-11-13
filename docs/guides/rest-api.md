@@ -24,7 +24,9 @@ let runtime = Arc::new(ConjureRuntime::default());
 
 The first argument of `async_conjure_client` is a name for the client. Requests go to the base URL. Every request takes the token, and its errors convert to `nominal::Error`.
 
-The examples on this page use [anyhow](https://docs.rs/anyhow) for errors. The [REST API reference](https://dev.nominal.io/api/) lists every service and its fields.
+Each request and response type has the same name in the [REST API reference](https://dev.nominal.io/api/), which describes its fields. The reference writes field names in camelCase, such as `seriesTags`, and Rust in snake_case, such as `series_tags`.
+
+The examples on this page use [anyhow](https://docs.rs/anyhow) for errors.
 
 ## Create an event
 
@@ -48,7 +50,7 @@ let event = CreateEvent::builder()
 events.create_event(&token, &event).await.map_err(nominal::Error::from)?;
 ```
 
-Timestamps and durations are seconds and nanoseconds.
+Timestamps and durations are seconds and nanoseconds. [Create event](https://dev.nominal.io/api/legacy/event-service/#create-event) lists the other fields an event takes.
 
 ## Create a checklist
 
@@ -108,6 +110,8 @@ let checklist = AsyncChecklistServiceClient::new(api.clone(), &runtime)
 println!("{}", checklist.rid());
 ```
 
+[`CreateCheckRequest`](https://dev.nominal.io/api/rest/checklist-service/#createcheckrequest) lists a check's fields, and [`UnresolvedCheckCondition`](https://dev.nominal.io/api/rest/checklist-service/#unresolvedcheckcondition) the other kinds of condition.
+
 ## Run a checklist on a run
 
 To check a finished test, run a checklist on its run, then wait until no check is pending or executing. Each check that found violations lists the events it created:
@@ -163,6 +167,8 @@ let violations = events.iter().filter(|e| *e.type_() == EventType::Error).count(
 println!("{violations} violations");
 ```
 
+[`AutomaticCheckEvaluationState`](https://dev.nominal.io/api/rest/data-review-service/#automaticcheckevaluationstate) lists the states a check can be in.
+
 To check data as it streams in, use the `nominal` crate's [checklists](checklists.md) client instead.
 
 ## Create a run that selects tagged data
@@ -194,4 +200,4 @@ let request = CreateRunRequest::builder()
 runs.create_run(&token, &request).await.map_err(nominal::Error::from)?;
 ```
 
-See [Simulation runs](../examples/simulation-runs.md) for a full program.
+[`CreateRunRequest`](https://dev.nominal.io/api/rest/run-service/#createrunrequest) lists a run's fields, and [`CreateRunDataSource`](https://dev.nominal.io/api/rest/run-service/#createrundatasource) a data source's. See [Simulation runs](../examples/simulation-runs.md) for a full program.

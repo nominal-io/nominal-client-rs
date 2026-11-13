@@ -8,7 +8,7 @@ cargo add nominal anyhow chrono
 cargo add tokio --features full
 ```
 
-The `nominal` crate creates the dataset and the run. Creating and running the checklist goes through the REST API, as in [Call the REST API directly](../guides/rest-api.md).
+The `nominal` crate creates the dataset and the run. Creating and running the checklist goes through the REST API, as in [Call the REST API directly](../guides/rest-api.md). The REST API reference describes the requests' fields on the [checklist service](https://dev.nominal.io/api/rest/checklist-service/) and [data review service](https://dev.nominal.io/api/rest/data-review-service/) pages.
 
 ```rust
 use std::collections::{BTreeMap, BTreeSet};
