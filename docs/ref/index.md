@@ -2,7 +2,7 @@
 
 ## Rust API
 
-The `nominal` crate's API reference is on [docs.rs](https://docs.rs/nominal).
+[nominal](rust/nominal/index.md) documents every public item in the `nominal` crate.
 
 ## nomctl
 

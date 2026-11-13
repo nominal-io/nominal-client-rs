@@ -16,6 +16,8 @@ docs = [
     "sphinx-design>=0.7",
     "sphinx-copybutton>=0.5.2",
     "nominal-sphinx-theme",
+    # the Rust API reference, from rustdoc's JSON output
+    "sphinx-rustdoc",
     # license scanning flags docutils 0.23, though its license is the same as 0.22's
     "docutils<0.23",
 ]
@@ -24,3 +26,5 @@ docs = [
 # github.com/nominal-io/nominal-sphinx-theme; uv.lock pins the commit. To update it:
 # `uv lock --upgrade-package nominal-sphinx-theme`
 nominal-sphinx-theme = { git = "https://github.com/nominal-io/nominal-sphinx-theme" }
+# github.com/nominal-io/sphinx-rustdoc, pinned the same way
+sphinx-rustdoc = { git = "https://github.com/nominal-io/sphinx-rustdoc" }

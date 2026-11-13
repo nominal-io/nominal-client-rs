@@ -72,6 +72,7 @@ examples/automated-checks
 :caption: Reference
 
 ref/index
+ref/rust/nominal/index
 ref/cli/index
 ```
 

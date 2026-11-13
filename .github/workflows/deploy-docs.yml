@@ -27,10 +27,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # the nomctl command reference runs nomctl from this repo
+      # The nomctl command reference runs nomctl from this repo. The Rust API reference reads
+      # rustdoc's JSON, whose format changes between Rust releases: 1.98 writes the one
+      # sphinx-rustdoc reads.
       - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
         with:
-          toolchain: stable
+          toolchain: "1.98.1"
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
