@@ -22,7 +22,7 @@ let api = async_conjure_client("events", profile.base_url().parse()?).map_err(no
 let runtime = Arc::new(ConjureRuntime::default());
 ```
 
-The first argument of `async_conjure_client` is a name for the client. Requests go to the base URL. Every request takes the token, and its errors convert to `nominal::Error`.
+The first argument of `async_conjure_client` names the client in its logs and metrics. Requests go to the base URL. Every request takes the token, and its errors convert to `nominal::Error`.
 
 Each request and response type has the same name in the [REST API reference](https://dev.nominal.io/api/), which describes its fields. The reference writes field names in camelCase, such as `seriesTags`, and Rust in snake_case, such as `series_tags`.
 

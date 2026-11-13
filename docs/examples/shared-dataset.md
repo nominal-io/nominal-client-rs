@@ -50,4 +50,4 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
-Each unit's asset shows only its own `Measurement` points, while the dataset holds every unit's. A point without the `UUT` tag shows on no asset.
+Each unit's asset shows only its own `Measurement` points, while the dataset holds every unit's. A point without the `UUT` tag shows on no unit's asset.
