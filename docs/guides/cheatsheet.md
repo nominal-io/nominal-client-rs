@@ -52,7 +52,6 @@ Everything starts from a `NominalClient`, and each area of Nominal has a client 
 | Upload a CSV into a new dataset | `client.ingest().upload_csv("test.csv", DatasetCreate::new("Test 1"), CsvIngest::new(Timestamp::iso8601("timestamp"))).await?` |
 | Wait for the ingest | `client.ingest().wait_for_ingest_job(job.rid()).await?` |
 | Get a drive by its ID | `client.drives().get_by_id("test-reports").await?` |
-| Put a file in a drive | `client.files(drive.rid()).put("report.pdf", "reports/report.pdf", UploadOptions::new()).await?` |
 | List a drive folder | `client.files(drive.rid()).list("reports", false).await?` |
 
 ## Workbooks

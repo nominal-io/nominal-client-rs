@@ -72,4 +72,4 @@ let options = UploadOptions::new()
 let ingest = CsvIngest::new(Timestamp::iso8601("time")).upload_options(options);
 ```
 
-The callback runs on the upload's tasks, so keep it short: send events to a channel for anything slower. `UploadOptions` works the same for [files in drives](drives.md#put-a-file).
+The callback runs on the upload's tasks, so keep it short: send events to a channel for anything slower.

@@ -20,7 +20,7 @@ These guides go further than the [quickstart](../index.md), along the common pat
 - [Upload files](upload.md): CSV, Parquet, MCAP, journal JSON, Avro streams, ArduPilot DataFlash and video.
 - [Ingest jobs](ingest-jobs.md): wait for an upload's ingest, check its status, and follow upload progress.
 - [Stream data](stream.md): send points to a dataset as your program produces them.
-- [Drives and files](drives.md): keep files in a drive, and list, download, move and restore them.
+- [Drives and files](drives.md): create drives, and list and download their files.
 
 ## Review data
 
