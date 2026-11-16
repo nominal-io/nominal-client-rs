@@ -6,8 +6,7 @@ use chrono::{DateTime, Utc};
 use clap::{ArgGroup, Args, Subcommand};
 use nominal::core::{
     AvroStreamIngest, CsvIngest, DataflashIngest, DatasetCreate, DatasetTarget, IngestJob,
-    JournalJsonIngest, McapIngest, NominalClient, ParquetIngest, TimeUnit, Timestamp, VideoCreate,
-    VideoIngest, VideoTarget,
+    JournalJsonIngest, McapIngest, NominalClient, ParquetIngest, TimeUnit, Timestamp, VideoIngest,
 };
 
 #[derive(Subcommand)]
@@ -24,9 +23,9 @@ pub enum IngestCommands {
     AvroStream(AvroStreamArgs),
     /// Upload an ArduPilot DataFlash (.bin) file and ingest it
     ArdupilotDataflash(DataflashArgs),
-    /// Upload a video file (.mp4 / .mkv / .avi / .ts) and ingest it
+    /// Upload a video file (.mp4 / .mkv / .avi / .ts) and ingest it as a dataset channel
     Video(VideoArgs),
-    /// Upload an MCAP file and ingest a single video stream from it by topic
+    /// Upload an MCAP file and ingest a single video stream from it by topic as a dataset channel
     McapVideo(McapVideoArgs),
 }
 
@@ -107,7 +106,11 @@ pub struct DataflashArgs {
 #[derive(Args)]
 pub struct VideoArgs {
     #[command(flatten)]
-    target: VideoTargetArgs,
+    target: TargetArgs,
+
+    /// Dataset channel to ingest the video into
+    #[arg(long)]
+    channel: String,
 
     /// RFC3339 timestamp of the first frame
     #[arg(long, value_name = "RFC3339")]
@@ -117,52 +120,15 @@ pub struct VideoArgs {
 #[derive(Args)]
 pub struct McapVideoArgs {
     #[command(flatten)]
-    target: VideoTargetArgs,
+    target: TargetArgs,
+
+    /// Dataset channel to ingest the video into
+    #[arg(long)]
+    channel: String,
 
     /// MCAP topic carrying the single video stream to ingest
     #[arg(long)]
     topic: String,
-}
-
-#[derive(Args)]
-#[command(group(
-    ArgGroup::new("video_target").required(true).args(["video", "name"])
-))]
-struct VideoTargetArgs {
-    /// Path to the file to upload
-    path: PathBuf,
-
-    /// Existing video RID to ingest into
-    #[arg(long, value_name = "RID")]
-    video: Option<String>,
-
-    /// Name for a new video resource created atomically with the ingest
-    #[arg(long)]
-    name: Option<String>,
-
-    /// Description for the new video. Requires --name.
-    #[arg(long, requires = "name")]
-    description: Option<String>,
-
-    /// Add a label to the new video. Repeatable. Requires --name.
-    #[arg(long = "label", value_name = "LABEL", requires = "name")]
-    labels: Vec<String>,
-
-    /// Add a property to the new video as KEY VALUE. Repeatable. Requires --name.
-    #[arg(
-        long = "property",
-        value_names = ["KEY", "VALUE"],
-        num_args = 2,
-        action = clap::ArgAction::Append,
-        requires = "name",
-    )]
-    properties: Vec<String>,
-
-    /// Skip waiting for the ingest job to finish; print the ingest job RID
-    /// and return immediately. Otherwise the command blocks until the job
-    /// reaches a terminal state and prints the resulting video RID.
-    #[arg(long)]
-    no_wait: bool,
 }
 
 #[derive(Args)]
@@ -458,37 +424,39 @@ async fn handle_dataflash(args: DataflashArgs, client: NominalClient) -> anyhow:
 async fn handle_video(args: VideoArgs, client: NominalClient) -> anyhow::Result<()> {
     let VideoArgs {
         target: target_args,
+        channel,
         start,
     } = args;
-    let target = build_video_target(&target_args);
+    let target = build_target(&target_args);
     let ingest = VideoIngest::starting_at(start);
 
     let path = target_args.path.clone();
-    let (job, video_rid) = client
+    let (job, dataset_rid) = client
         .ingest()
-        .upload_video(&path, target, ingest)
+        .upload_video_to_dataset(&path, target, channel, ingest)
         .await
         .with_context(|| format!("Failed to upload video '{}'", path.display()))?;
 
-    print_result(&job, &video_rid, "Video", target_args.no_wait, client).await
+    print_result(&job, &dataset_rid, "Dataset", target_args.no_wait, client).await
 }
 
 async fn handle_mcap_video(args: McapVideoArgs, client: NominalClient) -> anyhow::Result<()> {
     let McapVideoArgs {
         target: target_args,
+        channel,
         topic,
     } = args;
-    let target = build_video_target(&target_args);
+    let target = build_target(&target_args);
     let ingest = VideoIngest::mcap_topic(topic);
 
     let path = target_args.path.clone();
-    let (job, video_rid) = client
+    let (job, dataset_rid) = client
         .ingest()
-        .upload_video(&path, target, ingest)
+        .upload_video_to_dataset(&path, target, channel, ingest)
         .await
         .with_context(|| format!("Failed to upload MCAP video '{}'", path.display()))?;
 
-    print_result(&job, &video_rid, "Video", target_args.no_wait, client).await
+    print_result(&job, &dataset_rid, "Dataset", target_args.no_wait, client).await
 }
 
 fn build_target(target: &TargetArgs) -> DatasetTarget {
@@ -516,33 +484,6 @@ fn build_target(target: &TargetArgs) -> DatasetTarget {
         create = create.properties(pairs);
     }
     DatasetTarget::New(create)
-}
-
-fn build_video_target(target: &VideoTargetArgs) -> VideoTarget {
-    // clap's ArgGroup enforces exactly one of --video / --name is set.
-    if let Some(rid) = &target.video {
-        return VideoTarget::Existing(rid.clone());
-    }
-    let name = target
-        .name
-        .as_ref()
-        .expect("ArgGroup requires --video or --name");
-    let mut create = VideoCreate::new(name);
-    if let Some(d) = &target.description {
-        create = create.description(d);
-    }
-    if !target.labels.is_empty() {
-        create = create.labels(target.labels.clone());
-    }
-    if !target.properties.is_empty() {
-        let pairs: Vec<(String, String)> = target
-            .properties
-            .chunks(2)
-            .map(|p| (p[0].clone(), p[1].clone()))
-            .collect();
-        create = create.properties(pairs);
-    }
-    VideoTarget::New(create)
 }
 
 fn build_timestamp(common: &UploadArgs) -> anyhow::Result<Timestamp> {

@@ -11,7 +11,7 @@ use nominal_api::objects::ingest::api::{
     DatasetIngestTarget as ApiDatasetIngestTarget, ExistingDatasetIngestDestination,
     ExistingVideoIngestDestination, IngestSource, JournalJsonOpts, LogTime, McapChannels,
     McapProtobufTimeseriesOpts, McapTimestampType, ParquetOpts, S3IngestSource,
-    VideoIngestTarget as ApiVideoIngestTarget, VideoOpts,
+    VideoIngestTarget as ApiVideoIngestTarget, VideoOpts, VideoOptsV2,
 };
 use nominal_api::objects::scout::video::api::{
     McapTimestampManifest, NoTimestampManifest, VideoFileTimestampManifest,
@@ -638,7 +638,7 @@ enum VideoManifest {
     McapTopic(String),
 }
 
-/// Configuration for ingesting a video into an existing or new video resource.
+/// Configuration for ingesting a video, either as a channel on a dataset or into a video resource.
 #[derive(Debug, Clone)]
 pub struct VideoIngest {
     manifest: VideoManifest,
@@ -682,9 +682,32 @@ impl VideoIngest {
         workspace_rid: Option<&str>,
         s3_path: String,
     ) -> Result<VideoOpts> {
-        let target = target.into_api(workspace_rid)?;
-        let source = IngestSource::S3(S3IngestSource::new(s3_path));
-        let manifest = match self.manifest {
+        Ok(VideoOpts::builder()
+            .source(IngestSource::S3(S3IngestSource::new(s3_path)))
+            .target(target.into_api(workspace_rid)?)
+            .timestamp_manifest(self.manifest.into_api()?)
+            .build())
+    }
+
+    pub(crate) fn into_dataset_opts(
+        self,
+        target: DatasetTarget,
+        channel: String,
+        workspace_rid: Option<&str>,
+        s3_path: String,
+    ) -> Result<VideoOptsV2> {
+        Ok(VideoOptsV2::builder()
+            .source(IngestSource::S3(S3IngestSource::new(s3_path)))
+            .target(target.into_api(workspace_rid)?)
+            .timestamp_manifest(self.manifest.into_api()?)
+            .channel(Channel(channel))
+            .build())
+    }
+}
+
+impl VideoManifest {
+    fn into_api(self) -> Result<VideoFileTimestampManifest> {
+        Ok(match self {
             VideoManifest::StartingAt(dt) => VideoFileTimestampManifest::NoManifest(
                 NoTimestampManifest::builder()
                     .starting_timestamp(api_timestamp_from_datetime(dt)?)
@@ -695,12 +718,7 @@ impl VideoIngest {
                     .mcap_channel_locator(McapChannelLocator::Topic(McapChannelTopic(topic)))
                     .build(),
             ),
-        };
-        Ok(VideoOpts::builder()
-            .source(source)
-            .target(target)
-            .timestamp_manifest(manifest)
-            .build())
+        })
     }
 }
 
