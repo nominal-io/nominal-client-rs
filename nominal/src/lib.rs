@@ -1,3 +1,4 @@
+pub mod channel_writer;
 pub mod config;
 pub mod core;
 pub mod error;

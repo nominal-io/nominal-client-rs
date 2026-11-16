@@ -128,7 +128,7 @@ impl Interceptor for AuthInterceptor {
 /// gRPC-backed service clients.
 #[derive(Clone)]
 pub(crate) struct GrpcConnection {
-    channel: RetryService<Channel>,
+    channel: Channel,
     auth: AuthInterceptor,
 }
 
@@ -152,13 +152,18 @@ impl GrpcConnection {
                 reason: e.to_string(),
             })?;
         Ok(Self {
-            channel: RetryLayer.layer(endpoint.connect_lazy()),
+            channel: endpoint.connect_lazy(),
             auth: AuthInterceptor { header },
         })
     }
 
     pub(crate) fn channel(&self) -> RetryService<Channel> {
-        self.channel.clone()
+        RetryLayer.layer(self.channel.clone())
+    }
+
+    /// Streaming bodies must never pass through the buffering unary retry layer.
+    pub(crate) fn streaming_channel(&self) -> InterceptedService<Channel, AuthInterceptor> {
+        InterceptedService::new(self.channel.clone(), self.auth.clone())
     }
 
     pub(crate) fn interceptor(&self) -> AuthInterceptor {

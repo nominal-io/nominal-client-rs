@@ -164,6 +164,11 @@ impl NominalClient {
         )
     }
 
+    /// Access native gRPC streaming writes with connection-local schemas.
+    pub fn channel_writer(&self) -> crate::channel_writer::ChannelWriterClient {
+        crate::channel_writer::ChannelWriterClient::new(&self.grpc)
+    }
+
     /// Access ingest operations: uploading files and triggering ingest jobs.
     pub fn ingest(&self) -> IngestClient {
         IngestClient::new(

@@ -1,0 +1,268 @@
+// Snapshot: nominal-io/scout@51f4b6ca4e3b859c8e9b875375c1e9b455a7ffe0
+// channel-writer-api/src/main/proto/nominal/protos/channel_writer/v2/nominal_channel_writer.proto
+// Only validation/codegen options and their imports are removed. Wire fields are unchanged.
+syntax = "proto3";
+
+package nominal.channel_writer.v2;
+
+import "google/protobuf/timestamp.proto";
+import "google/rpc/status.proto";
+
+// Writes data points and logs to Nominal datasets through the channel writer's durable queue. A request
+// over any field limit is rejected with INVALID_ARGUMENT. Each request is also bounded by the service's
+// 50 MiB inbound message limit.
+service NominalChannelWriterService {
+  // Writes batches of points and logs to one dataset, and returns once they are accepted into
+  // the queue. Each batch is one series (a channel and tag set) or one log channel, carried as parallel
+  // columns. Acceptance does not mean downstream consumers have processed the data.
+  rpc Write(WriteRequest) returns (WriteResponse) {
+
+  }
+
+  // Writes to datasets using stream-local schemas instead of repeating dataset and channel metadata.
+  // Native bidirectional gRPC only: no HTTP/JSON or Twirp mapping.
+  //
+  // Declare schemas, then write chunks referencing their IDs. SchemasDeclared is the sole success response
+  // to a declaration; Accepted acknowledges chunks only. Clients choose schema IDs and must wait for
+  // declaration acceptance before sending chunks that reference them.
+  // Message IDs are client-chosen, nonzero, and unique across unanswered declarations and chunks. Each
+  // declaration/chunk receives one terminal response unless the stream terminates; responses may arrive out
+  // of order. A duplicate unanswered ID, unset request, or field validation failure ends the stream with
+  // INVALID_ARGUMENT.
+  //
+  // Accepted means the existing write path succeeded, including durable retry-queue fallback where enabled;
+  // it does not mean downstream consumers have processed the data. Rejected carries a per-message rich
+  // status and leaves the stream open. A failed chunk can have partial effects. Authentication/authorization
+  // failures terminate the stream with UNAUTHENTICATED/PERMISSION_DENIED. Overload may pause reads or end the
+  // stream with RESOURCE_EXHAUSTED; clients must back off before reconnecting.
+  //
+  // Schemas are immutable and disappear on disconnect. Reconnect, re-declare the same client-chosen schema
+  // IDs, and replay unanswered chunks. Message IDs are not durable deduplication keys: retries are at least
+  // once and can duplicate points. A client half-close drains admitted writes and their responses before
+  // completion. Cancellation stops admission but does not roll back writes already started.
+  //
+  // Each schema describes a dataset, optional session name, channel/tag set and value type. One stream or
+  // chunk may reference multiple datasets/sessions through different schema IDs. Each referenced dataset
+  // must be authorized; a schema ID does not bypass authorization.
+  // Each message is bounded by the service's 50 MiB inbound limit. A stream retains at most 10000 schemas
+  // and 8 MiB of serialized Schema messages. A declaration exceeding either budget is rejected atomically
+  // with RESOURCE_EXHAUSTED. IDs are not reused on a stream.
+  // Servers may enforce smaller operational limits and idle/receive deadlines. Clients must bound their
+  // unanswered chunks, respect send readiness, and read responses concurrently to avoid flow-control deadlock.
+  rpc WriteStream(stream WriteStreamRequest) returns (stream WriteStreamResponse);
+}
+
+message WriteRequest {
+  // The dataset to write to.
+  string dataset_rid = 1;
+  repeated Batch batches = 2;
+  // SENSITIVE: never log this value or serialize this message into a log or error payload.
+  // Client-provided identifier for tracing the origin of a write. Empty is treated as unset.
+  optional string session_name = 3;
+}
+
+message WriteResponse {}
+
+// One series' points or one channel's logs. Required; an unset variant fails with VALUES_NOT_SET.
+message Batch {
+  oneof batch {
+    PointBatch points = 1;
+    LogBatch logs = 2;
+  }
+}
+
+// One series' points as parallel columns: timestamps[i] is the timestamp of the i-th value.
+message PointBatch {
+  // Lists every Values arm; a new value type must be added here too, or its batches are rejected.
+
+  string channel = 1;
+  map<string, string> tags = 2;
+  repeated google.protobuf.Timestamp timestamps = 3;
+  // Required; an unset value type fails with VALUES_NOT_SET.
+  Values values = 4;
+  // Applied when the channel's metadata is first created; an existing channel keeps its unit. Batches in a
+  // request that name the same channel must agree on it.
+  optional string unit = 5;
+}
+
+// A batch's values, all of one type. Required; an unset variant fails with VALUES_NOT_SET.
+message Values {
+  oneof values {
+    Doubles doubles = 1;
+    Strings strings = 2;
+    Ints ints = 3;
+    Uint64s uint64s = 4;
+    DoubleArrays double_arrays = 5;
+    StringArrays string_arrays = 6;
+    Structs structs = 7;
+  }
+}
+
+message Doubles {
+  repeated double values = 1;
+}
+
+message Strings {
+  // A value must fit well inside a single Kafka record; the Arrow write path cannot split one point.
+  repeated string values = 1;
+}
+
+message Ints {
+  repeated int64 values = 1;
+}
+
+message Uint64s {
+  repeated uint64 values = 1;
+}
+
+message DoubleArrays {
+  repeated DoubleArray arrays = 1;
+}
+
+message DoubleArray {
+  repeated double values = 1;
+}
+
+message StringArrays {
+  repeated StringArray arrays = 1;
+}
+
+message StringArray {
+  // Keeps one array inside a single Kafka record.
+  repeated string values = 1;
+}
+
+message Structs {
+  // Each value is a JSON object with string keys, under the same per-value bound as Strings.
+  repeated string values = 1;
+}
+
+// One channel's logs as parallel columns: timestamps[i] is the timestamp of logs[i]. Logs carry no tags.
+message LogBatch {
+
+  // Defaults to "logs" when unset.
+  optional string channel = 1;
+  repeated google.protobuf.Timestamp timestamps = 2;
+  repeated LogValue logs = 3;
+}
+
+message LogValue {
+  // Fits a multi-line stack trace without consuming an entire record.
+  string message = 1;
+  map<string, string> args = 2;
+}
+
+message WriteStreamRequest {
+  oneof request {
+
+    DeclareSchemas declare_schemas = 1;
+    WriteChunk chunk = 2;
+  }
+}
+
+message DeclareSchemas {
+  uint64 message_id = 1;
+  // Installed atomically: a rejected declaration installs none of its schemas. IDs must be unique within
+  // the declaration and must not already be installed on this stream, even for identical schemas.
+  repeated Schema schemas = 2;
+}
+
+// One dataset/session and channel/tag set with its value type, identified by a client-chosen stream-local ID.
+message Schema {
+
+  string channel = 1;
+  map<string, string> tags = 2;
+  ChannelType type = 3;
+  optional string unit = 4;
+  // The dataset data referencing this schema is written to.
+  string dataset_rid = 5;
+  // SENSITIVE: never log this field or serialize this message into a log/error payload.
+  // Client-chosen streaming-session name, with the same meaning as WriteRequest.session_name.
+  optional string session_name = 6;
+  // Client-chosen opaque identifier, not a position or allocation size. Once installed it cannot be
+  // reused on this stream, even for an identical schema. A new stream has an independent ID namespace.
+  uint32 schema_id = 7;
+}
+
+enum ChannelType {
+  CHANNEL_TYPE_UNSPECIFIED = 0;
+  CHANNEL_TYPE_DOUBLE = 1;
+  CHANNEL_TYPE_STRING = 2;
+  CHANNEL_TYPE_INT64 = 3;
+  CHANNEL_TYPE_UINT64 = 4;
+  CHANNEL_TYPE_DOUBLE_ARRAY = 5;
+  CHANNEL_TYPE_STRING_ARRAY = 6;
+  CHANNEL_TYPE_STRUCT = 7;
+  // Schema's CEL rule refers to this value by number.
+  CHANNEL_TYPE_LOG = 8;
+}
+
+message WriteChunk {
+  uint64 message_id = 1;
+  // Each schema ID may appear once per chunk. Schemas absent from the chunk receive no points.
+  repeated ChannelData channels = 2;
+}
+
+// Parallel timestamp/value columns, under the same value limits as Write. The handler additionally
+// checks that schema IDs are declared and unique within the chunk, and that values match each schema's
+// declared type, before submitting any writes for the chunk.
+message ChannelData {
+
+  // The client-chosen ID of this channel's successfully declared schema on this stream.
+  uint32 schema_id = 1;
+  repeated google.protobuf.Timestamp timestamps = 2;
+  oneof data {
+
+    Values values = 3;
+    LogValues logs = 4;
+  }
+}
+
+message LogValues {
+  repeated LogValue logs = 1;
+}
+
+message WriteStreamResponse {
+  oneof response {
+
+    Accepted accepted = 1;
+    Rejected rejected = 2;
+    SchemasDeclared schemas_declared = 3;
+  }
+}
+
+// Terminal success for chunks only. At most 1000 IDs per response. No ordering or batching guarantee;
+// an empty list is an idle heartbeat, not an acknowledgment of any request.
+message Accepted {
+  repeated uint64 message_ids = 1;
+}
+
+// Terminal success for the entire declaration identified by message_id. Its client-chosen schema IDs
+// are installed and may be used in chunks; there are no server-assigned IDs to return.
+message SchemasDeclared {
+  uint64 message_id = 1;
+}
+
+// Terminal failure for a declaration or chunk. Status uses the same codes and structured ErrorInfo as
+// unary writes, including RESOURCE_EXHAUSTED and UNAVAILABLE; RetryInfo may supply retry guidance.
+// The server bounds the serialized status to 8 KiB and never includes customer values in its message or
+// details. A rejected write is not a guarantee that no points were persisted; retries may duplicate data.
+message Rejected {
+
+  uint64 message_id = 1;
+  google.rpc.Status status = 2;
+}
+
+// Errors specific to this API. Shared domain errors (invalid structs, conflicting units) retain the
+// NominalChannelWriter Conjure error names used by the other write surfaces.
+enum NominalChannelWriterError {
+  NOMINAL_CHANNEL_WRITER_ERROR_UNSPECIFIED = 0;
+  NOMINAL_CHANNEL_WRITER_ERROR_INVALID_DATASET_RID = 1;
+  NOMINAL_CHANNEL_WRITER_ERROR_VALUES_NOT_SET = 2;
+  NOMINAL_CHANNEL_WRITER_ERROR_MESSAGE_ID_IN_USE = 3;
+  NOMINAL_CHANNEL_WRITER_ERROR_SCHEMA_NOT_DECLARED = 4;
+  NOMINAL_CHANNEL_WRITER_ERROR_DUPLICATE_SCHEMA_ID = 5;
+  NOMINAL_CHANNEL_WRITER_ERROR_CHANNEL_TYPE_MISMATCH = 6;
+  NOMINAL_CHANNEL_WRITER_ERROR_SCHEMA_LIMIT_EXCEEDED = 7;
+  NOMINAL_CHANNEL_WRITER_ERROR_SCHEMA_ID_IN_USE = 8;
+}
