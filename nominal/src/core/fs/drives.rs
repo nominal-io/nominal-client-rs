@@ -258,6 +258,7 @@ impl DrivesClient {
         let request = proto::CreateDriveRequest {
             workspace_rid: self.workspace_rid()?,
             id: id.into(),
+            description: None,
         };
         let response = self.service().create_drive(request).await?.into_inner();
         required_drive(response.drive)
@@ -309,6 +310,7 @@ impl DrivesClient {
         let request = proto::UpdateDriveDetailsRequest {
             drive_rid: rid.to_string(),
             id: Some(new_id.into()),
+            description: None,
         };
         let response = self
             .service()
@@ -418,6 +420,7 @@ mod tests {
             }),
             source: proto::DriveSource::Nominal as i32,
             content_mutability: proto::DriveMutability::Writable as i32,
+            description: None,
         });
         assert_eq!(drive.rid(), "ri.filestore.test.drive.abc");
         assert_eq!(drive.workspace_rid(), "ri.security.test.workspace.def");
@@ -443,6 +446,7 @@ mod tests {
             created: None,
             source: 0,
             content_mutability: 0,
+            description: None,
         });
         assert_eq!(drive.created_at(), None);
         assert_eq!(drive.created_by(), None);
