@@ -7,6 +7,7 @@ pub(crate) mod datetime;
 pub(crate) mod fs;
 pub(crate) mod grpc;
 pub(crate) mod ingest;
+pub(crate) mod properties;
 pub(crate) mod rid;
 pub(crate) mod run;
 pub(crate) mod template;
@@ -36,6 +37,7 @@ pub use ingest::{
     IngestJobStatus, IngestType, JournalJsonIngest, McapIngest, ParquetIngest, ProgressCallback,
     TimeUnit, Timestamp, UploadEvent, UploadOptions, VideoIngest, VideoTarget,
 };
+pub use properties::PropertyValue;
 pub use run::{Run, RunCreate, RunQuery, RunUpdate, RunsClient};
 pub use template::{Template, TemplatesClient};
 pub use user::{User, UsersClient};

@@ -196,13 +196,25 @@ impl TryFrom<proto::ManagedFileRevision> for FileRevision {
     type Error = crate::Error;
 
     fn try_from(revision: proto::ManagedFileRevision) -> Result<Self> {
+        let Some(proto::file_revision_ref::Reference::Managed(revision_ref)) =
+            revision.r#ref.and_then(|r| r.reference)
+        else {
+            return Err(crate::Error::UnexpectedResponse {
+                field: "ManagedFileRevision.ref.managed",
+            });
+        };
+        let Some(proto::logical_file_identity::Identity::Managed(identity)) =
+            revision.identity.and_then(|i| i.identity)
+        else {
+            return Err(crate::Error::UnexpectedResponse {
+                field: "ManagedFileRevision.identity.managed",
+            });
+        };
         let path = revision.path.required("ManagedFileRevision.path")?.path;
         let (created_at, created_by) = attribution_parts(revision.created);
         Ok(Self {
-            #[allow(deprecated)]
-            file_revision_rid: revision.file_revision_rid,
-            #[allow(deprecated)]
-            file_rid: revision.file_rid,
+            file_revision_rid: revision_ref.file_revision_rid,
+            file_rid: identity.file_rid,
             path,
             size_bytes: revision.size_bytes,
             created_at,
@@ -636,5 +648,52 @@ mod tests {
         };
         assert_eq!(file.path(), "telemetry/flight.csv");
         assert_eq!(file.managed_file_rid(), None);
+    }
+
+    fn managed_revision() -> proto::ManagedFileRevision {
+        proto::ManagedFileRevision {
+            r#ref: Some(proto::FileRevisionRef {
+                reference: Some(proto::file_revision_ref::Reference::Managed(
+                    proto::ManagedFileRevisionRef {
+                        file_revision_rid: "ri.file-revision.1".to_string(),
+                    },
+                )),
+            }),
+            identity: Some(proto::LogicalFileIdentity {
+                identity: Some(proto::logical_file_identity::Identity::Managed(
+                    proto::ManagedFileIdentity {
+                        file_rid: "ri.file.1".to_string(),
+                    },
+                )),
+            }),
+            path: Some(proto::LogicalPath {
+                path: "a/b.csv".to_string(),
+            }),
+            size_bytes: 7,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn file_revision_reads_ref_and_identity() {
+        let revision = FileRevision::try_from(managed_revision()).unwrap();
+        assert_eq!(revision.file_revision_rid(), "ri.file-revision.1");
+        assert_eq!(revision.file_rid(), "ri.file.1");
+        assert_eq!(revision.path(), "a/b.csv");
+        assert_eq!(revision.size_bytes(), 7);
+    }
+
+    #[test]
+    fn file_revision_requires_managed_ref() {
+        let revision = proto::ManagedFileRevision {
+            r#ref: None,
+            ..managed_revision()
+        };
+        assert!(matches!(
+            FileRevision::try_from(revision),
+            Err(crate::Error::UnexpectedResponse {
+                field: "ManagedFileRevision.ref.managed"
+            })
+        ));
     }
 }
