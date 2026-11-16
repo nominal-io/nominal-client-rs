@@ -16,7 +16,7 @@ use nominal_api::objects::scout::asset::api::{
     UpdateAssetRequest,
 };
 use nominal_api::objects::scout::rids::api::{LabelsFilter, PropertiesFilter};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 
 use crate::core::datasource::DataSource;
 use crate::core::properties::{
@@ -757,7 +757,7 @@ mod tests {
         let req = AssetUpdate::new().into_request();
         assert!(req.title().is_none());
         assert!(req.description().is_none());
-        assert!(req.properties().is_none());
+        assert!(req.typed_properties().is_none());
         assert!(req.labels().is_none());
     }
 
@@ -780,15 +780,19 @@ mod tests {
         let req = AssetUpdate::new()
             .properties([("k1", "v1"), ("k2", "v2")])
             .into_request();
-        let props = req.properties().expect("properties should be set");
+        let props = req.typed_properties().expect("properties should be set");
         assert_eq!(props.len(), 2);
         assert_eq!(
             props.get(&nominal_api::objects::api::PropertyName("k1".into())),
-            Some(&nominal_api::objects::api::PropertyValue("v1".into()))
+            Some(&nominal_api::objects::api::TypedPropertyValue::StringValue(
+                nominal_api::objects::api::PropertyValue("v1".into())
+            ))
         );
         assert_eq!(
             props.get(&nominal_api::objects::api::PropertyName("k2".into())),
-            Some(&nominal_api::objects::api::PropertyValue("v2".into()))
+            Some(&nominal_api::objects::api::TypedPropertyValue::StringValue(
+                nominal_api::objects::api::PropertyValue("v2".into())
+            ))
         );
     }
 
@@ -814,7 +818,7 @@ mod tests {
             .into_request();
         assert_eq!(req.title(), Some("name"));
         assert_eq!(req.description(), Some("desc"));
-        assert!(req.properties().is_some());
+        assert!(req.typed_properties().is_some());
         assert!(req.labels().is_some());
     }
 }

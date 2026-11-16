@@ -7,7 +7,9 @@ use conjure_runtime::Client;
 use futures::Stream;
 use nominal_api::clients::scout::{AsyncRunService, AsyncRunServiceClient};
 use nominal_api::objects::api::rids::WorkspaceRid;
-use nominal_api::objects::api::{Label, PropertyName, PropertyValue as ApiPropertyValue, SetOperator};
+use nominal_api::objects::api::{
+    Label, PropertyName, PropertyValue as ApiPropertyValue, SetOperator,
+};
 use nominal_api::objects::scout::rids::api::AssetRid;
 use nominal_api::objects::scout::rids::api::{LabelsFilter, PropertiesFilter};
 use nominal_api::objects::scout::run::api::{
@@ -933,7 +935,7 @@ mod tests {
         let req = RunUpdate::new().into_request().unwrap();
         assert!(req.title().is_none());
         assert!(req.description().is_none());
-        assert!(req.properties().is_none());
+        assert!(req.typed_properties().is_none());
         assert!(req.labels().is_none());
         assert!(req.start_time().is_none());
         assert!(req.end_time().is_none());
@@ -956,11 +958,13 @@ mod tests {
             .properties([("k", "v")])
             .into_request()
             .unwrap();
-        let props = req.properties().expect("properties should be set");
+        let props = req.typed_properties().expect("properties should be set");
         assert_eq!(props.len(), 1);
         assert_eq!(
             props.get(&nominal_api::objects::api::PropertyName("k".into())),
-            Some(&nominal_api::objects::api::PropertyValue("v".into()))
+            Some(&nominal_api::objects::api::TypedPropertyValue::StringValue(
+                nominal_api::objects::api::PropertyValue("v".into())
+            ))
         );
     }
 
@@ -994,13 +998,28 @@ mod tests {
     // --- RunCreate::into_request ---
 
     #[test]
+    fn create_sends_numeric_properties() {
+        let start = Utc.timestamp_opt(1_700_000_000, 0).single().unwrap();
+        let req = RunCreate::new("my-run", start)
+            .properties([("mass_kg", PropertyValue::from(12.5))])
+            .into_request(None)
+            .unwrap();
+
+        assert_eq!(
+            req.typed_properties()
+                .get(&nominal_api::objects::api::PropertyName("mass_kg".into())),
+            Some(&nominal_api::objects::api::TypedPropertyValue::NumericValue(12.5))
+        );
+    }
+
+    #[test]
     fn create_minimal_request() {
         let start = Utc.timestamp_opt(1_700_000_000, 0).single().unwrap();
         let req = RunCreate::new("my-run", start).into_request(None).unwrap();
         assert_eq!(req.title(), "my-run");
         assert_eq!(req.description(), "");
         assert!(req.end_time().is_none());
-        assert!(req.properties().is_empty());
+        assert!(req.typed_properties().is_empty());
         assert!(req.labels().is_empty());
         assert!(req.assets().is_empty());
         assert!(req.workspace().is_none());
@@ -1026,7 +1045,7 @@ mod tests {
         assert_eq!(req.description(), "desc");
         // labels deduplicated by BTreeSet
         assert_eq!(req.labels().len(), 2);
-        assert_eq!(req.properties().len(), 1);
+        assert_eq!(req.typed_properties().len(), 1);
 
         use crate::core::datetime::api_timestamp_to_utc;
         assert_eq!(api_timestamp_to_utc(req.start_time()).unwrap(), start);

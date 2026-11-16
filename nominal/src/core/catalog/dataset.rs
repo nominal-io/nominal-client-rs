@@ -4,7 +4,7 @@ use nominal_api::objects::api::{Label, Property, PropertyName, PropertyValue as 
 use nominal_api::objects::scout::catalog::{
     ChannelConfig, CreateDataset, DatasetOriginMetadata, SearchDatasetsQuery, UpdateDatasetMetadata,
 };
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 
 use crate::Result;
 use crate::core::properties::{
@@ -104,6 +104,7 @@ impl DatasetCreate {
         self
     }
 
+    /// When this dataset is created as an ingest target, numeric values are sent as strings.
     #[must_use]
     pub fn properties<I, K, V>(mut self, value: I) -> Self
     where
@@ -456,7 +457,7 @@ mod tests {
         let req = DatasetUpdate::new().into_request();
         assert!(req.name().is_none());
         assert!(req.description().is_none());
-        assert!(req.properties().is_none());
+        assert!(req.typed_properties().is_none());
         assert!(req.labels().is_none());
     }
 
@@ -477,7 +478,7 @@ mod tests {
             .into_request();
         assert_eq!(req.name(), Some("name"));
         assert_eq!(req.description(), Some("desc"));
-        assert_eq!(req.properties().unwrap().len(), 1);
+        assert_eq!(req.typed_properties().unwrap().len(), 1);
         assert_eq!(req.labels().unwrap().len(), 2); // deduplicated
     }
 }
