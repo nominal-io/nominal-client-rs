@@ -5,8 +5,6 @@ use conjure_object::BearerToken;
 use conjure_runtime::{Agent, Client, UserAgent};
 use nominal_api::objects::api::rids::WorkspaceRid;
 use nominal_streaming::client::ProductAgent;
-use nominal_streaming::log::NominalLogStreamOpts;
-use nominal_streaming::stream::NominalStreamOpts;
 
 use crate::config::{Config, Profile};
 use crate::core::rid::parse_rid;
@@ -29,7 +27,6 @@ pub struct NominalClient {
     workspace_rid: Option<WorkspaceRid>,
     base_url: String,
     grpc: crate::core::grpc::GrpcConnection,
-    user_agent: ProductAgent,
 }
 
 impl std::fmt::Debug for NominalClient {
@@ -75,28 +72,6 @@ impl NominalClient {
 
     pub fn workspace_rid(&self) -> Option<&str> {
         self.workspace_rid.as_ref().map(|w| w.0.as_str())
-    }
-
-    /// The product name and version this client sends at the start of its `User-Agent` header.
-    pub fn user_agent(&self) -> &ProductAgent {
-        &self.user_agent
-    }
-
-    /// Options for a [`crate::streaming::stream::NominalDatasetStream`] that send to this
-    /// client's base URL with this client's user agent.
-    pub fn stream_opts(&self) -> NominalStreamOpts {
-        NominalStreamOpts::default()
-            .with_base_api_url(&self.base_url)
-            .with_user_agent(self.user_agent.clone())
-    }
-
-    /// Options for a [`crate::streaming::log::NominalLogStream`] that send to this client's
-    /// base URL with this client's user agent.
-    pub fn log_stream_opts(&self) -> NominalLogStreamOpts {
-        let mut opts = NominalLogStreamOpts::default();
-        opts.base_api_url = self.base_url.clone();
-        opts.user_agent = self.user_agent.clone();
-        opts
     }
 
     /// Access run operations.
@@ -241,7 +216,7 @@ impl NominalClientBuilder {
         self
     }
 
-    /// Override the default `User-Agent` value for API and streaming requests.
+    /// Override the default `User-Agent` value.
     ///
     /// The generated header starts with `name/version`. [`Self::build`] returns
     /// [`Error::InvalidUserAgent`] unless the name and version satisfy [`ProductAgent::new`].
@@ -271,7 +246,6 @@ impl NominalClientBuilder {
             workspace_rid,
             base_url: self.base_url,
             grpc,
-            user_agent,
         })
     }
 }
@@ -312,32 +286,6 @@ mod tests {
             agent.to_string(),
             format!("{SDK_USER_AGENT_NAME}/{SDK_USER_AGENT_VERSION}")
         );
-    }
-
-    #[tokio::test]
-    async fn client_defaults_to_sdk_user_agent() {
-        let client = NominalClientBuilder::new("token").build().unwrap();
-
-        assert_eq!(client.user_agent().name(), SDK_USER_AGENT_NAME);
-        assert_eq!(client.user_agent().version(), SDK_USER_AGENT_VERSION);
-    }
-
-    #[tokio::test]
-    async fn stream_opts_carry_client_user_agent_and_base_url() {
-        let client = NominalClientBuilder::new("token")
-            .base_url("https://api.example.test/api")
-            .user_agent("nominal-cli", "1.2.3")
-            .build()
-            .unwrap();
-        let expected = ProductAgent::new("nominal-cli", "1.2.3").unwrap();
-
-        let stream_opts = client.stream_opts();
-        assert_eq!(stream_opts.user_agent, expected);
-        assert_eq!(stream_opts.base_api_url, "https://api.example.test/api");
-
-        let log_stream_opts = client.log_stream_opts();
-        assert_eq!(log_stream_opts.user_agent, expected);
-        assert_eq!(log_stream_opts.base_api_url, "https://api.example.test/api");
     }
 
     #[test]
