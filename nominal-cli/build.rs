@@ -443,14 +443,20 @@ fn generate_proto_descriptor(protos_dir: &Path, includes_dir: &Path, out_dir: &P
     let descriptor_path = out_dir.join("nominal_descriptor.bin");
 
     // Paths relative to `protos_dir` keep the protoc command line under the
-    // Windows length limit; protoc resolves them against the include paths.
+    // Windows length limit; protoc resolves them against the include paths,
+    // which requires `/` separators on every platform.
     // `main` already reruns this script when anything under `protos_dir` changes.
-    let proto_files = collect_proto_files(protos_dir);
-    let proto_file_paths: Vec<&Path> = proto_files
+    let proto_file_paths: Vec<PathBuf> = collect_proto_files(protos_dir)
         .iter()
         .map(|p| {
-            p.strip_prefix(protos_dir)
-                .expect("collected protos are under protos_dir")
+            let relative = p
+                .strip_prefix(protos_dir)
+                .expect("collected protos are under protos_dir");
+            let components: Vec<_> = relative
+                .components()
+                .map(|c| c.as_os_str().to_str().expect("proto paths are UTF-8"))
+                .collect();
+            PathBuf::from(components.join("/"))
         })
         .collect();
 
@@ -459,6 +465,9 @@ fn generate_proto_descriptor(protos_dir: &Path, includes_dir: &Path, out_dir: &P
         .build_client(false)
         .emit_rerun_if_changed(false)
         .file_descriptor_set_path(&descriptor_path)
-        .compile_protos(&proto_file_paths, &[protos_dir, includes_dir])
+        .compile_protos(
+            &proto_file_paths,
+            &[protos_dir.to_path_buf(), includes_dir.to_path_buf()],
+        )
         .expect("failed to compile proto descriptors");
 }
