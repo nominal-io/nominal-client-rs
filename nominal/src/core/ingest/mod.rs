@@ -389,6 +389,11 @@ impl IngestClient {
                         details: format!("ingest job {rid} was cancelled"),
                     });
                 }
+                IngestJobStatus::DeletionInProgress | IngestJobStatus::Deleted => {
+                    return Err(Error::Ingest {
+                        details: format!("ingest job {rid} was deleted"),
+                    });
+                }
                 IngestJobStatus::Unknown(s) => {
                     return Err(Error::Ingest {
                         details: format!("ingest job {rid} reported unknown status: {s}"),
