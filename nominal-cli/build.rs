@@ -442,12 +442,22 @@ fn extract_field_value(snippet: &str, field: &str) -> Option<String> {
 fn generate_proto_descriptor(protos_dir: &Path, includes_dir: &Path, out_dir: &Path) {
     let descriptor_path = out_dir.join("nominal_descriptor.bin");
 
+    // Paths relative to `protos_dir` keep the protoc command line under the
+    // Windows length limit; protoc resolves them against the include paths.
+    // `main` already reruns this script when anything under `protos_dir` changes.
     let proto_files = collect_proto_files(protos_dir);
-    let proto_file_paths: Vec<&Path> = proto_files.iter().map(|p| p.as_path()).collect();
+    let proto_file_paths: Vec<&Path> = proto_files
+        .iter()
+        .map(|p| {
+            p.strip_prefix(protos_dir)
+                .expect("collected protos are under protos_dir")
+        })
+        .collect();
 
     tonic_prost_build::configure()
         .build_server(false)
         .build_client(false)
+        .emit_rerun_if_changed(false)
         .file_descriptor_set_path(&descriptor_path)
         .compile_protos(&proto_file_paths, &[protos_dir, includes_dir])
         .expect("failed to compile proto descriptors");
