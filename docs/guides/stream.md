@@ -1,97 +1,78 @@
 # Stream data
 
 {.lead}
-Send points to a dataset as your program produces them. `nominal::streaming` is the [nominal-streaming](https://github.com/nominal-io/nominal-streaming) crate, which buffers points and sends them in batches. It needs a dataset to stream to and a tokio runtime.
+A stream sends [points](https://dev.nominal.io/platform/data-model/#time-series-data) to a dataset as your program produces them. The `nominal` crate includes the [nominal-streaming](https://dev.nominal.io/nominal-streaming/) crate, version 0.9, as `nominal::streaming`.
 
-## Open a stream to a dataset
-
-The stream takes your API key and base URL from a profile:
+## Stream to a dataset
 
 ```rust
+use nominal::core::DatasetCreate;
 use nominal::streaming::prelude::*;
 use nominal::streaming::stream::NominalDatasetStreamBuilder;
 
+let client = nominal::NominalClient::from_profile("default")?;
+let dataset = client.catalog().create_dataset(DatasetCreate::new("Bench test")).await?;
+
+// The stream takes the API key and base URL from the profile
 let config = nominal::Config::load()?;
-let profile = config.get_profile("default").expect("no profile named default");
+let profile = config.get_profile("default").ok_or("no profile named default")?;
+let token = BearerToken::new(profile.token())?;
+let dataset_rid = ResourceIdentifier::new(dataset.rid())?;
 
 let stream = NominalDatasetStreamBuilder::new()
-    .stream_to_core(
-        BearerToken::new(profile.token())?,
-        ResourceIdentifier::new("<ri.catalog.instance.dataset.identifier>")?,
-        tokio::runtime::Handle::current(),
-    )
+    .stream_to_core(token, dataset_rid, tokio::runtime::Handle::current())
     .with_options(NominalStreamOpts { base_api_url: profile.base_url().to_string(), ..Default::default() })
     .build();
-```
 
-To create the dataset first, see [Datasets](datasets.md#create-a-dataset), and pass its `rid()`.
+let mut voltage_writer = stream.double_writer(ChannelDescriptor::new("voltage"));
+let mut state_writer = stream.string_writer(ChannelDescriptor::new("state"));
 
-## Write points
+// Push each reading with the time it was measured
+let now = std::time::UNIX_EPOCH.elapsed()?;
+voltage_writer.push(now, 12.1);
+state_writer.push(now, "running");
 
-Each channel gets a writer for its value type. A point is a timestamp and a value. Use the time each value was measured, not the time you write it:
-
-```rust
-let mut voltage = stream.double_writer(ChannelDescriptor::new("voltage"));
-let mut state = stream.string_writer(ChannelDescriptor::new("state"));
-
-for i in 0..100 {
-    let now = chrono::Utc::now();
-    voltage.push(now, 12.0 + (i % 10) as f64 / 10.0);
-    state.push(now, if i < 10 { "idle" } else { "running" });
-}
-```
-
-Timestamps can be `chrono::DateTime` values, a `std::time::Duration` since the Unix epoch, or `i64` nanoseconds since the Unix epoch. The stream also has `integer_writer`, `uint64_writer`, `struct_writer`, `double_array_writer` and `string_array_writer`.
-
-A writer sends its points to the stream in batches, and when you drop it. Dropping the stream waits until every point has been sent, so drop writers first:
-
-```rust
-drop(voltage);
-drop(state);
+// Drop the writers, then the stream, which waits until every point is sent
+drop(voltage_writer);
+drop(state_writer);
 drop(stream);
 ```
 
-To set a channel's unit and description before its first values arrive, see [Channels](channels.md#set-units-and-descriptions).
+For integers, structs, arrays and tags, see [Write points](https://dev.nominal.io/nominal-streaming/guides/write/). For batching options and failed requests, see [Stream configuration](https://dev.nominal.io/nominal-streaming/guides/configure/). To give a channel a unit and description, see [Channels](channels.md#set-units-and-descriptions).
 
-## Tag points
+If tags tell apart two motors in one dataset, add the dataset to each motor's asset with {rust:method}`add_dataset_with_tags <AssetsClient::add_dataset_with_tags>`, as in [Assets](assets.md#add-data-with-data-scopes).
 
-Tags tell apart points in the same channel, such as two motors on one test stand:
+:::{note}
+The nominal-streaming guides cover version 0.11. Where they call a `with_` method on `NominalStreamOpts`, set the field of the same name, as above, and call `build` in place of `try_build`. [Log streams](https://dev.nominal.io/nominal-streaming/guides/logs/) and metrics need nominal-streaming 0.10.6 or later.
+:::
 
-```rust
-let mut left = stream.double_writer(ChannelDescriptor::with_tags("motor.temperature", [("motor_id", "left")]));
-let mut right = stream.double_writer(ChannelDescriptor::with_tags("motor.temperature", [("motor_id", "right")]));
-```
+## Fallback file
 
-An asset or a run can then select one tag value, with `add_dataset_with_tags`, as in [Assets](assets.md#add-data-with-data-scopes). Tag with a small set of values, such as component, vehicle or test configuration, not with values that change every point.
-
-## Stream options
-
-`NominalStreamOpts` sets where points go, how they're batched, and when writes wait for the network:
+With a fallback file, the points a stream can't send go to a file on disk rather than being lost.
 
 ```rust
-use std::time::Duration;
-
-let opts = NominalStreamOpts {
-    base_api_url: profile.base_url().to_string(),
-    max_points_per_record: 100_000,                 // default 250,000
-    max_request_delay: Duration::from_millis(250), // default 100 ms
-    max_buffered_requests: 4,                       // default 4
-    request_dispatcher_tasks: 8,                    // requests sent at once; default 8
-};
+let stream = NominalDatasetStreamBuilder::new()
+    .stream_to_core(token, dataset_rid, tokio::runtime::Handle::current())
+    .with_options(NominalStreamOpts { base_api_url: profile.base_url().to_string(), ..Default::default() })
+    .with_file_fallback("fallback.avro")
+    .build();
 ```
 
-A request goes out when it has `max_points_per_record` points, or when `max_request_delay` has passed. When `max_buffered_requests` requests are waiting to be sent, writes wait for one to go.
+:::{warning}
+In 0.9, a stream empties its fallback file when it starts. Upload the file before you start another stream, or give each stream its own file.
+:::
 
-## Keep a copy on disk
-
-To save points to a file when they can't be sent, add `.with_file_fallback("fallback.avro")` to the builder above, before `.build()`. To upload the file later:
+When the network is back, upload the file to the same dataset:
 
 ```rust
 use nominal::core::AvroStreamIngest;
 
-let (job, _) = client
-    .ingest()
-    .upload_avro_stream("fallback.avro", "<ri.catalog.instance.dataset.identifier>", AvroStreamIngest::new())
-    .await?;
-client.ingest().wait_for_ingest_job(job.rid()).await?;
+// The file is empty when no points went to it
+if std::fs::metadata("fallback.avro")?.len() > 0 {
+    let (job, _) = client
+        .ingest()
+        .upload_avro_stream("fallback.avro", dataset.rid(), AvroStreamIngest::new())
+        .await?;
+    client.ingest().wait_for_ingest_job(job.rid()).await?;
+}
 ```

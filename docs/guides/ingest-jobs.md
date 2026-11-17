@@ -1,43 +1,31 @@
 # Ingest jobs
 
 {.lead}
-Uploading a file starts an ingest job, which reads the file into Nominal. Wait for the job before you use the data, and check its status when an ingest fails.
-
-## What an upload returns
-
-Each `upload_*` function returns the ingest job, and the RID of the dataset the data goes into. `upload_video` returns the video's RID instead.
-
-```rust
-use nominal::core::{CsvIngest, DatasetCreate, Timestamp};
-
-let (job, dataset_rid) = client
-    .ingest()
-    .upload_csv("bench.csv", DatasetCreate::new("Bench test"), CsvIngest::new(Timestamp::iso8601("time")))
-    .await?;
-```
-
-The upload returns once the file is uploaded and the job is created. The data isn't in the dataset until the job completes.
+Uploading a file starts an ingest job, which reads the file into its dataset. The data is in the dataset once the job completes.
 
 ## Wait for a job
 
-`wait_for_ingest_job` checks the job every 2 seconds, and returns the job once it completes:
-
 ```rust
-let job = client.ingest().wait_for_ingest_job(job.rid()).await?;
-```
+use std::time::Duration;
 
-It returns an error if the job fails or is cancelled, or reports a status this client doesn't recognize. To check at another interval, such as for a large file:
+use nominal::core::{CsvIngest, Timestamp};
 
-```rust
-let job = client
+let client = nominal::NominalClient::from_profile("default")?;
+let (job, _) = client
     .ingest()
-    .wait_for_ingest_job_with_interval(job.rid(), std::time::Duration::from_secs(10))
+    .upload_csv("bench.csv", "<ri.catalog.instance.dataset.identifier>", CsvIngest::new(Timestamp::iso8601("timestamp")))
     .await?;
+
+// Check the job every 2 seconds until it completes. This returns an error if the job fails or is cancelled.
+let job = client.ingest().wait_for_ingest_job(job.rid()).await?;
+
+// Or check every 10 seconds, such as for a large file
+let job = client.ingest().wait_for_ingest_job_with_interval(job.rid(), Duration::from_secs(10)).await?;
 ```
 
 ## Check a job's status
 
-`get_ingest_job` checks a job once:
+{rust:method}`get_ingest_job <IngestClient::get_ingest_job>` checks a job once, without waiting.
 
 ```rust
 use nominal::core::IngestJobStatus;
@@ -45,31 +33,28 @@ use nominal::core::IngestJobStatus;
 let job = client.ingest().get_ingest_job(job.rid()).await?;
 match job.status() {
     IngestJobStatus::Completed => println!("ingested"),
-    IngestJobStatus::Failed | IngestJobStatus::Cancelled => eprintln!("not ingested: {:?}", job.origin_files()),
-    status if !status.is_terminal() => println!("still running: {status:?}"),
-    other => eprintln!("unrecognized status: {other:?}"),
+    IngestJobStatus::Submitted | IngestJobStatus::Queued | IngestJobStatus::InProgress => println!("still ingesting"),
+    other => eprintln!("not ingested: {other:?}"), // Failed, Cancelled, or a status this client doesn't know
 }
 ```
 
-A job moves through `Submitted`, `Queued` and `InProgress`, and ends as `Completed`, `Failed` or `Cancelled`. `Unknown` holds a status this client doesn't recognize. `origin_files` lists the files the job is ingesting, when the server reports them, and `ingest_type` the kind of data, such as `Tabular` or `Mcap`.
-
 ## Upload options and progress
 
-Files upload in parts of 64 MiB, eight at a time, and each part is retried up to 3 times. `UploadOptions` changes these and reports progress. Every file type's options take it, through `upload_options`:
+Each file type's options take {rust:struct}`UploadOptions`, which set how the file uploads and report its progress.
 
 ```rust
 use nominal::core::{CsvIngest, Timestamp, UploadEvent, UploadOptions};
 
-let options = UploadOptions::new()
-    .chunk_size(16 * 1024 * 1024) // at least 5 MiB
-    .max_concurrency(4)
-    .max_retries(5)
+let upload_options = UploadOptions::new()
+    .chunk_size(16 * 1024 * 1024) // bytes in each part: 64 MiB by default, and at least 5 MiB
+    .max_concurrency(4)           // parts uploaded at once: 8 by default
+    .max_retries(5)               // retries for each part: 3 by default
     .on_progress(|event| match event {
         UploadEvent::Started { total_bytes, total_parts } => println!("{total_bytes} bytes in {total_parts} parts"),
         UploadEvent::PartCompleted { part_number, .. } => println!("part {part_number} uploaded"),
         UploadEvent::Completed { .. } => println!("upload complete"),
     });
-let ingest = CsvIngest::new(Timestamp::iso8601("time")).upload_options(options);
+let ingest = CsvIngest::new(Timestamp::iso8601("timestamp")).upload_options(upload_options);
 ```
 
-The callback runs on the upload's tasks, so keep it short: send events to a channel for anything slower.
+The progress callback runs inside the upload, so keep it quick. Hand slower work to another task.

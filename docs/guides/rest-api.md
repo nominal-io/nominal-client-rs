@@ -1,65 +1,65 @@
 # Call the REST API directly
 
 {.lead}
-For parts of Nominal's REST API that `NominalClient` doesn't cover, such as events and creating checklists, use the generated REST API clients that come with the `nominal` crate, as `nominal::streaming::api`. They take your API key and base URL from the same profile.
+The `nominal` crate comes with generated clients for Nominal's REST API, in `nominal::streaming::api`. Use them for what `NominalClient` doesn't cover, such as events, creating checklists, executing a checklist on a run, and [runs that select tagged data](../examples/simulation-runs.md).
 
-## Set up a client
-
-Each REST API service has a client in `nominal::streaming::api::clients`, with its requests and responses in `nominal::streaming::api::objects`. Create the HTTP client once, and the service clients from it:
+## Set up the REST API clients
 
 ```rust
 use std::sync::Arc;
 
-use anyhow::Context;
+use nominal::streaming::api::objects::api::rids::WorkspaceRid;
 use nominal::streaming::client::async_conjure_client;
 use nominal::streaming::client::conjure::http::client::{AsyncService, ConjureRuntime};
-use nominal::streaming::prelude::BearerToken;
+use nominal::streaming::prelude::{BearerToken, ResourceIdentifier};
 
+let client = nominal::NominalClient::from_profile("default")?;
+
+// Load the API key, base URL and workspace that API Keys Setup saved
 let config = nominal::Config::load()?;
-let profile = config.get_profile("default").context("no profile named default")?;
+let profile = config.get_profile("default").ok_or("no profile named default")?;
 let token = BearerToken::new(profile.token())?;
-let api = async_conjure_client("events", profile.base_url().parse()?).map_err(nominal::Error::from)?;
+let workspace = WorkspaceRid(ResourceIdentifier::new(profile.workspace_rid().ok_or("no workspace in the profile")?)?);
+
+// One HTTP client for every service, named "nominal" in its logs
+let api = async_conjure_client("nominal", profile.base_url().parse()?).map_err(nominal::Error::from)?;
 let runtime = Arc::new(ConjureRuntime::default());
 ```
 
-The first argument of `async_conjure_client` names the client in its logs and metrics. Requests go to the base URL. Every request takes the token, and its errors convert to `nominal::Error`.
-
-Each request and response type has the same name in the [REST API reference](https://dev.nominal.io/api/), which describes its fields. The reference writes field names in camelCase, such as `seriesTags`, and Rust in snake_case, such as `series_tags`.
-
-The examples on this page use [anyhow](https://docs.rs/anyhow) for errors.
+Each service's client is in `nominal::streaming::api::clients`, and its requests and responses are in `nominal::streaming::api::objects`. Each client method is an endpoint of the same name in the [REST API reference](https://dev.nominal.io/api/), such as `create_event` for [Create event](https://dev.nominal.io/api/legacy/event-service/#create-event). The reference writes fields in camelCase, such as `assetRids` for `asset_rids`.
 
 ## Create an event
 
-An event marks a moment or a span of time on assets, such as a fault:
+An [event](https://dev.nominal.io/platform/data-model/#events) marks a moment or a span of time on assets, such as a fault:
 
 ```rust
 use nominal::streaming::api::clients::event::{AsyncEventService, AsyncEventServiceClient};
+use nominal::streaming::api::objects::api::Timestamp;
+use nominal::streaming::api::objects::event::{CreateEvent, EventType};
 use nominal::streaming::api::objects::scout::{rids::api::AssetRid, run::api::Duration};
-use nominal::streaming::api::objects::{api::Timestamp, event::{CreateEvent, EventType}};
 use nominal::streaming::client::conjure::object::SafeLong;
-use nominal::streaming::prelude::ResourceIdentifier;
 
-let events = AsyncEventServiceClient::new(api.clone(), &runtime);
+// Times are in seconds and nanoseconds
 let event = CreateEvent::builder()
     .timestamp(Timestamp::new(SafeLong::new(1_767_268_800)?, SafeLong::new(0)?)) // 2026-01-01T12:00:00Z
-    .duration(Duration::new(SafeLong::new(5)?, SafeLong::new(0)?)) // zero for a point in time
+    .duration(Duration::new(SafeLong::new(5)?, SafeLong::new(0)?)) // 0 for a moment
     .name("Overtemperature")
     .type_(EventType::Error)
     .insert_asset_rids(AssetRid(ResourceIdentifier::new("<ri.scout.instance.asset.identifier>")?))
     .build();
-events.create_event(&token, &event).await.map_err(nominal::Error::from)?;
+let events = AsyncEventServiceClient::new(api.clone(), &runtime);
+events.create_event(&token, &event).await.map_err(nominal::Error::from)?; // convert to nominal::Error so ? works
 ```
-
-Timestamps and durations are seconds and nanoseconds. [Create event](https://dev.nominal.io/api/legacy/event-service/#create-event) lists the other fields an event takes.
 
 ## Create a checklist
 
-A checklist's checks each have a condition on channels. The condition refers to a channel through a variable, bound to a channel name under a ref name. This check is violated where `temperature`, under the ref name `default`, is above 80:
+A check's condition finds channels through variables. This check fails where the channel `temperature`, under the [ref name](https://dev.nominal.io/platform/data-model/#data-scopes-and-ref-names) `default`, is above 80:
 
 ```rust
 use std::collections::BTreeMap;
 
 use nominal::streaming::api::clients::scout::checks::api::{AsyncChecklistService, AsyncChecklistServiceClient};
+use nominal::streaming::api::objects::api::Channel;
 use nominal::streaming::api::objects::scout::api::{ChannelLocator, DataSourceRefName, Priority};
 use nominal::streaming::api::objects::scout::checks::api::{
     CreateCheckRequest, CreateChecklistEntryRequest, CreateChecklistRequest, UnresolvedCheckCondition,
@@ -68,8 +68,7 @@ use nominal::streaming::api::objects::scout::checks::api::{
 use nominal::streaming::api::objects::scout::compute::api::{
     DoubleConstant, NumericSeries, RangeSeries, Reference, ThresholdOperator, ThresholdingRanges, VariableName,
 };
-use nominal::streaming::api::objects::{api::Channel, scout::rids::api::UserRid};
-use nominal::streaming::prelude::ResourceIdentifier;
+use nominal::streaming::api::objects::scout::rids::api::UserRid;
 
 let condition = UnresolvedNumRangesConditionV3::builder()
     .ranges(RangeSeries::Threshold(ThresholdingRanges::new(
@@ -78,7 +77,7 @@ let condition = UnresolvedNumRangesConditionV3::builder()
         ThresholdOperator::GreaterThan,
     )))
     .function_spec(BTreeMap::<String, String>::new())
-    .threshold(0) // violated if there are more than 0 ranges
+    .threshold(0) // fail if there are more than 0 ranges above 80
     .operator(ThresholdOperator::GreaterThan)
     .insert_variables(
         VariableName("temperature".into()),
@@ -95,13 +94,14 @@ let check = CreateCheckRequest::builder()
     .condition(UnresolvedCheckCondition::NumRangesV3(condition))
     .build();
 
-let me = nominal::NominalClient::from_profile("default")?.users().who_am_i().await?;
+let me = client.users().who_am_i().await?;
 let request = CreateChecklistRequest::builder()
     .commit_message("Create checklist")
     .assignee_rid(UserRid(ResourceIdentifier::new(me.rid())?))
     .title("Temperature limits")
     .description("")
     .push_checks(CreateChecklistEntryRequest::CreateCheck(check))
+    .workspace(workspace.clone())
     .build();
 let checklist = AsyncChecklistServiceClient::new(api.clone(), &runtime)
     .create(&token, &request)
@@ -112,24 +112,18 @@ println!("{}", checklist.rid());
 
 [`CreateCheckRequest`](https://dev.nominal.io/api/rest/checklist-service/#createcheckrequest) lists a check's fields, and [`UnresolvedCheckCondition`](https://dev.nominal.io/api/rest/checklist-service/#unresolvedcheckcondition) the other kinds of condition.
 
-## Run a checklist on a run
+## Execute a checklist on a run
 
-To check a finished test, run a checklist on its run, then wait until no check is pending or executing. Each check that found violations lists the events it created:
+To check a test after it ends, execute a checklist on its run and wait for the checks to finish. Each check passes or fails:
 
 ```rust
-use std::collections::BTreeSet;
-
-use nominal::streaming::api::clients::event::{AsyncEventService, AsyncEventServiceClient};
 use nominal::streaming::api::clients::scout::datareview::api::{AsyncDataReviewService, AsyncDataReviewServiceClient};
 use nominal::streaming::api::objects::scout::datareview::api::{
     AutomaticCheckEvaluationState as State, BatchInitiateDataReviewRequest, CreateDataReviewRequest,
 };
-use nominal::streaming::api::objects::{event::EventType, scout::{rids::api::ChecklistRid, run::api::RunRid}};
-use nominal::streaming::prelude::ResourceIdentifier;
+use nominal::streaming::api::objects::scout::{rids::api::ChecklistRid, run::api::RunRid};
 
 let reviews = AsyncDataReviewServiceClient::new(api.clone(), &runtime);
-
-// Run the checklist's latest version on the run
 let request = BatchInitiateDataReviewRequest::builder()
     .push_requests(CreateDataReviewRequest::new(
         RunRid(ResourceIdentifier::new("<ri.scout.instance.run.identifier>")?),
@@ -138,66 +132,26 @@ let request = BatchInitiateDataReviewRequest::builder()
     .build();
 let review_rid = reviews.batch_initiate(&token, &request).await.map_err(nominal::Error::from)?.rids()[0].clone();
 
+// Wait until no check is pending or executing
 let review = loop {
     let review = reviews.get(&token, &review_rid).await.map_err(nominal::Error::from)?;
-    let running = review
+    let executing = review
         .check_evaluations()
         .iter()
-        .any(|c| matches!(c.state(), State::PendingExecution(_) | State::Executing(_)));
-    if !running {
+        .any(|check| matches!(check.state(), State::PendingExecution(_) | State::Executing(_)));
+    if !executing {
         break review;
     }
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 };
 
-let event_rids: BTreeSet<_> = review
+// Checks that generated alerts failed
+let failed = review
     .check_evaluations()
     .iter()
-    .filter_map(|c| match c.state() {
-        State::GeneratedAlerts(s) => Some(s.event_rids().clone()),
-        _ => None,
-    })
-    .flatten()
-    .collect();
-let events = AsyncEventServiceClient::new(api.clone(), &runtime)
-    .batch_get_events(&token, &event_rids)
-    .await
-    .map_err(nominal::Error::from)?;
-let violations = events.iter().filter(|e| *e.type_() == EventType::Error).count();
-println!("{violations} violations");
+    .filter(|check| matches!(check.state(), State::GeneratedAlerts(_) | State::TooManyAlerts(_)))
+    .count();
+println!("{failed} of {} checks failed", review.check_evaluations().len());
 ```
 
-[`AutomaticCheckEvaluationState`](https://dev.nominal.io/api/rest/data-review-service/#automaticcheckevaluationstate) lists the states a check can be in.
-
-To check data as it streams in, use the `nominal` crate's [checklists](checklists.md) client instead.
-
-## Create a run that selects tagged data
-
-A run can select only the points of a dataset with given tag values, such as one execution of a simulation:
-
-```rust
-use nominal::streaming::api::clients::scout::{AsyncRunService, AsyncRunServiceClient};
-use nominal::streaming::api::objects::api::{TagName, TagValue, rids::DatasetRid};
-use nominal::streaming::api::objects::scout::api::DataSourceRefName;
-use nominal::streaming::api::objects::scout::run::api::{CreateRunDataSource, CreateRunRequest, DataSource, UtcTimestamp};
-use nominal::streaming::client::conjure::object::SafeLong;
-use nominal::streaming::prelude::ResourceIdentifier;
-
-let runs = AsyncRunServiceClient::new(api.clone(), &runtime);
-let t0 = chrono::DateTime::UNIX_EPOCH;
-let source = CreateRunDataSource::builder()
-    .data_source(DataSource::Dataset(DatasetRid(ResourceIdentifier::new("<ri.catalog.instance.dataset.identifier>")?)))
-    .insert_series_tags(TagName("model".into()), TagValue("A".into()))
-    .insert_series_tags(TagName("execution-id".into()), TagValue("7".into()))
-    .build();
-let request = CreateRunRequest::builder()
-    .title("Model A, execution 7")
-    .description("")
-    .start_time(UtcTimestamp::new(SafeLong::new(t0.timestamp())?))
-    .end_time(UtcTimestamp::new(SafeLong::new(t0.timestamp() + 60)?))
-    .insert_data_sources(DataSourceRefName("default".into()), source)
-    .build();
-runs.create_run(&token, &request).await.map_err(nominal::Error::from)?;
-```
-
-[`CreateRunRequest`](https://dev.nominal.io/api/rest/run-service/#createrunrequest) lists a run's fields, and [`CreateRunDataSource`](https://dev.nominal.io/api/rest/run-service/#createrundatasource) a data source's. See [Simulation runs](../examples/simulation-runs.md) for a full program.
+[`AutomaticCheckEvaluationState`](https://dev.nominal.io/api/rest/data-review-service/#automaticcheckevaluationstate) lists the other states a check can be in.

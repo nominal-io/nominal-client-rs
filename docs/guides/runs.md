@@ -1,83 +1,82 @@
 # Runs
 
 {.lead}
-A run names a span of time for one test or analysis, such as a flight or a test-stand firing. It references data rather than copying it.
+A [run](https://dev.nominal.io/platform/data-model/#runs) marks the time span of one test, such as a flight or an engine firing. Its data comes from its assets, or from datasets you add to the run.
 
 ## Create a run on an asset
 
-When the data already belongs to an [asset](assets.md), create the run with the asset and the test's time window. The run sees the asset's datasets through their data scopes, so you don't add them again.
+A run on an [asset](assets.md) uses the asset's data, so you don't add the data to the run.
 
 ```rust
-use chrono::{TimeZone, Utc};
+use chrono::{DateTime, Utc}; // cargo add chrono
 use nominal::core::RunCreate;
 
-let start = Utc.with_ymd_and_hms(2026, 1, 1, 12, 0, 0).unwrap();
-let end = Utc.with_ymd_and_hms(2026, 1, 1, 12, 10, 0).unwrap();
+let client = nominal::NominalClient::from_profile("default")?;
+
+let start: DateTime<Utc> = "2026-01-01T12:00:00Z".parse()?;
+let end: DateTime<Utc> = "2026-01-01T12:10:00Z".parse()?;
 let run = client
     .runs()
     .create(
         RunCreate::new("Flight acceptance test", start)
-            .end(end)
-            .assets(["<ri.scout.instance.asset.identifier>"])
+            .end(end) // leave out while the test is still going
+            .assets(["<ri.scout.instance.asset.identifier>"]) // one or more assets
             .labels(["acceptance"]),
     )
     .await?;
 println!("{}", run.nominal_url());
 ```
 
-Times are `chrono::DateTime<Utc>`. Leave out `end` for a test that's still running. For a run across several assets, list each in `assets`.
-
 ## Create a run from datasets
 
-Without an asset, add each dataset to the run under a ref name:
+A run without an asset needs data of its own. Add each dataset under a name, as on an [asset](assets.md#add-data-with-data-scopes):
 
 ```rust
 let run = client.runs().create(RunCreate::new("High precipitation flight", start).end(end)).await?;
 client.runs().add_dataset(run.rid(), "telemetry", "<ri.catalog.instance.dataset.identifier>").await?;
 ```
 
-The ref name, here `"telemetry"`, is the dataset's name within the run. Use the same ref name for the same kind of data on every run, so workbook templates and checklists work across runs. `add_video` and `add_data_sources` add videos, or several sources at once, the same way.
+{rust:method}`add_video <RunsClient::add_video>` adds a video, and {rust:method}`add_data_sources <RunsClient::add_data_sources>` adds several datasets and videos at once.
 
-`run.data_sources()` returns only data sources added to the run itself. A run across several assets has none: add data to its assets instead.
+:::{note}
+Adding data to a run on several assets returns an error. Add the data to its assets instead.
+:::
 
 ## Find runs
 
-`search` takes a `RunQuery`, which can also filter by time and run number, and negate a query with `RunQuery::not`:
+{rust:method}`search <RunsClient::search>` finds runs by label, property, name, run number, or start or end time. Combine filters with {rust:method}`and <RunQuery::and>`, {rust:method}`or <RunQuery::or>` and {rust:method}`not <RunQuery::not>`:
 
 ```rust
 use nominal::core::RunQuery;
 
+// Acceptance runs from 2026-01-01T12:00:00Z on, except aborted ones
 let runs = client
     .runs()
     .search(RunQuery::and([
-        RunQuery::label("needs-review"),
-        RunQuery::start_time_inclusive(Utc.with_ymd_and_hms(2026, 1, 1, 12, 0, 0).unwrap()),
-        RunQuery::not(RunQuery::label("reviewed")),
+        RunQuery::label("acceptance"),
+        RunQuery::start_time_inclusive("2026-01-01T12:00:00Z".parse()?),
+        RunQuery::not(RunQuery::label("aborted")),
     ]))
     .await?;
-```
 
-To get one run, use the RID from its page in Nominal:
-
-```rust
+// One run, by RID
 let run = client.runs().get("<ri.scout.instance.run.identifier>").await?;
 ```
 
 ## Update a run
 
-`update` changes only the fields you set, and replaces each of them. To close a run that's still going, set its end:
+{rust:method}`update <RunsClient::update>` changes only the fields you set. Labels and properties you set replace the ones the run has, as on an [asset](assets.md#update-an-asset).
 
 ```rust
 use nominal::core::RunUpdate;
 
-let run = client.runs().update(run.rid(), RunUpdate::new().end(Utc::now()).labels(["reviewed"])).await?;
+// End a run that's still going
+let run = client.runs().update(run.rid(), RunUpdate::new().end(Utc::now())).await?;
 ```
-
-Changing a run's start or end changes the time span it shows, not the stored data.
 
 ## Archive a run
 
-`archive` hides the run without deleting its data. `unarchive` restores it.
+{rust:method}`archive <RunsClient::archive>` hides a run from the UI and from searches, without deleting it. {rust:method}`unarchive <RunsClient::unarchive>` brings it back.
 
 ```rust
 client.runs().archive(run.rid()).await?;

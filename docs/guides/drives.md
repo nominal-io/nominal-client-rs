@@ -1,69 +1,58 @@
 # Drives and files
 
 {.lead}
-A drive is a named container of files in a workspace, like a bucket or a shared folder. `client.drives()` creates and finds drives, and `client.files(drive_rid)` lists and downloads the files in one.
+A drive holds files in a workspace, like a shared folder. Your program can list a drive's files and download them.
 
-## Find or create a drive
-
-Each drive has a RID, and an ID, which is a name that's unique in its workspace:
+## Find a drive
 
 ```rust
-let drive = client.drives().create("test-reports").await?;
+let client = nominal::NominalClient::from_profile("default")?;
 
+// Find a drive by its ID, a name that's unique in its workspace
 let drive = client.drives().get_by_id("test-reports").await?;
+
+// Or by its RID
 let drive = client.drives().get("<ri.file-store.instance.drive.identifier>").await?;
+
+// Or create one, which stores its files in Nominal
+let drive = client.drives().create("test-reports").await?;
 ```
 
-`list` returns the workspace's drives. Pass `true` to include archived ones:
+{rust:method}`list <DrivesClient::list>` returns the workspace's drives. {rust:method}`source <Drive::source>` says whether a drive's files are stored in Nominal, S3 or Google Drive.
 
 ```rust
 for drive in client.drives().list(false).await? {
-    println!("{}: {:?}, {:?}", drive.id(), drive.source(), drive.content_mutability());
+    // true includes archived drives
+    println!("{}: {}", drive.id(), drive.source());
 }
 ```
 
-A drive's files are stored in Nominal, or come from S3 or Google Drive. `source()` says which, and `content_mutability()` says whether you can change them through Nominal.
-
 ## List a folder
 
-File operations go through a client for one drive. Paths are relative to the drive's root, with no leading `/`. `list` returns the files and folders directly under a path, and an empty path lists the drive's root:
+{rust:method}`files <NominalClient::files>` returns a client for one drive's files. Paths have no leading `/`, and `""` is the drive's root.
 
 ```rust
 use nominal::core::FileEntry;
 
-let files = client.files(drive.rid());
-for entry in files.list("reports", false).await? {
+let drive_files = client.files(drive.rid());
+for entry in drive_files.list("reports", false).await? {
+    // true includes removed files
     match entry {
         FileEntry::File(file) => println!("{} ({} bytes)", file.path(), file.size_bytes()),
-        FileEntry::Directory(dir) => println!("{}/", dir.path()),
+        FileEntry::Directory(directory) => println!("{}/", directory.path()),
     }
 }
 ```
 
-Pass `true` to include files that have been removed. To look up one file, use `get`:
-
-```rust
-let file = files.get("reports/run-12.pdf").await?;
-```
-
 ## Download a file
 
-`download` returns a reader over the file's current content. Read it promptly: it streams from a link that expires after a short time.
+{rust:method}`download <DriveFilesClient::download>` works on drives that store their files in Nominal.
 
 ```rust
-let mut reader = files.download("reports/run-12.pdf").await?;
-let mut local = tokio::fs::File::create("run-12.pdf").await?;
-tokio::io::copy(&mut reader, &mut local).await?;
+// The reader streams from a link that expires, so copy from it right away
+let mut reader = drive_files.download("reports/run-12.pdf").await?;
+let mut local_file = tokio::fs::File::create("run-12.pdf").await?;
+tokio::io::copy(&mut reader, &mut local_file).await?;
 ```
 
-## Rename and archive drives
-
-```rust
-let drive = client.drives().rename(drive.rid(), "bench-reports").await?;
-client.drives().archive(drive.rid()).await?;
-client.drives().unarchive(drive.rid()).await?;
-```
-
-Archiving hides a drive in Nominal without deleting it.
-
-[nomctl's `fs` commands](../ref/cli/fs.md) do the same from a terminal, with paths written as `DRIVE:/PATH`.
+To work with drives from a terminal, see [nomctl fs](../ref/cli/fs.md).

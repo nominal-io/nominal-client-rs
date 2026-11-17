@@ -1,38 +1,38 @@
 # Assets
 
 {.lead}
-An asset represents a system you test, such as a vehicle, satellite or test stand. It collects that system's datasets, videos and runs across every test.
+An [asset](https://dev.nominal.io/platform/data-model/#asset) is a system you test, such as a vehicle or a test stand. Datasets and videos you add to an asset are there for every run on that asset.
 
 ## Create an asset
 
-Properties identify the physical system, such as a serial number. Labels group assets for searching.
-
 ```rust
 use nominal::core::AssetCreate;
+
+let client = nominal::NominalClient::from_profile("default")?;
 
 let asset = client
     .assets()
     .create(
         AssetCreate::new("Quadcopter 456")
             .description("Airborne observation platform")
-            .properties([("serial", "QC-456")])
-            .labels(["camera", "airborne"]),
+            .properties([("serial", "QC-456")]) // identify the physical system
+            .labels(["camera", "airborne"]), // group assets for searching
     )
     .await?;
 println!("{}", asset.nominal_url());
 ```
 
-`create` always creates a new asset. To reuse an asset a script created before, [find it](#find-assets) by its properties first.
+{rust:method}`create <AssetsClient::create>` always makes a new asset, even if another asset has the same name. To reuse an asset, [find it](#find-assets) first.
 
 ## Add data with data scopes
 
-An asset holds each dataset under a data scope name, such as `"telemetry"`. Use the same data scope name for the same kind of data on every asset, so workbook templates and checklists work across them.
+A [data scope](https://dev.nominal.io/platform/data-model/#data-scopes-and-ref-names) adds a dataset to an asset under a ref name, such as `telemetry`. Workbook templates and checklists find data by ref name, so use the same ref name for the same kind of data on every asset. Each asset can use a ref name once.
 
 ```rust
 client.assets().add_dataset(asset.rid(), "telemetry", "<ri.catalog.instance.dataset.identifier>").await?;
 ```
 
-To include only part of a dataset, such as one vehicle's points in a shared dataset, select them by [tag](stream.md#tag-points):
+When several systems share a dataset, add only one system's points by their [tag](https://dev.nominal.io/platform/data-model/organization/tagged-data/):
 
 ```rust
 client
@@ -41,7 +41,7 @@ client
     .await?;
 ```
 
-To add several data sources at once, including videos, use `add_data_sources`:
+{rust:method}`add_data_sources <AssetsClient::add_data_sources>` adds several datasets and videos at once:
 
 ```rust
 use nominal::core::DataSource;
@@ -52,17 +52,15 @@ client
         asset.rid(),
         [
             ("telemetry", DataSource::dataset("<ri.catalog.instance.dataset.identifier>")),
-            ("nose-camera", DataSource::video("<ri.catalog.instance.video.identifier>")),
+            ("nose-camera", DataSource::video("<ri.video.instance.video.identifier>")),
         ],
     )
     .await?;
 ```
 
-`asset.data_sources()` returns an asset's data sources, keyed by data scope name.
-
 ## Find assets
 
-`search` takes an `AssetQuery`. Combine queries with `AssetQuery::and` and `AssetQuery::or`:
+{rust:method}`search <AssetsClient::search>` finds assets by label, property or name. Combine filters with {rust:method}`and <AssetQuery::and>` and {rust:method}`or <AssetQuery::or>`:
 
 ```rust
 use nominal::core::AssetQuery;
@@ -71,25 +69,25 @@ let assets = client
     .assets()
     .search(AssetQuery::and([AssetQuery::label("airborne"), AssetQuery::property("serial", "QC-456")]))
     .await?;
-```
 
-`AssetQuery::search_text` is a fuzzy match on names and descriptions, so results may not contain the text verbatim. `AssetQuery::substring_match` matches part of the name, ignoring case.
+// Names that contain "quadcopter", in any case
+let assets = client.assets().search(AssetQuery::substring_match("quadcopter")).await?;
 
-To get one asset, use the RID from its page in Nominal:
+// Every asset, newest first
+let assets = client.assets().list().await?;
 
-```rust
+// One asset, by RID
 let asset = client.assets().get("<ri.scout.instance.asset.identifier>").await?;
 ```
 
-`get_batch` gets several assets by RID, and `list` returns every asset, newest first.
-
 ## Update an asset
 
-`update` changes only the fields you set, and replaces each of them. To add a label, include the existing ones:
+{rust:method}`update <AssetsClient::update>` changes only the fields you set:
 
 ```rust
 use nominal::core::AssetUpdate;
 
+// The labels you set replace the asset's labels, so start from its current ones
 let mut labels = asset.labels().to_vec();
 labels.push("new-motor-vendor".to_string());
 let asset = client.assets().update(asset.rid(), AssetUpdate::new().labels(labels)).await?;
@@ -97,7 +95,7 @@ let asset = client.assets().update(asset.rid(), AssetUpdate::new().labels(labels
 
 ## Archive an asset
 
-`archive` hides the asset from views and searches without deleting its data. `unarchive` restores it.
+{rust:method}`archive <AssetsClient::archive>` hides an asset from the UI and from searches, without deleting it. {rust:method}`unarchive <AssetsClient::unarchive>` brings it back.
 
 ```rust
 client.assets().archive(asset.rid()).await?;
