@@ -5,7 +5,7 @@ A drive is a named container of files in a workspace, like a bucket or a shared 
 
 ## Find or create a drive
 
-Each drive has an ID, a name that's unique in its workspace, and a RID:
+Each drive has a RID, and an ID, which is a name that's unique in its workspace:
 
 ```rust
 let drive = client.drives().create("test-reports").await?;

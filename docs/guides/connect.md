@@ -51,6 +51,7 @@ The client groups its calls by area, each returned by a method:
 | `ingest()` | [Uploading files](upload.md) |
 | `workbooks()`, `templates()` | [Workbooks](workbooks.md) |
 | `checklists()` | [Checklists](checklists.md) |
+| `drives()`, `files()` | [Drives and files](drives.md) |
 | `users()`, `workspaces()` | The signed-in user and their workspaces |
 
 Searches and lists return results from the client's workspace when the client has one, as a profile does.

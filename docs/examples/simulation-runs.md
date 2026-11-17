@@ -4,7 +4,7 @@
 Upload each execution of a simulation to one dataset for the model, with every execution starting at the same time zero and tagged with its execution ID. Then create a run for each execution that selects its tagged points, so runs overlay with no time shifting. The [simulations approach](https://dev.nominal.io/platform/data-model/organization/simulation/) describes this way of organizing data.
 
 ```shell
-cargo add nominal anyhow
+cargo add nominal anyhow chrono
 cargo add tokio --features full
 ```
 
@@ -71,4 +71,4 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
-The `nominal` crate's `RunCreate` can't filter a dataset by tags, so the runs are created through the REST API, as in [Call the REST API directly](../guides/rest-api.md). [`CreateRunDataSource`](https://dev.nominal.io/api/rest/run-service/#createrundatasource) lists the fields of a run's data source. Each run's `altitude` channel covers the same 60 seconds from 1970-01-01T00:00:00Z.
+Each run selects its execution's points with series tags on its data source, through the REST API, as in [Create a run that selects tagged data](../guides/rest-api.md#create-a-run-that-selects-tagged-data). [`CreateRunDataSource`](https://dev.nominal.io/api/rest/run-service/#createrundatasource) lists the fields of a run's data source. Each run's `altitude` channel covers the same 60 seconds from 1970-01-01T00:00:00Z.

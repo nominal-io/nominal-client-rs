@@ -1,7 +1,7 @@
 # Get data out with SQL
 
 {.lead}
-Read your data back from Nominal with SQL, through the SQL REST API. The `nominal` crate has no SQL client, so these examples send the requests with [reqwest](https://docs.rs/reqwest), using the API key, base URL and workspace from your profile.
+Read your data back from Nominal with SQL, through the SQL REST API. These examples send the requests with [reqwest](https://docs.rs/reqwest), using the API key, base URL and workspace from your profile.
 
 Add reqwest, with its `json` feature, and serde_json:
 

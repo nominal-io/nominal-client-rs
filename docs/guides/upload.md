@@ -5,7 +5,7 @@ Upload a file into a dataset, then wait for Nominal to ingest it. Each file type
 
 ## Upload a file
 
-Each upload function takes the file's path, the dataset to ingest into, and the file type's options. It returns the ingest job and the dataset's RID. The dataset can be an existing one's RID, or a `DatasetCreate` to create it with the upload: if the ingest fails, no dataset is left behind.
+Each upload function takes the file's path, the dataset to ingest into, and the file type's options. It returns the ingest job and the dataset's RID. The dataset can be an existing one's RID, or a `DatasetCreate` to create it with the upload.
 
 ```rust
 use nominal::core::{CsvIngest, DatasetCreate, Timestamp};
@@ -91,7 +91,7 @@ Videos go into a video, not a dataset. Give the time of the first frame for a vi
 use chrono::{TimeZone, Utc};
 use nominal::core::{VideoCreate, VideoIngest};
 
-let start = Utc.with_ymd_and_hms(2026, 9, 10, 14, 38, 19).unwrap();
+let start = Utc.with_ymd_and_hms(2026, 1, 1, 12, 0, 0).unwrap();
 let (job, video_rid) = client
     .ingest()
     .upload_video("nose_camera.mp4", VideoCreate::new("Nose camera"), VideoIngest::starting_at(start))

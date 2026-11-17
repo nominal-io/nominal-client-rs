@@ -1,7 +1,7 @@
 # Call the REST API directly
 
 {.lead}
-The `nominal` crate covers the common tasks. For the rest of Nominal's REST API, such as events and creating checklists, use the generated REST API clients that come with it, as `nominal::streaming::api`. They take your API key and base URL from the same profile.
+For parts of Nominal's REST API that `NominalClient` doesn't cover, such as events and creating checklists, use the generated REST API clients that come with the `nominal` crate, as `nominal::streaming::api`. They take your API key and base URL from the same profile.
 
 ## Set up a client
 
@@ -41,7 +41,7 @@ use nominal::streaming::prelude::ResourceIdentifier;
 
 let events = AsyncEventServiceClient::new(api.clone(), &runtime);
 let event = CreateEvent::builder()
-    .timestamp(Timestamp::new(SafeLong::new(1_767_276_720)?, SafeLong::new(0)?)) // 2026-01-01T14:12:00Z
+    .timestamp(Timestamp::new(SafeLong::new(1_767_268_800)?, SafeLong::new(0)?)) // 2026-01-01T12:00:00Z
     .duration(Duration::new(SafeLong::new(5)?, SafeLong::new(0)?)) // zero for a point in time
     .name("Overtemperature")
     .type_(EventType::Error)

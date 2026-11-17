@@ -49,5 +49,3 @@ client
 ```
 
 `ChannelUpdate` needs the channel's data type, because `set_channel_metadata` creates the channel's metadata when the channel doesn't exist yet. So you can set a unit and description before you [stream](stream.md) to a channel.
-
-`clear_unit` removes a unit.

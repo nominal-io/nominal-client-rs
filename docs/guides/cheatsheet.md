@@ -61,7 +61,7 @@ Everything starts from a `NominalClient`, and each area of Nominal has a client 
 | Get a template | `client.templates().get("<rid>").await?` |
 | Create a workbook for a run | `client.workbooks().create_from_template(&template, WorkbookDataScope::runs([run.rid()]), WorkbookCreate::new()).await?` |
 
-## Not in the crate
+## Beyond `NominalClient`
 
 | Action | Where |
 | --- | --- |

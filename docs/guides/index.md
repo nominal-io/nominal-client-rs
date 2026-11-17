@@ -6,7 +6,7 @@ These guides go further than the [quickstart](../index.md), along the common pat
 
 - [API Keys Setup](api-keys-setup.md): copy your API key, base URL and workspace RID, and save them in a profile.
 - [Connect to Nominal](connect.md): create a client from a profile, or from an API key and URL.
-- [Cheat sheet](cheatsheet.md): the common calls, one line each.
+- [Cheat sheet](cheatsheet.md): one-line calls for each area of the client.
 
 ## Organize data
 

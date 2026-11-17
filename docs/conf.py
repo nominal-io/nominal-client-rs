@@ -40,6 +40,8 @@ html_context = {
     "source_version": "main",
     "source_docs_path": "/docs/",
 }
+# the page's contents and its edit link, without Shibuya's card of the repo's stars and forks
+html_sidebars = {"**": ["sidebars/localtoc.html", "sidebars/edit-this-page.html"]}
 html_theme_options = theme_options(
     github_url="https://github.com/nominal-io/nominal-client-rs",
     nav_links=[

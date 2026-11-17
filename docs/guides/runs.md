@@ -11,8 +11,8 @@ When the data already belongs to an [asset](assets.md), create the run with the 
 use chrono::{TimeZone, Utc};
 use nominal::core::RunCreate;
 
-let start = Utc.with_ymd_and_hms(2026, 9, 10, 14, 38, 0).unwrap();
-let end = Utc.with_ymd_and_hms(2026, 9, 10, 14, 48, 0).unwrap();
+let start = Utc.with_ymd_and_hms(2026, 1, 1, 12, 0, 0).unwrap();
+let end = Utc.with_ymd_and_hms(2026, 1, 1, 12, 10, 0).unwrap();
 let run = client
     .runs()
     .create(
@@ -51,7 +51,7 @@ let runs = client
     .runs()
     .search(RunQuery::and([
         RunQuery::label("needs-review"),
-        RunQuery::start_time_inclusive(Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap()),
+        RunQuery::start_time_inclusive(Utc.with_ymd_and_hms(2026, 1, 1, 12, 0, 0).unwrap()),
         RunQuery::not(RunQuery::label("reviewed")),
     ]))
     .await?;
