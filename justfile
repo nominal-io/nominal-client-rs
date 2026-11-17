@@ -9,20 +9,26 @@ newest := '--with "nominal-sphinx-theme @ git+https://github.com/nominal-io/nomi
 sphinx := 'python -m sphinx -E -W --keep-going -b dirhtml docs docs/_build/dirhtml'
 fallback := "Building with the newest theme and sphinx-rustdoc failed; building with the ones uv.lock pins"
 
-# Build the docs (docs/) into docs/_build/dirhtml; warnings fail the build, as in CI.
-# The nomctl command reference is generated from `nomctl help-all`, run with `cargo run`, and the
-# Rust API reference from `cargo rustdoc`'s JSON output, by sphinx-rustdoc. The build uses the
-# newest theme and sphinx-rustdoc, and the ones uv.lock pins if that fails.
-# Published by .github/workflows/deploy-docs.yml.
+# Build the docs (docs/) into docs/_build/dirhtml with the theme and sphinx-rustdoc uv.lock pins;
+# warnings fail the build, as in CI. The nomctl command reference is generated from
+# `nomctl help-all`, run with `cargo run`, and the Rust API reference from `cargo rustdoc`'s JSON
+# output, by sphinx-rustdoc.
+[group('docs')]
+build-docs:
+    uv run --group docs {{sphinx}}
+
+# As build-docs, with the newest theme and sphinx-rustdoc, and the ones uv.lock pins if that fails.
+# CI builds and publishes with this (.github/workflows/docs.yml and deploy-docs.yml).
 [group('docs')]
 [unix]
-build-docs:
+build-docs-newest:
     uv run --group docs {{newest}} {{sphinx}} || { echo "{{fallback}}"; uv run --group docs {{sphinx}}; }
 
-# Published by .github/workflows/deploy-docs.yml.
+# As build-docs, with the newest theme and sphinx-rustdoc, and the ones uv.lock pins if that fails.
+# CI builds and publishes with this (.github/workflows/docs.yml and deploy-docs.yml).
 [group('docs')]
 [windows]
-build-docs:
+build-docs-newest:
     uv run --group docs {{newest}} {{sphinx}}; if (-not $?) { Write-Host "{{fallback}}"; uv run --group docs {{sphinx}} }
 
 # Live-preview the docs on http://127.0.0.1:<port>, rebuilding on edits (`just serve-docs 8001` for another port)
