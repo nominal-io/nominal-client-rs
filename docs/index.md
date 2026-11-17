@@ -51,7 +51,7 @@ guides/sql
 
 ```{toctree}
 :hidden:
-:caption: Beyond the crate
+:caption: Low-level functionality
 
 guides/rest-api
 ```
@@ -91,7 +91,7 @@ cargo add tokio --features full
 
 ## 2. Set up your API key
 
-Follow [API Keys Setup](api-keys-setup.md) to save your API key in a profile named `default`.
+Follow [API Keys Setup](api-keys-setup.md) to generate a profile for your `default` workspace and then create a second profile, `sandbox`, for your sandbox workspace. The code below is written against `sandbox`, but it can be changed to use any profile.
 
 ## 3. Upload a file
 
@@ -105,7 +105,7 @@ use nominal::core::{CsvIngest, DatasetCreate, Timestamp};
 #[tokio::main]
 async fn main() -> nominal::Result<()> {
     // Connect with the API key that API Keys Setup saved
-    let client = nominal::NominalClient::from_profile("default")?;
+    let client = nominal::NominalClient::from_profile("sandbox")?;
 
     // Create a dataset, and upload the file into it
     let dataset = client.catalog().create_dataset(DatasetCreate::new("Quickstart")).await?;

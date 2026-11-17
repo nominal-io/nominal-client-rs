@@ -25,7 +25,7 @@
 - [Checklists](checklists.md): run checklists on streamed data, and read their live status.
 - [Get data out with SQL](sql.md): query your data, and export large results to a file.
 
-## Beyond the crate
+## Low-level functionality
 
 - [Call the REST API directly](rest-api.md): create events and checklists, and execute a checklist on a run.
 
