@@ -94,6 +94,7 @@ impl Asset {
                 .description()
                 .filter(|s| !s.is_empty())
                 .map(|s| s.to_string()),
+            #[allow(deprecated)]
             properties: asset
                 .properties()
                 .iter()
@@ -772,6 +773,7 @@ mod tests {
     // --- AssetUpdate::into_request ---
 
     #[test]
+    #[allow(deprecated)]
     fn update_empty_request_has_no_fields() {
         let req = AssetUpdate::new().into_request();
         assert!(req.title().is_none());
@@ -795,6 +797,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn update_properties_converted_correctly() {
         let req = AssetUpdate::new()
             .properties([("k1", "v1"), ("k2", "v2")])
@@ -824,6 +827,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn update_all_fields() {
         let req = AssetUpdate::new()
             .name("name")

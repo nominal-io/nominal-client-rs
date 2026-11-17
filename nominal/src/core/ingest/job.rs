@@ -4,6 +4,7 @@ use nominal_api::objects::ingest::api::{
 
 /// The lifecycle status of an ingest job.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum IngestJobStatus {
     Submitted,
     Queued,
@@ -11,6 +12,10 @@ pub enum IngestJobStatus {
     Completed,
     Failed,
     Cancelled,
+    /// The job is being deleted. Only completed or cancelled jobs can be deleted.
+    DeletionInProgress,
+    /// The job was deleted.
+    Deleted,
     /// A status returned by the server that this client does not recognize.
     /// Treated as a terminal failure by the client's wait loop.
     Unknown(String),
@@ -21,7 +26,12 @@ impl IngestJobStatus {
     pub fn is_terminal(&self) -> bool {
         matches!(
             self,
-            Self::Completed | Self::Failed | Self::Cancelled | Self::Unknown(_)
+            Self::Completed
+                | Self::Failed
+                | Self::Cancelled
+                | Self::DeletionInProgress
+                | Self::Deleted
+                | Self::Unknown(_)
         )
     }
 }
@@ -35,6 +45,8 @@ impl From<&ApiIngestJobStatus> for IngestJobStatus {
             ApiIngestJobStatus::Completed => Self::Completed,
             ApiIngestJobStatus::Failed => Self::Failed,
             ApiIngestJobStatus::Cancelled => Self::Cancelled,
+            ApiIngestJobStatus::DeletionInProgress => Self::DeletionInProgress,
+            ApiIngestJobStatus::Deleted => Self::Deleted,
             ApiIngestJobStatus::Unknown(u) => Self::Unknown(u.to_string()),
         }
     }
@@ -114,5 +126,21 @@ impl IngestJob {
             origin_files,
             ingest_type,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deletion_statuses_are_known_and_terminal() {
+        let deleting = IngestJobStatus::from(&ApiIngestJobStatus::DeletionInProgress);
+        let deleted = IngestJobStatus::from(&ApiIngestJobStatus::Deleted);
+
+        assert_eq!(deleting, IngestJobStatus::DeletionInProgress);
+        assert_eq!(deleted, IngestJobStatus::Deleted);
+        assert!(deleting.is_terminal());
+        assert!(deleted.is_terminal());
     }
 }
