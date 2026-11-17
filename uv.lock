@@ -673,7 +673,7 @@ wheels = [
 [[package]]
 name = "sphinx-rustdoc"
 version = "0.1.0"
-source = { git = "https://github.com/nominal-io/sphinx-rustdoc#83b863a378e673ffff9e4f346adc93885b059240" }
+source = { git = "https://github.com/nominal-io/sphinx-rustdoc#eca7d14b7259821f05134acd34b55502098229a9" }
 dependencies = [
     { name = "myst-parser" },
     { name = "sphinx", version = "9.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
