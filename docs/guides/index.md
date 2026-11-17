@@ -23,7 +23,7 @@
 
 - [Workbooks](workbooks.md): create workbooks from templates for assets and runs.
 - [Checklists](checklists.md): run checklists on streamed data, and read their live status.
-- [Get data out with SQL](sql.md): query your data, and export large results to a file.
+- [Query data with SQL](sql.md): read your data back, and export large results to a file.
 
 ## Low-level functionality
 

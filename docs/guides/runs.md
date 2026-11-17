@@ -1,17 +1,19 @@
 # Runs
 
 {.lead}
-A [run](https://dev.nominal.io/platform/data-model/#runs) marks the time span of one test, such as a flight or an engine firing. Its data comes from its assets, or from datasets you add to the run.
+A [run](https://dev.nominal.io/platform/data-model/#runs) marks the time span of one test, such as a flight or an engine firing. To create a run, you need an [asset](assets.md) on which the test was executed.
+
+To decide how runs fit the way you test, see [Organize and view your data](https://dev.nominal.io/platform/data-model/paradigms/).
+
+To use this page, first make sure you can [Connect to Nominal](connect.md) and obtain a `client`.
 
 ## Create a run on an asset
 
-A run on an [asset](assets.md) uses the asset's data, so you don't add the data to the run.
+A run on an asset marks a time range on the asset's data, not on the data itself.
 
 ```rust
 use chrono::{DateTime, Utc}; // cargo add chrono
 use nominal::core::RunCreate;
-
-let client = nominal::NominalClient::from_profile("default")?;
 
 let start: DateTime<Utc> = "2026-01-01T12:00:00Z".parse()?;
 let end: DateTime<Utc> = "2026-01-01T12:10:00Z".parse()?;
@@ -19,17 +21,23 @@ let run = client
     .runs()
     .create(
         RunCreate::new("Flight acceptance test", start)
-            .end(end) // leave out while the test is still going
+            .end(end) // optional - remove if the test is ongoing
             .assets(["<ri.scout.instance.asset.identifier>"]) // one or more assets
-            .labels(["acceptance"]),
+            .labels(["acceptance"]), // optional - allows for easy filtering of runs by label
     )
     .await?;
 println!("{}", run.nominal_url());
 ```
 
-## Create a run from datasets
+## Linking a run directly to data
 
-A run without an asset needs data of its own. Add each dataset under a name, as on an [asset](assets.md#add-data-with-data-scopes):
+A run's data always lives on an asset. On a run with one asset, adding data to the run is the same as adding it to the asset.
+
+:::{note}
+If a run is already associated with more than one asset, adding data to the run returns an error, because Nominal can't tell which asset the data belongs to. Add the data to each asset instead.
+:::
+
+A run created without an asset gets an auto-created asset, so you can add data to the run before you've chosen an [approach for your data](https://dev.nominal.io/platform/data-model/paradigms/). Once you have, promote the auto-created asset to a full asset in the Nominal UI.
 
 ```rust
 let run = client.runs().create(RunCreate::new("High precipitation flight", start).end(end)).await?;
@@ -38,9 +46,13 @@ client.runs().add_dataset(run.rid(), "telemetry", "<ri.catalog.instance.dataset.
 
 {rust:method}`add_video <RunsClient::add_video>` adds a video, and {rust:method}`add_data_sources <RunsClient::add_data_sources>` adds several datasets and videos at once.
 
-:::{note}
-Adding data to a run on several assets returns an error. Add the data to its assets instead.
-:::
+## Fetch runs
+
+If the RID of a run is known, you can fetch that run directly without needing to search.
+
+```rust
+let run = client.runs().get("<ri.scout.instance.run.identifier>").await?;
+```
 
 ## Find runs
 
@@ -48,6 +60,12 @@ Adding data to a run on several assets returns an error. Add the data to its ass
 
 ```rust
 use nominal::core::RunQuery;
+
+// Every run, newest first
+let runs = client.runs().list().await?;
+
+// Names that contain "acceptance", in any case
+let runs = client.runs().search(RunQuery::substring_match("acceptance")).await?;
 
 // Acceptance runs from 2026-01-01T12:00:00Z on, except aborted ones
 let runs = client
@@ -58,17 +76,19 @@ let runs = client
         RunQuery::not(RunQuery::label("aborted")),
     ]))
     .await?;
-
-// One run, by RID
-let run = client.runs().get("<ri.scout.instance.run.identifier>").await?;
 ```
 
 ## Update a run
 
-{rust:method}`update <RunsClient::update>` changes only the fields you set. Labels and properties you set replace the ones the run has, as on an [asset](assets.md#update-an-asset).
+{rust:method}`update <RunsClient::update>` changes the fields you include in the run update request by overwriting those fields. That is, `update(labels)` will _not_ touch properties, but it _will_ overwrite the current set of labels with the ones you provide.
 
 ```rust
 use nominal::core::RunUpdate;
+
+// The labels you set replace the run's labels, so start from its current ones
+let mut labels = run.labels().to_vec();
+labels.push("aborted".to_string());
+let run = client.runs().update(run.rid(), RunUpdate::new().labels(labels)).await?;
 
 // End a run that's still going
 let run = client.runs().update(run.rid(), RunUpdate::new().end(Utc::now())).await?;

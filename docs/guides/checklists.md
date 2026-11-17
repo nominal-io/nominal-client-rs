@@ -5,23 +5,37 @@ A [checklist](https://dev.nominal.io/platform/workbooks/#checklists) is a set of
 
 Make checklists in Nominal, or [create them through the REST API](rest-api.md#create-a-checklist). To execute a checklist on a run after a test, use the [REST API](rest-api.md#execute-a-checklist-on-a-run) as well.
 
-## Find a checklist
+[Automated pass/fail checks](https://dev.nominal.io/platform/data-model/paradigms/stories/automated-checks/) shows how checklists fit into testing.
+
+To use this page, first make sure you can [Connect to Nominal](connect.md) and obtain a `client`.
+
+## Fetch a checklist
+
+If the RID of a checklist is known, you can fetch that checklist directly without needing to search.
+
+```rust
+let checklist = client.checklists().get("<ri.scout.instance.check-collection.identifier>").await?;
+```
+
+## Find checklists
+
+{rust:method}`search <ChecklistsClient::search>` finds checklists by text, label, property or whether they're published. Combine filters with {rust:method}`and <ChecklistQuery::and>` and {rust:method}`or <ChecklistQuery::or>`:
 
 ```rust
 use nominal::core::ChecklistQuery;
 
-let client = nominal::NominalClient::from_profile("default")?;
+// Titles or descriptions that match "temperature limits"
+let checklists = client.checklists().search(ChecklistQuery::search_text("temperature limits")).await?;
 
+// The same, leaving out unpublished checklists
 let checklists = client
     .checklists()
     .search(ChecklistQuery::and([
         ChecklistQuery::search_text("temperature limits"),
-        ChecklistQuery::is_published(true), // leave out unpublished checklists
+        ChecklistQuery::is_published(true),
     ]))
     .await?;
 ```
-
-{rust:method}`get <ChecklistsClient::get>` returns one checklist by RID.
 
 ## Execute a checklist on streamed data
 

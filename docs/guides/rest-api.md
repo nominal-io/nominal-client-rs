@@ -3,6 +3,8 @@
 {.lead}
 The `nominal` crate comes with generated clients for Nominal's REST API, in `nominal::streaming::api`. Use them for what `NominalClient` doesn't cover, such as events, creating checklists, executing a checklist on a run, and [runs that select tagged data](../examples/simulation-runs.md).
 
+To use this page, first make sure you can [Connect to Nominal](connect.md) and obtain a `client`.
+
 ## Set up the REST API clients
 
 ```rust
@@ -11,9 +13,7 @@ use std::sync::Arc;
 use nominal::streaming::api::objects::api::rids::WorkspaceRid;
 use nominal::streaming::client::async_conjure_client;
 use nominal::streaming::client::conjure::http::client::{AsyncService, ConjureRuntime};
-use nominal::streaming::prelude::{BearerToken, ResourceIdentifier};
-
-let client = nominal::NominalClient::from_profile("default")?;
+use nominal::streaming::prelude::{BearerToken, ProductAgent, ResourceIdentifier};
 
 // Load the API key, base URL and workspace that API Keys Setup saved
 let config = nominal::Config::load()?;
@@ -22,7 +22,7 @@ let token = BearerToken::new(profile.token())?;
 let workspace = WorkspaceRid(ResourceIdentifier::new(profile.workspace_rid().ok_or("no workspace in the profile")?)?);
 
 // One HTTP client for every service, named "nominal" in its logs
-let api = async_conjure_client("nominal", profile.base_url().parse()?).map_err(nominal::Error::from)?;
+let api = async_conjure_client("nominal", profile.base_url().parse()?, &ProductAgent::default()).map_err(nominal::Error::from)?;
 let runtime = Arc::new(ConjureRuntime::default());
 ```
 

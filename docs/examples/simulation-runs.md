@@ -22,7 +22,7 @@ use nominal::streaming::api::objects::scout::run::api::{CreateRunDataSource, Cre
 use nominal::streaming::client::async_conjure_client;
 use nominal::streaming::client::conjure::http::client::{AsyncService, ConjureRuntime};
 use nominal::streaming::client::conjure::object::SafeLong;
-use nominal::streaming::prelude::{BearerToken, ResourceIdentifier};
+use nominal::streaming::prelude::{BearerToken, ProductAgent, ResourceIdentifier};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // The REST API's run service. Its errors convert to nominal::Error.
     let token = BearerToken::new(profile.token())?;
-    let api = async_conjure_client("runs", profile.base_url().parse()?).map_err(nominal::Error::from)?;
+    let api = async_conjure_client("runs", profile.base_url().parse()?, &ProductAgent::default()).map_err(nominal::Error::from)?;
     let runs = AsyncRunServiceClient::new(api, &Arc::new(ConjureRuntime::default()));
 
     // Each run must be in the dataset's workspace, the profile's

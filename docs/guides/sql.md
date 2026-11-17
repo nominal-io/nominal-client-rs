@@ -1,4 +1,4 @@
-# Get data out with SQL
+# Query data with SQL
 
 {.lead}
 Read your data back from Nominal with SQL, through the [SQL REST API](https://dev.nominal.io/sql-reference/rest-api/). [Writing queries](https://dev.nominal.io/sql-guides/writing-queries/) covers the tables you can query and the SQL they accept.

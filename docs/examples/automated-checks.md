@@ -34,7 +34,7 @@ use nominal::streaming::api::objects::scout::datareview::api::{
 use nominal::streaming::api::objects::scout::{rids::api::UserRid, run::api::RunRid};
 use nominal::streaming::client::async_conjure_client;
 use nominal::streaming::client::conjure::http::client::{AsyncService, ConjureRuntime};
-use nominal::streaming::prelude::{BearerToken, ResourceIdentifier};
+use nominal::streaming::prelude::{BearerToken, ProductAgent, ResourceIdentifier};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // The REST API's services for checklists and their executions, which it calls data reviews
     let token = BearerToken::new(profile.token())?;
-    let api = async_conjure_client("checks", profile.base_url().parse()?).map_err(nominal::Error::from)?;
+    let api = async_conjure_client("checks", profile.base_url().parse()?, &ProductAgent::default()).map_err(nominal::Error::from)?;
     let runtime = Arc::new(ConjureRuntime::default());
     let checklists = AsyncChecklistServiceClient::new(api.clone(), &runtime);
     let executions = AsyncDataReviewServiceClient::new(api, &runtime);

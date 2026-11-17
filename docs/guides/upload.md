@@ -3,12 +3,14 @@
 {.lead}
 Upload a file into a dataset, and Nominal ingests its data into [channels](https://dev.nominal.io/platform/data-model/#channels). Each file type has its own upload method and options.
 
+To decide which dataset each file goes into, see [Organize and view your data](https://dev.nominal.io/platform/data-model/paradigms/).
+
+To use this page, first make sure you can [Connect to Nominal](connect.md) and obtain a `client`.
+
 ## Upload a file
 
 ```rust
 use nominal::core::{CsvIngest, DatasetCreate, Timestamp};
-
-let client = nominal::NominalClient::from_profile("default")?;
 
 // Create a dataset, and upload the file into it
 let (job, dataset_rid) = client
@@ -110,4 +112,4 @@ client
     .await?;
 ```
 
-To show a video with an asset or run, add it with {rust:method}`add_video <AssetsClient::add_video>`, as in [Assets](assets.md#add-data-with-data-scopes).
+To show a video with an asset or run, add it with {rust:method}`add_video <AssetsClient::add_video>`.

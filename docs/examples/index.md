@@ -6,3 +6,4 @@ Complete programs to copy and adapt. Each connects with the `default` profile th
 - [One dataset for many units](shared-dataset.md): one dataset per tester, with each point tagged with its unit.
 - [Simulation runs](simulation-runs.md): every execution of a model in one dataset, with a run for each.
 - [Check a test against its limits](automated-checks.md): upload a test, create a run and a checklist, and count the violations.
+- [Read channel data](read-channels.md): upload a test, then read two of its channels back into memory as CSV.

@@ -3,11 +3,19 @@
 {.lead}
 A [channel](https://dev.nominal.io/platform/data-model/#channels) is one named signal in a [dataset](datasets.md), such as `altitude`. It has a data type, and can have a unit and a description.
 
-## List and search channels
+To use this page, first make sure you can [Connect to Nominal](connect.md) and obtain a `client`.
+
+## Fetch a channel
+
+If the dataset's RID and the channel's name are known, you can fetch that channel directly without needing to search.
 
 ```rust
-let client = nominal::NominalClient::from_profile("default")?;
+let altitude = client.catalog().get_channel("<ri.catalog.instance.dataset.identifier>", "altitude").await?;
+```
 
+## Find channels
+
+```rust
 // Every channel in the dataset
 for channel in client.catalog().list_channels("<ri.catalog.instance.dataset.identifier>").await? {
     println!("{} {:?} {}", channel.name(), channel.data_type(), channel.unit().unwrap_or(""));
@@ -29,9 +37,6 @@ let channels = client
             .data_type(ChannelDataType::Double),
     )
     .await?;
-
-// One channel, by name
-let altitude = client.catalog().get_channel("<ri.catalog.instance.dataset.identifier>", "altitude").await?;
 ```
 
 ## Set units and descriptions
@@ -50,5 +55,3 @@ client
     )
     .await?;
 ```
-
-{rust:struct}`ChannelUpdate` takes the channel's data type, so you can set a unit and description before the channel has data, such as before you [stream](stream.md) to it.

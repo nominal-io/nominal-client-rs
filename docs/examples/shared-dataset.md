@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ResourceIdentifier::new(dataset.rid())?,
             tokio::runtime::Handle::current(),
         )
-        .with_options(NominalStreamOpts { base_api_url: profile.base_url().to_string(), ..Default::default() })
+        .with_options(NominalStreamOpts::default().with_base_api_url(profile.base_url()))
         .build();
 
     // Test the units one after another

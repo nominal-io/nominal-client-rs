@@ -3,20 +3,28 @@
 {.lead}
 A drive holds files in a workspace, like a shared folder. Your program can list a drive's files and download them.
 
-## Find a drive
+To use this page, first make sure you can [Connect to Nominal](connect.md) and obtain a `client`.
+
+## Create a drive
+
+{rust:method}`create <DrivesClient::create>` creates a drive that stores its files in Nominal:
 
 ```rust
-let client = nominal::NominalClient::from_profile("default")?;
-
-// Find a drive by its ID, a name that's unique in its workspace
-let drive = client.drives().get_by_id("test-reports").await?;
-
-// Or by its RID
-let drive = client.drives().get("<ri.file-store.instance.drive.identifier>").await?;
-
-// Or create one, which stores its files in Nominal
 let drive = client.drives().create("test-reports").await?;
 ```
+
+## Fetch a drive
+
+If the RID of a drive is known, you can fetch that drive directly without needing to search.
+
+```rust
+let drive = client.drives().get("<ri.file-store.instance.drive.identifier>").await?;
+
+// Or by its ID, a name that's unique in its workspace
+let drive = client.drives().get_by_id("test-reports").await?;
+```
+
+## Find drives
 
 {rust:method}`list <DrivesClient::list>` returns the workspace's drives. {rust:method}`source <Drive::source>` says whether a drive's files are stored in Nominal, S3 or Google Drive.
 

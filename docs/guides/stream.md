@@ -1,7 +1,11 @@
 # Stream data
 
 {.lead}
-A stream sends [points](https://dev.nominal.io/platform/data-model/#time-series-data) to a dataset as your program produces them. The `nominal` crate includes the [nominal-streaming](https://dev.nominal.io/nominal-streaming/) crate, version 0.9, as `nominal::streaming`.
+A stream sends [points](https://dev.nominal.io/platform/data-model/#time-series-data) to a dataset as your program produces them. The `nominal` crate includes the [nominal-streaming](https://dev.nominal.io/nominal-streaming/) crate, version 0.11, as `nominal::streaming`.
+
+To decide whether each unit you test streams to its own dataset or units share one, told apart by tags, see [Organize and view your data](https://dev.nominal.io/platform/data-model/paradigms/).
+
+To use this page, first make sure you can [Connect to Nominal](connect.md) and obtain a `client`.
 
 ## Stream to a dataset
 
@@ -10,7 +14,6 @@ use nominal::core::DatasetCreate;
 use nominal::streaming::prelude::*;
 use nominal::streaming::stream::NominalDatasetStreamBuilder;
 
-let client = nominal::NominalClient::from_profile("default")?;
 let dataset = client.catalog().create_dataset(DatasetCreate::new("Bench test")).await?;
 
 // The stream takes the API key and base URL from the profile
@@ -21,7 +24,7 @@ let dataset_rid = ResourceIdentifier::new(dataset.rid())?;
 
 let stream = NominalDatasetStreamBuilder::new()
     .stream_to_core(token, dataset_rid, tokio::runtime::Handle::current())
-    .with_options(NominalStreamOpts { base_api_url: profile.base_url().to_string(), ..Default::default() })
+    .with_options(NominalStreamOpts::default().with_base_api_url(profile.base_url()))
     .build();
 
 let mut voltage_writer = stream.double_writer(ChannelDescriptor::new("voltage"));
@@ -40,39 +43,28 @@ drop(stream);
 
 For integers, structs, arrays and tags, see [Write points](https://dev.nominal.io/nominal-streaming/guides/write/). For batching options and failed requests, see [Stream configuration](https://dev.nominal.io/nominal-streaming/guides/configure/). To give a channel a unit and description, see [Channels](channels.md#set-units-and-descriptions).
 
-If tags tell apart two motors in one dataset, add the dataset to each motor's asset with {rust:method}`add_dataset_with_tags <AssetsClient::add_dataset_with_tags>`, as in [Assets](assets.md#add-data-with-data-scopes).
-
-:::{note}
-The nominal-streaming guides cover version 0.11. Where they call a `with_` method on `NominalStreamOpts`, set the field of the same name, as above, and call `build` in place of `try_build`. [Log streams](https://dev.nominal.io/nominal-streaming/guides/logs/) and metrics need nominal-streaming 0.10.6 or later.
-:::
+If tags tell apart two motors in one dataset, add the dataset to each motor's asset with {rust:method}`add_dataset_with_tags <AssetsClient::add_dataset_with_tags>`.
 
 ## Fallback file
 
-With a fallback file, the points a stream can't send go to a file on disk rather than being lost.
+With a [fallback file](https://dev.nominal.io/nominal-streaming/guides/fallback/), the points a stream can't send go to a file on disk rather than being lost. The stream creates the file only if a point can't be sent, and adds its start time (UTC) to the name, so `fallback.avro` becomes `fallback_20260101_120000.avro`.
 
 ```rust
 let stream = NominalDatasetStreamBuilder::new()
     .stream_to_core(token, dataset_rid, tokio::runtime::Handle::current())
-    .with_options(NominalStreamOpts { base_api_url: profile.base_url().to_string(), ..Default::default() })
+    .with_options(NominalStreamOpts::default().with_base_api_url(profile.base_url()))
     .with_file_fallback("fallback.avro")
     .build();
 ```
-
-:::{warning}
-In 0.9, a stream empties its fallback file when it starts. Upload the file before you start another stream, or give each stream its own file.
-:::
 
 When the network is back, upload the file to the same dataset:
 
 ```rust
 use nominal::core::AvroStreamIngest;
 
-// The file is empty when no points went to it
-if std::fs::metadata("fallback.avro")?.len() > 0 {
-    let (job, _) = client
-        .ingest()
-        .upload_avro_stream("fallback.avro", dataset.rid(), AvroStreamIngest::new())
-        .await?;
-    client.ingest().wait_for_ingest_job(job.rid()).await?;
-}
+let (job, _) = client
+    .ingest()
+    .upload_avro_stream("fallback_20260101_120000.avro", dataset.rid(), AvroStreamIngest::new())
+    .await?;
+client.ingest().wait_for_ingest_job(job.rid()).await?;
 ```

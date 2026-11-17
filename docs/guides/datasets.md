@@ -1,14 +1,16 @@
 # Datasets
 
 {.lead}
-A [dataset](https://dev.nominal.io/platform/data-model/#data-model-dataset) holds your test data as [channels](channels.md), such as `altitude` or `temperature`. Files you upload and points you stream add to it over time.
+A [dataset](https://dev.nominal.io/platform/data-model/#data-model-dataset) holds your test data as [channels](channels.md), such as `altitude` or `temperature`.
+
+To decide whether each unit you test gets its own dataset or units share one, review [Organize and view your data](https://dev.nominal.io/platform/data-model/paradigms/).
+
+To use this page, first make sure you can [Connect to Nominal](connect.md) and obtain a `client`.
 
 ## Create a dataset
 
 ```rust
 use nominal::core::DatasetCreate;
-
-let client = nominal::NominalClient::from_profile("default")?;
 
 let dataset = client
     .catalog()
@@ -22,44 +24,53 @@ let dataset = client
 println!("{}", dataset.nominal_url());
 ```
 
-To create the dataset as you upload a file, see [Upload files](upload.md). To show the dataset on an asset or a run, add it as in [Assets](assets.md#add-data-with-data-scopes) or [Runs](runs.md#create-a-run-from-datasets).
+To create the dataset as you upload a file, see [Upload files](upload.md). To show the dataset on an asset or a run, add it with {rust:method}`AssetsClient::add_dataset` or {rust:method}`RunsClient::add_dataset`.
+
+## Fetch datasets
+
+If the RID of a dataset is known, you can fetch that dataset directly without needing to search.
+
+```rust
+let dataset = client.catalog().get_dataset("<ri.catalog.instance.dataset.identifier>").await?;
+```
 
 ## Find datasets
 
-{rust:method}`search_datasets <CatalogClient::search_datasets>` finds datasets by label, property or name:
+{rust:method}`search_datasets <CatalogClient::search_datasets>` finds datasets by label, property or name. Combine filters with {rust:method}`and <DatasetQuery::and>` and {rust:method}`or <DatasetQuery::or>`:
 
 ```rust
 use nominal::core::DatasetQuery;
 
+// Every dataset, most recently ingested first
+let datasets = client.catalog().list_datasets().await?;
+
+// Names that contain "telemetry", in any case
+let datasets = client.catalog().search_datasets(DatasetQuery::substring_match("telemetry")).await?;
+
+// The "flight-test" label, and "telemetry" in the name
 let datasets = client
     .catalog()
     .search_datasets(DatasetQuery::and([
         DatasetQuery::label("flight-test"),
-        DatasetQuery::substring_match("telemetry"), // in the name, in any case
+        DatasetQuery::substring_match("telemetry"),
     ]))
     .await?;
-
-// One dataset, by RID
-let dataset = client.catalog().get_dataset("<ri.catalog.instance.dataset.identifier>").await?;
 ```
 
-To list a dataset's channels, see [Channels](channels.md). To read its data, see [Get data out with SQL](sql.md).
+To list a dataset's channels, see [Channels](channels.md). To read its data, see [Query data with SQL](sql.md). To read channels straight into memory through the REST API instead, see the [Read channel data](../examples/read-channels.md) example.
 
 ## Update a dataset
 
-{rust:method}`update_dataset <CatalogClient::update_dataset>` changes only the fields you set:
+{rust:method}`update_dataset <CatalogClient::update_dataset>` changes the fields you include in the dataset update request by overwriting those fields. That is, `update_dataset(labels)` will _not_ touch properties, but it _will_ overwrite the current set of labels with the ones you provide.
 
 ```rust
 use nominal::core::DatasetUpdate;
 
-// The properties you set replace the dataset's properties
-let dataset = client
-    .catalog()
-    .update_dataset(dataset.rid(), DatasetUpdate::new().properties([("campaign", "2026-09")]))
-    .await?;
+// The labels you set replace the dataset's labels, so start from its current ones
+let mut labels = dataset.labels().to_vec();
+labels.push("reviewed".to_string());
+let dataset = client.catalog().update_dataset(dataset.rid(), DatasetUpdate::new().labels(labels)).await?;
 ```
-
-Labels and properties describe the whole dataset. To tell apart points within it, use [tags](https://dev.nominal.io/platform/data-model/organization/tagged-data/).
 
 ## Archive a dataset
 

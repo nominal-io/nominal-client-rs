@@ -3,6 +3,8 @@
 {.lead}
 Uploading a file starts an ingest job, which reads the file into its dataset. The data is in the dataset once the job completes.
 
+To use this page, first make sure you can [Connect to Nominal](connect.md) and obtain a `client`.
+
 ## Wait for a job
 
 ```rust
@@ -10,7 +12,6 @@ use std::time::Duration;
 
 use nominal::core::{CsvIngest, Timestamp};
 
-let client = nominal::NominalClient::from_profile("default")?;
 let (job, _) = client
     .ingest()
     .upload_csv("bench.csv", "<ri.catalog.instance.dataset.identifier>", CsvIngest::new(Timestamp::iso8601("timestamp")))

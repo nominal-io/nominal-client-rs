@@ -65,6 +65,7 @@ examples/asset-per-unit
 examples/shared-dataset
 examples/simulation-runs
 examples/automated-checks
+examples/read-channels
 ```
 
 ```{toctree}
