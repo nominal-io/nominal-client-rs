@@ -21,21 +21,21 @@ Rerun to update, or install from source with `cargo install nominal-cli --locked
 
 ## First-time setup
 
-Create a Nominal API token, then run the interactive setup:
+Create an API key, as in [API Keys Setup](https://dev.nominal.io/quickstart/api-keys-setup/), then run the interactive setup:
 
 ```sh
 nomctl config init
 ```
 
-The wizard stores a named profile in `~/.config/nominal/config.yml`, including your API URL, token, and workspace. See the [Nominal authentication docs](https://docs.nominal.io/core/sdk/python-client/authentication) for token creation.
+The wizard stores a named profile in `~/.config/nominal/config.yml`, including your API URL, API key, and workspace.
 
 You can also create or update a profile non-interactively:
 
 ```sh
 nomctl config profile add production \
   --url https://api.nominal.io/api \
-  --token "$NOMINAL_TOKEN" \
-  --workspace-rid ri.security.example.workspace.00000000-0000-0000-0000-000000000001
+  --workspace-rid '<ri.security.instance.workspace.identifier>' \
+  --token '<api key>'  # DO NOT COMMIT THIS
 ```
 
 Select a profile with `--profile` or `NOMINAL_PROFILE`:
