@@ -24,9 +24,9 @@ guides/cheatsheet
 :hidden:
 :caption: Organize data
 
+guides/datasets
 guides/assets
 guides/runs
-guides/datasets
 guides/channels
 ```
 
@@ -35,7 +35,6 @@ guides/channels
 :caption: Get data in
 
 guides/upload
-guides/ingest-jobs
 guides/stream
 guides/drives
 ```
@@ -66,6 +65,7 @@ examples/shared-dataset
 examples/simulation-runs
 examples/automated-checks
 examples/read-channels
+examples/extractor-ingest
 ```
 
 ```{toctree}

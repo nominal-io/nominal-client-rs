@@ -1,15 +1,13 @@
 # Workbooks
 
 {.lead}
-A [workbook](https://dev.nominal.io/platform/workbooks/) is where you plot and review an asset's or a run's data in Nominal. Create workbooks from a template, so every asset or run gets the same views.
-
-[Post-test analysis](https://dev.nominal.io/platform/data-model/paradigms/stories/post-test/) shows how workbooks fit into reviewing a test.
+A [workbook](https://dev.nominal.io/platform/workbooks/) is where you plot and review an asset's or a run's data in Nominal. Use rust to create workbooks from a template, streamlining your team's [post-test analysis](https://dev.nominal.io/platform/data-model/paradigms/stories/post-test/).
 
 To use this page, first make sure you can [Connect to Nominal](connect.md) and obtain a `client`.
 
 ## Create a workbook from a template
 
-Save a workbook as a template in Nominal, then create a workbook from the template for each run or asset. The template finds channels by [ref name](https://dev.nominal.io/platform/data-model/#data-scopes-and-ref-names), so it works on every run or asset that adds its datasets under the same ref names.
+Save a hand-made workbook as a template in Nominal, then create a workbook from the template for each run or asset. The template finds channels by [ref name](https://dev.nominal.io/platform/data-model/#data-scopes-and-ref-names), so it works on every run or asset that adds its datasets under the same ref names.
 
 ```rust
 use nominal::core::{WorkbookCreate, WorkbookDataScope};
@@ -19,7 +17,8 @@ let workbook = client
     .workbooks()
     .create_from_template(
         &template,
-        WorkbookDataScope::runs(["<ri.scout.instance.run.identifier>"]), // or WorkbookDataScope::assets
+        // use WorkbookDataScope::runs or WorkbookDataScope::assets with a matching set of RIDs
+        WorkbookDataScope::runs(["<ri.scout.instance.run.identifier>"]), 
         WorkbookCreate::new().title("Flight acceptance review").labels(["acceptance"]),
     )
     .await?;
@@ -40,6 +39,9 @@ let workbook = client.workbooks().get("<ri.scout.instance.notebook.identifier>")
 
 ```rust
 use nominal::core::WorkbookQuery;
+
+// Every workbook in the workspace using an empty query
+let workbooks = client.workbooks().search(WorkbookQuery::and([])).await?;
 
 // Titles or descriptions that match "acceptance review"
 let workbooks = client.workbooks().search(WorkbookQuery::search_text("acceptance review")).await?;

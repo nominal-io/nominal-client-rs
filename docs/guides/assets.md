@@ -24,7 +24,7 @@ let asset = client
 println!("{}", asset.nominal_url());
 ```
 
-{rust:method}`create <AssetsClient::create>` always makes a new asset with a different RID, even if another asset has the same name. [Fetch the asset](#fetch-assets) if you know the RID or [search](#find-assets) first if you want to re-use an existing asset but don't have the RID saved.
+{rust:method}`create <AssetsClient::create>` always makes a new asset even if another asset has the same name. [Fetch the asset](#fetch-assets) if you know the [RID](https://dev.nominal.io/platform/reference/glossary/#rid) or [search](#find-assets) first if you want to re-use an existing asset but don't have the RID saved.
 
 ## Fetch assets
 

@@ -24,7 +24,9 @@ let dataset = client
 println!("{}", dataset.nominal_url());
 ```
 
-To create the dataset as you upload a file, see [Upload files](upload.md). To show the dataset on an asset or a run, add it with {rust:method}`AssetsClient::add_dataset` or {rust:method}`RunsClient::add_dataset`.
+{rust:method}`create_dataset <CatalogClient::create_dataset>` always makes a new dataset. [Fetch the dataset](#fetch-datasets) if you know the [RID](https://dev.nominal.io/platform/reference/glossary/#rid) or [search](#find-datasets) first if you want to re-use an existing dataset but don't have the RID saved.
+
+To fill the dataset, [upload files](upload.md) into it or [stream points](stream.md) to it. To organize the dataset under an asset or a run, add it with {rust:method}`AssetsClient::add_dataset` or {rust:method}`RunsClient::add_dataset`.
 
 ## Fetch datasets
 

@@ -1,7 +1,7 @@
 # Stream data
 
 {.lead}
-A stream sends [points](https://dev.nominal.io/platform/data-model/#time-series-data) to a dataset as your program produces them. The `nominal` crate includes the [nominal-streaming](https://dev.nominal.io/nominal-streaming/) crate, version 0.11, as `nominal::streaming`.
+A stream sends [points](https://dev.nominal.io/platform/data-model/#time-series-data) to a dataset as your program produces them. The `nominal` crate includes the [nominal-streaming](https://dev.nominal.io/nominal-streaming/) crate as `nominal::streaming`.
 
 To decide whether each unit you test streams to its own dataset or units share one, told apart by tags, see [Organize and view your data](https://dev.nominal.io/platform/data-model/paradigms/).
 
