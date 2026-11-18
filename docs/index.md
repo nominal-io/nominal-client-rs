@@ -66,6 +66,7 @@ examples/simulation-runs
 examples/automated-checks
 examples/read-channels
 examples/extractor-ingest
+examples/drive-put
 ```
 
 ```{toctree}
