@@ -426,7 +426,7 @@ docs = [
 [[package]]
 name = "nominal-sphinx-theme"
 version = "0.1.0"
-source = { git = "https://github.com/nominal-io/nominal-sphinx-theme#16870638fd30adb4baf6ec3127a4c301ed24796a" }
+source = { git = "https://github.com/nominal-io/nominal-sphinx-theme#c4544e05c5d2ed3983b3bc8426b62f0b2aad725f" }
 dependencies = [
     { name = "myst-parser" },
     { name = "shibuya" },
@@ -673,7 +673,7 @@ wheels = [
 [[package]]
 name = "sphinx-rustdoc"
 version = "0.1.0"
-source = { git = "https://github.com/nominal-io/sphinx-rustdoc#54fb26e142ececeef5136fae7d018570244bb4f5" }
+source = { git = "https://github.com/nominal-io/sphinx-rustdoc#3ce24cda2fe9e7d18bfa62bdc58ee3d13beac82c" }
 dependencies = [
     { name = "myst-parser" },
     { name = "sphinx", version = "9.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
