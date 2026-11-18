@@ -28,6 +28,8 @@ exclude_patterns = ["_build"]
 rustdoc_crates = {"nominal": {"package": "nominal"}}
 # docs.rs hasn't built nominal-api's recent releases, so its types render as text
 rustdoc_unlinked_crates = ["nominal_api", "nominal_api_conjure", "nominal_api_proto"]
+# nominal-streaming's reference is its own project on the hub, so links to its items go there
+rustdoc_crate_urls = {"nominal_streaming": "/nominal-streaming/ref/rust/"}
 
 html_theme = "shibuya"
 # the browser tab and search results; the header shows project
