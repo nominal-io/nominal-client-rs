@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.7.2...nominal-v0.8.0) - 2026-11-19
+
+### Added
+
+- [**breaking**] upgrade nominal-api to 0.1519.0 and nominal-streaming to 0.11.0 ([#217](https://github.com/nominal-io/nominal-client-rs/pull/217))
+
+### Fixed
+
+- serialize build for docs.rs OOM kill ([#196](https://github.com/nominal-io/nominal-client-rs/pull/196))
+
+### Other
+
+- *(deps)* bump webpki-roots and webpki-root-certs to 1.0.11 ([#210](https://github.com/nominal-io/nominal-client-rs/pull/210))
+
 ## [0.7.2](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.7.1...nominal-v0.7.2) - 2026-09-18
 
 ### Added
