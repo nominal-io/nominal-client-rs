@@ -170,13 +170,7 @@ where
     let result = upload_all_parts(&ctx, reader).await;
 
     match result {
-        Ok(mut parts) => {
-            // S3 CompleteMultipartUpload requires parts sorted by part number.
-            parts.sort_by_key(|(n, _)| *n);
-            let parts: Vec<Part> = parts
-                .into_iter()
-                .map(|(n, etag)| Part::new(n, etag))
-                .collect();
+        Ok(parts) => {
             let complete_resp = upload_service
                 .complete_multipart_upload(&token, &upload_id, &key, Some(&bucket), &parts)
                 .await?;
@@ -241,12 +235,12 @@ impl PartCtx<'_> {
     }
 }
 
-async fn upload_all_parts<R>(ctx: &PartCtx<'_>, reader: R) -> Result<Vec<(i32, String)>>
+async fn upload_all_parts<R>(ctx: &PartCtx<'_>, reader: R) -> Result<Vec<Part>>
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
     let max_concurrency = ctx.options.max_concurrency;
-    chunk_stream(reader, ctx.options.chunk_size)
+    let receipts = chunk_stream(reader, ctx.options.chunk_size)
         .enumerate()
         .map(|(i, res)| res.map(|bytes| (i as i32 + 1, bytes)))
         .map_ok(|(part_number, bytes)| {
@@ -258,7 +252,56 @@ where
         })
         .try_buffer_unordered(max_concurrency)
         .try_collect()
-        .await
+        .await?;
+
+    completion_parts(receipts, async {
+        let listed = ctx
+            .upload_service
+            .list_parts(ctx.token, ctx.upload_id, ctx.key, Some(ctx.bucket))
+            .await?;
+        Ok(listed
+            .into_iter()
+            .map(|p| Part::new(p.part_number(), p.etag()))
+            .collect())
+    })
+    .await
+}
+
+/// A successful PUT can omit its ETag. Fetch the stored parts once in that
+/// case, after all concurrent PUTs have finished.
+async fn completion_parts(
+    mut receipts: Vec<(i32, Option<String>)>,
+    listed: impl Future<Output = Result<Vec<Part>>>,
+) -> Result<Vec<Part>> {
+    receipts.sort_unstable_by_key(|(number, _)| *number);
+    if receipts.iter().any(|(_, etag)| etag.is_none()) {
+        let mut seen = std::collections::HashSet::new();
+        for part in listed.await? {
+            let number = part.part_number();
+            let index = receipts
+                .binary_search_by_key(&number, |(n, _)| *n)
+                .map_err(|_| Error::Upload {
+                    details: format!("unexpected listed part {number}"),
+                })?;
+            if !seen.insert(number) {
+                return Err(Error::Upload {
+                    details: format!("duplicate listed part {number}"),
+                });
+            }
+            if receipts[index].1.is_none() && !part.etag().trim().is_empty() {
+                receipts[index].1 = Some(part.etag().to_owned());
+            }
+        }
+    }
+    receipts
+        .into_iter()
+        .map(|(number, etag)| {
+            etag.map(|etag| Part::new(number, etag))
+                .ok_or_else(|| Error::Upload {
+                    details: format!("missing ETag for uploaded part {number} after listing parts"),
+                })
+        })
+        .collect()
 }
 
 /// Stream an `AsyncRead` as `chunk_size`-sized `Bytes`. The final chunk may be
@@ -279,7 +322,11 @@ where
     })
 }
 
-async fn sign_and_put(ctx: &OwnedPartCtx, part_number: i32, bytes: Bytes) -> Result<String> {
+async fn sign_and_put(
+    ctx: &OwnedPartCtx,
+    part_number: i32,
+    bytes: Bytes,
+) -> Result<Option<String>> {
     let part_size = bytes.len() as u64;
     let mut last_err: Option<Error> = None;
     for attempt in 0..=ctx.options.max_retries {
@@ -306,7 +353,7 @@ async fn sign_and_put(ctx: &OwnedPartCtx, part_number: i32, bytes: Bytes) -> Res
     }))
 }
 
-async fn put_once(ctx: &OwnedPartCtx, part_number: i32, bytes: Bytes) -> Result<String> {
+async fn put_once(ctx: &OwnedPartCtx, part_number: i32, bytes: Bytes) -> Result<Option<String>> {
     // Re-sign on every attempt: presigned URLs can expire between retries.
     let sign_resp = ctx
         .upload_service
@@ -332,15 +379,12 @@ async fn put_once(ctx: &OwnedPartCtx, part_number: i32, bytes: Bytes) -> Result<
             details: format!("PUT part {part_number} returned {status}: {body}"),
         });
     }
-    let etag = resp
+    Ok(resp
         .headers()
         .get(reqwest::header::ETAG)
-        .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| Error::Upload {
-            details: format!("PUT part {part_number} response missing ETag header"),
-        })?
-        .to_string();
-    Ok(etag)
+        .and_then(|value| value.to_str().ok())
+        .filter(|etag| !etag.trim().is_empty())
+        .map(str::to_owned))
 }
 
 fn emit(callback: &Option<ProgressCallback>, event: impl FnOnce() -> UploadEvent) {
@@ -348,3 +392,6 @@ fn emit(callback: &Option<ProgressCallback>, event: impl FnOnce() -> UploadEvent
         cb(event());
     }
 }
+
+#[cfg(test)]
+mod tests;

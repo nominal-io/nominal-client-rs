@@ -47,6 +47,9 @@ tracing = "0.1"
 webpki-root-certs = "1.0.11"
 webpki-roots = "1.0.11"
 
+[dev-dependencies]
+wiremock = "=0.6.2"
+
 [package.metadata.docs.rs]
 # Only build docs for the default target (x86_64-unknown-linux-gnu).
 targets = []
