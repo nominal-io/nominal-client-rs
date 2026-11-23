@@ -156,7 +156,7 @@ impl Drive {
         &self.workspace_rid
     }
 
-    /// The drive's human-readable identifier, unique within the workspace.
+    /// The drive's human-readable identifier, or an empty string when the drive has none.
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -199,7 +199,7 @@ impl Drive {
             content_mutability: DriveMutability::from_proto(drive.content_mutability),
             rid: drive.rid,
             workspace_rid: drive.workspace_rid,
-            id: drive.id,
+            id: drive.id.unwrap_or_default(),
             created_at,
             created_by,
         }
@@ -409,7 +409,7 @@ mod tests {
         let drive = Drive::from_proto(proto::Drive {
             rid: "ri.filestore.test.drive.abc".to_string(),
             workspace_rid: "ri.security.test.workspace.def".to_string(),
-            id: "flight-logs".to_string(),
+            id: Some("flight-logs".to_string()),
             state: proto::DriveState::Active as i32,
             created: Some(proto::Attribution {
                 time: Some(nominal_api::tonic::google::protobuf::Timestamp {
@@ -420,7 +420,7 @@ mod tests {
             }),
             source: proto::DriveSource::Nominal as i32,
             content_mutability: proto::DriveMutability::Writable as i32,
-            description: None,
+            ..Default::default()
         });
         assert_eq!(drive.rid(), "ri.filestore.test.drive.abc");
         assert_eq!(drive.workspace_rid(), "ri.security.test.workspace.def");
@@ -437,17 +437,9 @@ mod tests {
     }
 
     #[test]
-    fn drive_from_proto_missing_attribution() {
-        let drive = Drive::from_proto(proto::Drive {
-            rid: "ri.filestore.test.drive.abc".to_string(),
-            workspace_rid: String::new(),
-            id: "d".to_string(),
-            state: 0,
-            created: None,
-            source: 0,
-            content_mutability: 0,
-            description: None,
-        });
+    fn drive_from_proto_missing_id_and_attribution() {
+        let drive = Drive::from_proto(proto::Drive::default());
+        assert_eq!(drive.id(), "");
         assert_eq!(drive.created_at(), None);
         assert_eq!(drive.created_by(), None);
     }

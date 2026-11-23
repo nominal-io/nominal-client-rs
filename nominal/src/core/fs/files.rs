@@ -271,7 +271,6 @@ impl DriveFilesClient {
         options: UploadOptions,
     ) -> Result<LogicalFile> {
         let local_path = local_path.as_ref();
-        let size_bytes = tokio::fs::metadata(local_path).await?.len();
         let filename = local_path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -288,7 +287,7 @@ impl DriveFilesClient {
             options,
         )
         .await?;
-        self.put_uploaded_object(destination_path, upload.object_key, size_bytes)
+        self.apply_one(put_change(destination_path, upload.object_key))
             .await
     }
 
@@ -349,7 +348,9 @@ impl DriveFilesClient {
         let response = self
             .service()
             .get_download_url(proto::GetDownloadUrlRequest {
-                file_revision_rid: revision_rid.to_string(),
+                revision: Some(proto::get_download_url_request::Revision::FileRevisionRid(
+                    revision_rid.to_string(),
+                )),
             })
             .await?
             .into_inner();
@@ -396,16 +397,6 @@ impl DriveFilesClient {
             }
         }
         Ok(revisions)
-    }
-
-    async fn put_uploaded_object(
-        &self,
-        path: &str,
-        object_key: String,
-        size_bytes: u64,
-    ) -> Result<LogicalFile> {
-        self.apply_one(put_change(path, object_key, size_bytes))
-            .await
     }
 
     /// Move a file, identified by its current head revision, to a destination.
@@ -456,6 +447,7 @@ impl DriveFilesClient {
         let request = proto::ApplyFileChangesRequest {
             drive_rid: self.drive_rid.clone(),
             changes: vec![change],
+            failure_policy: proto::FailurePolicy::Continue as i32,
         };
         let response = self
             .service()
@@ -546,11 +538,10 @@ impl From<&str> for FileOperationDestination {
     }
 }
 
-fn put_change(path: &str, object_key: String, size_bytes: u64) -> proto::FileChange {
+fn put_change(path: &str, object_key: String) -> proto::FileChange {
     proto::FileChange {
         change: Some(proto::file_change::Change::Put(proto::PutFile {
             object: Some(proto::UploadedObjectRef { object_key }),
-            size_bytes,
             destination: Some(FileOperationDestination::path(path).into_proto()),
         })),
     }
@@ -583,7 +574,7 @@ mod tests {
     #[test]
     fn put_change_uses_the_multipart_object_key() {
         let object_key = "file-store/uploads/abc123";
-        let change = put_change("example.txt", object_key.to_string(), 42);
+        let change = put_change("example.txt", object_key.to_string());
 
         let Some(proto::file_change::Change::Put(put)) = change.change else {
             panic!("expected put change");
@@ -623,9 +614,7 @@ mod tests {
             state: proto::FileState::Active as i32,
             created: None,
             size_bytes: 42,
-            observed: None,
-            current_revision: None,
-            download_availability: 0,
+            ..Default::default()
         };
 
         let entry = proto::FileEntry {
