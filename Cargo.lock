@@ -1808,7 +1808,7 @@ dependencies = [
  "futures",
  "http",
  "http-body-util",
- "nominal-api",
+ "nominal-api 0.1546.0",
  "nominal-streaming",
  "rand 0.9.2",
  "regex",
@@ -1832,8 +1832,18 @@ version = "0.1519.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "175a0c4e9a78ecb224080dd977627f08a07a89ef59aebd3521cd1735b82ed527"
 dependencies = [
- "nominal-api-conjure",
- "nominal-api-proto",
+ "nominal-api-conjure 0.1519.0",
+ "nominal-api-proto 0.1519.0",
+]
+
+[[package]]
+name = "nominal-api"
+version = "0.1546.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfe3b1303a6155d50d97ab3c1710a948fe887d3e5381b9f929975a4b4dd6eef0"
+dependencies = [
+ "nominal-api-conjure 0.1546.0",
+ "nominal-api-proto 0.1546.0",
 ]
 
 [[package]]
@@ -1848,10 +1858,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "nominal-api-conjure"
+version = "0.1546.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a3b9bfd7a3eba6cdf3437d2ea2efe63f59c638916cde508bc85e6d0f7db642e"
+dependencies = [
+ "conjure-error",
+ "conjure-http",
+ "conjure-object",
+]
+
+[[package]]
 name = "nominal-api-proto"
 version = "0.1519.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6d9d4ffe3f165a595ca111f7371e233a72fc79d4dbe6af03d8da0998b8b7bd6d"
+dependencies = [
+ "prost 0.13.5",
+ "tonic",
+]
+
+[[package]]
+name = "nominal-api-proto"
+version = "0.1546.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5614536587589275b8a8794c82d2a0a6ec91c61ad6386153ceb9a0b15d8faf0f"
 dependencies = [
  "prost 0.13.5",
  "tonic",
@@ -1871,7 +1902,7 @@ dependencies = [
  "dirs",
  "inquire",
  "nominal",
- "nominal-api",
+ "nominal-api 0.1546.0",
  "once_cell",
  "prost 0.13.5",
  "prost-reflect",
@@ -1900,7 +1931,7 @@ dependencies = [
  "conjure-runtime-rustls-platform-verifier",
  "crossbeam-channel",
  "futures",
- "nominal-api",
+ "nominal-api 0.1519.0",
  "parking_lot 0.13.0",
  "prost 0.13.5",
  "reqwest 0.13.4",
@@ -2164,7 +2195,7 @@ version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "343d3bd7056eda839b03204e68deff7d1b13aba7af2b2fd16890697274262ee7"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools",
  "log",
  "multimap",
