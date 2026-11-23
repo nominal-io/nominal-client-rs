@@ -57,7 +57,7 @@ Nominal ingests these file types itself, and each has its own upload method and 
 | journald JSON logs (`.jsonl`, `.jsonl.gz`) | {rust:method}`upload_journal_json <IngestClient::upload_journal_json>` | {rust:struct}`JournalJsonIngest` |
 | Avro file from a [stream](stream.md#fallback-file) (`.avro`) | {rust:method}`upload_avro_stream <IngestClient::upload_avro_stream>` | {rust:struct}`AvroStreamIngest` |
 | ArduPilot DataFlash (`.bin`) | {rust:method}`upload_ardupilot_dataflash <IngestClient::upload_ardupilot_dataflash>` | {rust:struct}`DataflashIngest` |
-| Video (`.mp4`, `.mkv`, `.avi`, `.ts`), or a video in an MCAP file | {rust:method}`upload_video <IngestClient::upload_video>` | {rust:struct}`VideoIngest` |
+| Video (`.mp4`, `.mkv`, `.avi`, `.ts`), or a video in an MCAP file | {rust:method}`upload_video_to_dataset <IngestClient::upload_video_to_dataset>` | {rust:struct}`VideoIngest` |
 
 ## CSV and Parquet
 
@@ -144,27 +144,37 @@ client.ingest().upload_ardupilot_dataflash("flight.bin", "<ri.catalog.instance.d
 
 ## Video
 
-A video goes into a video resource rather than a dataset. Pass a {rust:struct}`VideoCreate` to create one, or an existing video's RID.
+Upload each video to a named channel on a dataset. For a standalone video file, supply the timestamp of its first frame. For an MCAP file, select the topic that contains the video stream.
 
 ```rust
 use chrono::{DateTime, Utc};
-use nominal::core::{VideoCreate, VideoIngest};
+use nominal::core::{DatasetCreate, VideoIngest};
 
-// A standard container format like mp4 only requires a start timestamp
 let first_frame: DateTime<Utc> = "2026-01-01T12:00:00Z".parse()?;
-client
+let (job, dataset_rid) = client
     .ingest()
-    .upload_video("nose-camera.mp4", VideoCreate::new("Nose camera"), VideoIngest::starting_at(first_frame))
+    .upload_video_to_dataset(
+        "nose-camera.mp4",
+        DatasetCreate::new("Flight cameras"),
+        "nose_camera",
+        VideoIngest::starting_at(first_frame),
+    )
     .await?;
+client.ingest().wait_for_ingest_job(job.rid()).await?;
 
-// The video on one topic of an MCAP file
+// Add an MCAP video to a second channel on the same dataset.
 client
     .ingest()
-    .upload_video("drive-12.mcap", VideoCreate::new("Front camera"), VideoIngest::mcap_topic("/camera/front"))
+    .upload_video_to_dataset(
+        "flight.mcap",
+        &dataset_rid,
+        "front_camera",
+        VideoIngest::mcap_topic("/camera/front"),
+    )
     .await?;
 ```
 
-To associate a video with an asset, use {rust:method}`add_video <AssetsClient::add_video>`.
+To associate the dataset with an asset, use {rust:method}`add_dataset <AssetsClient::add_dataset>`.
 
 ## Upload options and progress
 
