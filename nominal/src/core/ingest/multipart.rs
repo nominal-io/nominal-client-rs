@@ -270,30 +270,38 @@ where
 /// A successful PUT can omit its ETag. Fetch the stored parts once in that
 /// case, after all concurrent PUTs have finished.
 async fn completion_parts(
-    receipts: Vec<(i32, Option<String>)>,
+    mut receipts: Vec<(i32, Option<String>)>,
     listed: impl Future<Output = Result<Vec<Part>>>,
 ) -> Result<Vec<Part>> {
-    let count = receipts.len();
-    let from_headers: Option<Vec<_>> = receipts
-        .into_iter()
-        .map(|(number, etag)| etag.map(|etag| Part::new(number, etag)))
-        .collect();
-    let mut parts = match from_headers {
-        Some(parts) => parts,
-        None => listed.await?,
-    };
-    parts.sort_unstable_by_key(Part::part_number);
-    if parts.len() != count
-        || parts
-            .iter()
-            .zip(1..)
-            .any(|(part, expected)| part.part_number() != expected || part.etag().trim().is_empty())
-    {
-        return Err(Error::Upload {
-            details: "multipart completion requires an ETag for every uploaded part".into(),
-        });
+    receipts.sort_unstable_by_key(|(number, _)| *number);
+    if receipts.iter().any(|(_, etag)| etag.is_none()) {
+        let mut seen = std::collections::HashSet::new();
+        for part in listed.await? {
+            let number = part.part_number();
+            let index = receipts
+                .binary_search_by_key(&number, |(n, _)| *n)
+                .map_err(|_| Error::Upload {
+                    details: format!("unexpected listed part {number}"),
+                })?;
+            if !seen.insert(number) {
+                return Err(Error::Upload {
+                    details: format!("duplicate listed part {number}"),
+                });
+            }
+            if receipts[index].1.is_none() && !part.etag().trim().is_empty() {
+                receipts[index].1 = Some(part.etag().to_owned());
+            }
+        }
     }
-    Ok(parts)
+    receipts
+        .into_iter()
+        .map(|(number, etag)| {
+            etag.map(|etag| Part::new(number, etag))
+                .ok_or_else(|| Error::Upload {
+                    details: format!("missing ETag for uploaded part {number} after listing parts"),
+                })
+        })
+        .collect()
 }
 
 /// Stream an `AsyncRead` as `chunk_size`-sized `Bytes`. The final chunk may be
@@ -386,42 +394,4 @@ fn emit(callback: &Option<ProgressCallback>, event: impl FnOnce() -> UploadEvent
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn recovers_missing_etags_once_and_completes_in_part_order() {
-        let receipts = vec![(2, None), (1, Some("first".to_owned()))];
-        let parts = completion_parts(receipts, async {
-            Ok(vec![Part::new(2, "second"), Part::new(1, "first")])
-        })
-        .await
-        .unwrap();
-        assert_eq!(parts, vec![Part::new(1, "first"), Part::new(2, "second")]);
-    }
-
-    #[tokio::test]
-    async fn skips_listing_when_puts_return_etags() {
-        let receipts = vec![(1, Some("first".to_owned()))];
-        let parts = completion_parts(receipts, async { panic!("unexpected list_parts") })
-            .await
-            .unwrap();
-        assert_eq!(parts, vec![Part::new(1, "first")]);
-    }
-
-    #[tokio::test]
-    async fn rejects_incomplete_or_mismatched_listings() {
-        for listing in [
-            vec![Part::new(1, "one")],
-            vec![Part::new(1, "one"), Part::new(1, "duplicate")],
-            vec![Part::new(1, "one"), Part::new(3, "unexpected")],
-            vec![Part::new(1, "one"), Part::new(2, "")],
-        ] {
-            assert!(
-                completion_parts(vec![(1, None), (2, None)], async { Ok(listing) })
-                    .await
-                    .is_err()
-            );
-        }
-    }
-}
+mod tests;
