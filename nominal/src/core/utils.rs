@@ -2,7 +2,6 @@ use futures::{
     StreamExt,
     stream::{self, Stream},
 };
-use nominal_api::objects::api::Token;
 use regex::Regex;
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -38,17 +37,18 @@ pub(crate) fn api_base_url_to_app_base_url(api_base_url: &str) -> String {
 /// - `call`: performs the async RPC.
 /// - `next_token`: extracts the next page token from a response (`None` = last page).
 /// - `into_items`: converts a response into its item vec.
-pub(crate) fn paginate_stream<Req, Resp, Item, MakeReq, Call, CallFut, NextToken, IntoItems>(
+pub(crate) fn paginate_stream<T, Req, Resp, Item, MakeReq, Call, CallFut, NextToken, IntoItems>(
     make_request: MakeReq,
     call: Call,
     next_token: NextToken,
     into_items: IntoItems,
 ) -> impl Stream<Item = crate::Result<Item>>
 where
-    MakeReq: Fn(Option<Token>) -> Req + 'static,
+    T: 'static,
+    MakeReq: Fn(Option<T>) -> Req + 'static,
     Call: Fn(Req) -> CallFut + 'static,
     CallFut: std::future::Future<Output = crate::Result<Resp>>,
-    NextToken: Fn(&Resp) -> Option<Token> + 'static,
+    NextToken: Fn(&Resp) -> Option<T> + 'static,
     IntoItems: Fn(Resp) -> Vec<Item> + 'static,
 {
     let make_request = Arc::new(make_request);
@@ -56,7 +56,7 @@ where
     let next_token = Arc::new(next_token);
     let into_items = Arc::new(into_items);
 
-    stream::unfold(Some(None::<Token>), move |state| {
+    stream::unfold(Some(None::<T>), move |state| {
         let make_request = Arc::clone(&make_request);
         let call = Arc::clone(&call);
         let next_token = Arc::clone(&next_token);

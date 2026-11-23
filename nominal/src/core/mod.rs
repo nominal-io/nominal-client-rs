@@ -1,13 +1,19 @@
 pub(crate) mod asset;
 pub(crate) mod catalog;
+pub(crate) mod checklist;
 pub(crate) mod client;
 pub(crate) mod datasource;
 pub(crate) mod datetime;
+pub(crate) mod fs;
+pub(crate) mod grpc;
 pub(crate) mod ingest;
 pub(crate) mod rid;
 pub(crate) mod run;
+pub(crate) mod template;
 pub(crate) mod user;
 pub(crate) mod utils;
+pub(crate) mod workbook;
+pub(crate) mod workspace;
 
 pub use asset::{Asset, AssetCreate, AssetQuery, AssetUpdate, AssetsClient};
 pub use catalog::{
@@ -15,12 +21,23 @@ pub use catalog::{
     ConnectionUpdate, Dataset, DatasetCreate, DatasetQuery, DatasetUpdate, Video, VideoCreate,
     VideoQuery, VideoUpdate,
 };
+pub use checklist::{
+    CheckLiveStatus, CheckStatus, Checklist, ChecklistLiveStatus, ChecklistQuery, ChecklistState,
+    ChecklistsClient, ExecuteStreamingChecklist,
+};
 pub use client::{NominalClient, NominalClientBuilder};
 pub use datasource::DataSource;
+pub use fs::{
+    Directory, Drive, DriveFilesClient, DriveKind, DriveMutability, DriveSource, DriveState,
+    DrivesClient, FileEntry, FileOperationDestination, FileRevision, FileState, LogicalFile,
+};
 pub use ingest::{
     AvroStreamIngest, CsvIngest, DataflashIngest, DatasetTarget, FileType, IngestClient, IngestJob,
     IngestJobStatus, IngestType, JournalJsonIngest, McapIngest, ParquetIngest, ProgressCallback,
     TimeUnit, Timestamp, UploadEvent, UploadOptions, VideoIngest, VideoTarget,
 };
 pub use run::{Run, RunCreate, RunQuery, RunUpdate, RunsClient};
+pub use template::{Template, TemplatesClient};
 pub use user::{User, UsersClient};
+pub use workbook::{Workbook, WorkbookCreate, WorkbookDataScope, WorkbookQuery, WorkbooksClient};
+pub use workspace::{Workspace, WorkspacesClient};

@@ -3,11 +3,15 @@ use std::sync::Arc;
 use conjure_http::client::ConjureRuntime;
 use conjure_object::BearerToken;
 use conjure_runtime::{Agent, Client, UserAgent};
+use nominal_api::objects::api::rids::WorkspaceRid;
+use nominal_streaming::client::ProductAgent;
 
 use crate::config::{Config, Profile};
+use crate::core::rid::parse_rid;
 use crate::core::{
-    asset::AssetsClient, catalog::CatalogClient, ingest::IngestClient, run::RunsClient,
-    user::UsersClient, utils::api_base_url_to_app_base_url,
+    asset::AssetsClient, catalog::CatalogClient, checklist::ChecklistsClient, ingest::IngestClient,
+    run::RunsClient, template::TemplatesClient, user::UsersClient,
+    utils::api_base_url_to_app_base_url, workbook::WorkbooksClient, workspace::WorkspacesClient,
 };
 use crate::{Error, Result};
 
@@ -20,8 +24,9 @@ pub struct NominalClient {
     client: Client,
     runtime: Arc<ConjureRuntime>,
     token: BearerToken,
-    workspace_rid: Option<String>,
+    workspace_rid: Option<WorkspaceRid>,
     base_url: String,
+    grpc: crate::core::grpc::GrpcConnection,
 }
 
 impl std::fmt::Debug for NominalClient {
@@ -66,7 +71,7 @@ impl NominalClient {
     }
 
     pub fn workspace_rid(&self) -> Option<&str> {
-        self.workspace_rid.as_deref()
+        self.workspace_rid.as_ref().map(|w| w.0.as_str())
     }
 
     /// Access run operations.
@@ -96,6 +101,11 @@ impl NominalClient {
         UsersClient::new(self.client.clone(), &self.runtime, self.token.clone())
     }
 
+    /// Access workspace operations.
+    pub fn workspaces(&self) -> WorkspacesClient {
+        WorkspacesClient::new(self.client.clone(), &self.runtime, self.token.clone())
+    }
+
     /// Access catalog operations: datasets, videos, and connections.
     pub fn catalog(&self) -> CatalogClient {
         CatalogClient::new(
@@ -104,6 +114,54 @@ impl NominalClient {
             self.token.clone(),
             self.workspace_rid.clone(),
             api_base_url_to_app_base_url(&self.base_url),
+        )
+    }
+
+    /// Access template operations.
+    pub fn templates(&self) -> TemplatesClient {
+        TemplatesClient::new(
+            self.client.clone(),
+            &self.runtime,
+            self.token.clone(),
+            api_base_url_to_app_base_url(&self.base_url),
+        )
+    }
+
+    /// Access checklist operations.
+    pub fn checklists(&self) -> ChecklistsClient {
+        ChecklistsClient::new(
+            self.client.clone(),
+            &self.runtime,
+            self.token.clone(),
+            self.workspace_rid.clone(),
+            api_base_url_to_app_base_url(&self.base_url),
+        )
+    }
+
+    /// Access workbook operations.
+    pub fn workbooks(&self) -> WorkbooksClient {
+        WorkbooksClient::new(
+            self.client.clone(),
+            &self.runtime,
+            self.token.clone(),
+            self.workspace_rid.clone(),
+            api_base_url_to_app_base_url(&self.base_url),
+        )
+    }
+
+    /// Access drive operations in the Nominal file store.
+    pub fn drives(&self) -> crate::core::fs::DrivesClient {
+        crate::core::fs::DrivesClient::new(&self.grpc, self.workspace_rid.clone())
+    }
+
+    /// Access file operations scoped to `drive_rid` in the Nominal file store.
+    pub fn files(&self, drive_rid: impl Into<String>) -> crate::core::fs::DriveFilesClient {
+        crate::core::fs::DriveFilesClient::new(
+            &self.grpc,
+            self.client.clone(),
+            self.runtime.clone(),
+            self.token.clone(),
+            drive_rid,
         )
     }
 
@@ -126,7 +184,8 @@ pub struct NominalClientBuilder {
     base_url: String,
     token: String,
     workspace_rid: Option<String>,
-    user_agent: UserAgent,
+    user_agent_name: String,
+    user_agent_version: String,
 }
 
 impl NominalClientBuilder {
@@ -135,7 +194,8 @@ impl NominalClientBuilder {
             base_url: DEFAULT_BASE_URL.to_string(),
             token: token.into(),
             workspace_rid: None,
-            user_agent: default_user_agent(),
+            user_agent_name: SDK_USER_AGENT_NAME.to_string(),
+            user_agent_version: SDK_USER_AGENT_VERSION.to_string(),
         }
     }
 
@@ -158,21 +218,34 @@ impl NominalClientBuilder {
 
     /// Override the default `User-Agent` value.
     ///
-    /// The generated header is formatted as `name/version`.
+    /// The generated header starts with `name/version`. [`Self::build`] returns
+    /// [`Error::InvalidUserAgent`] unless the name and version satisfy [`ProductAgent::new`].
     pub fn user_agent(mut self, name: &str, version: &str) -> Self {
-        self.user_agent = UserAgent::new(Agent::new(name, version));
+        self.user_agent_name = name.to_string();
+        self.user_agent_version = version.to_string();
         self
     }
 
     pub fn build(self) -> Result<NominalClient> {
+        let user_agent = ProductAgent::new(&self.user_agent_name, &self.user_agent_version)
+            .map_err(|e| Error::InvalidUserAgent {
+                reason: e.to_string(),
+            })?;
         let bearer_token = create_bearer_token(&self.token)?;
-        let client = create_client(&self.base_url, self.user_agent)?;
+        let client = create_client(&self.base_url, &user_agent)?;
+        let grpc = crate::core::grpc::GrpcConnection::connect_lazy(&self.base_url, &bearer_token)?;
+        let workspace_rid = self
+            .workspace_rid
+            .as_deref()
+            .map(parse_rid::<WorkspaceRid>)
+            .transpose()?;
         Ok(NominalClient {
             client,
             runtime: Arc::new(ConjureRuntime::default()),
             token: bearer_token,
-            workspace_rid: self.workspace_rid,
+            workspace_rid,
             base_url: self.base_url,
+            grpc,
         })
     }
 }
@@ -183,11 +256,7 @@ fn create_bearer_token(token: &str) -> Result<BearerToken> {
     })
 }
 
-fn default_user_agent() -> UserAgent {
-    UserAgent::new(Agent::new(SDK_USER_AGENT_NAME, SDK_USER_AGENT_VERSION))
-}
-
-fn create_client(url: &str, user_agent: UserAgent) -> Result<Client> {
+fn create_client(url: &str, user_agent: &ProductAgent) -> Result<Client> {
     let uri = url.try_into().map_err(|e| Error::InvalidServiceUrl {
         url: url.to_string(),
         reason: format!("{e:?}"),
@@ -195,7 +264,10 @@ fn create_client(url: &str, user_agent: UserAgent) -> Result<Client> {
 
     Client::builder()
         .service(SDK_USER_AGENT_NAME)
-        .user_agent(user_agent)
+        .user_agent(UserAgent::new(Agent::new(
+            user_agent.name(),
+            user_agent.version(),
+        )))
         .uri(uri)
         .build()
         .map_err(Error::from)
@@ -206,18 +278,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_user_agent_uses_sdk_name_and_crate_version() {
+    fn sdk_user_agent_is_a_valid_product_agent() {
+        let agent = ProductAgent::new(SDK_USER_AGENT_NAME, SDK_USER_AGENT_VERSION)
+            .expect("SDK user agent name and crate version must be valid");
+
         assert_eq!(
-            default_user_agent().to_string(),
+            agent.to_string(),
             format!("{SDK_USER_AGENT_NAME}/{SDK_USER_AGENT_VERSION}")
         );
     }
 
     #[test]
-    fn builder_accepts_custom_user_agent() {
-        let builder = NominalClientBuilder::new("token").user_agent("nominal-cli", "1.2.3");
+    fn build_rejects_invalid_user_agent_name() {
+        let result = NominalClientBuilder::new("token")
+            .user_agent("nominal_cli", "1.2.3")
+            .build();
 
-        assert_eq!(builder.user_agent.to_string(), "nominal-cli/1.2.3");
+        assert!(matches!(result, Err(Error::InvalidUserAgent { .. })));
+    }
+
+    #[test]
+    fn build_rejects_invalid_user_agent_version() {
+        let result = NominalClientBuilder::new("token")
+            .user_agent("nominal-cli", "1.2.3-beta.1")
+            .build();
+
+        assert!(matches!(result, Err(Error::InvalidUserAgent { .. })));
     }
 
     #[test]

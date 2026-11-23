@@ -6,7 +6,10 @@ use conjure_object::BearerToken;
 use conjure_runtime::Client;
 use futures::Stream;
 use nominal_api::clients::scout::assets::{AsyncAssetService, AsyncAssetServiceClient};
-use nominal_api::objects::api::{Label, PropertyName, PropertyValue, SetOperator};
+use nominal_api::objects::api::rids::WorkspaceRid;
+use nominal_api::objects::api::{
+    Label, PropertyName, PropertyValue, SetOperator, TagName, TagValue,
+};
 use nominal_api::objects::scout::asset::api::{
     AddDataScopesToAssetRequest, AssetSortField, AssetSortOptions, CreateAssetDataScope,
     CreateAssetRequest, SearchAssetsQuery, SearchAssetsRequest, SearchAssetsResponse, SortKey,
@@ -91,6 +94,7 @@ impl Asset {
                 .description()
                 .filter(|s| !s.is_empty())
                 .map(|s| s.to_string()),
+            #[allow(deprecated)]
             properties: asset
                 .properties()
                 .iter()
@@ -236,9 +240,10 @@ impl AssetCreate {
         self
     }
 
-    pub(crate) fn into_request(self, workspace_rid: Option<&str>) -> Result<CreateAssetRequest> {
-        use nominal_api::objects::api::rids::WorkspaceRid;
-
+    pub(crate) fn into_request(
+        self,
+        workspace_rid: Option<&WorkspaceRid>,
+    ) -> Result<CreateAssetRequest> {
         let AssetCreate {
             name,
             description,
@@ -262,7 +267,7 @@ impl AssetCreate {
             b = b.labels(l.into_iter().map(Label).collect::<BTreeSet<_>>());
         }
         if let Some(wid) = workspace_rid {
-            b = b.workspace(parse_rid::<WorkspaceRid>(wid)?);
+            b = b.workspace(wid.clone());
         }
 
         Ok(b.build())
@@ -355,7 +360,7 @@ impl AssetQuery {
 pub struct AssetsClient {
     service: AsyncAssetServiceClient<Client>,
     token: BearerToken,
-    workspace_rid: Option<String>,
+    workspace_rid: Option<WorkspaceRid>,
     app_base_url: String,
 }
 
@@ -364,7 +369,7 @@ impl AssetsClient {
         client: Client,
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
-        workspace_rid: Option<String>,
+        workspace_rid: Option<WorkspaceRid>,
         app_base_url: String,
     ) -> Self {
         Self {
@@ -377,7 +382,7 @@ impl AssetsClient {
 
     /// Create a new asset.
     pub async fn create(&self, create: AssetCreate) -> Result<Asset> {
-        let request = create.into_request(self.workspace_rid.as_deref())?;
+        let request = create.into_request(self.workspace_rid.as_ref())?;
         let response = self
             .service
             .create_asset(&self.token, &request)
@@ -445,7 +450,7 @@ impl AssetsClient {
     }
 
     fn search_stream(&self, query: AssetQuery) -> impl Stream<Item = Result<Asset>> {
-        let conjure_query = query.into_conjure();
+        let conjure_query = self.scoped_conjure_query(query.into_conjure());
         let service = self.service.clone();
         let token = self.token.clone();
         let app_base_url = self.app_base_url.clone();
@@ -480,6 +485,16 @@ impl AssetsClient {
                     .collect()
             },
         )
+    }
+
+    /// Wraps the caller's query in an `And` with a `Workspace` filter when the client
+    /// is configured with a workspace RID. Without this the server returns results
+    /// from every workspace the API key can see.
+    fn scoped_conjure_query(&self, query: SearchAssetsQuery) -> SearchAssetsQuery {
+        let Some(ws) = self.workspace_rid.as_ref() else {
+            return query;
+        };
+        SearchAssetsQuery::And(vec![query, SearchAssetsQuery::Workspace(ws.clone())])
     }
 
     /// Search assets with a query, collecting all pages eagerly.
@@ -577,6 +592,55 @@ impl AssetsClient {
     pub async fn add_dataset(&self, rid: &str, name: &str, dataset_rid: &str) -> Result<Asset> {
         self.add_data_sources(rid, [(name, DataSource::dataset(dataset_rid))])
             .await
+    }
+
+    /// Attach a dataset to an asset with a series tag filter under the given scope name.
+    ///
+    /// Series tags filter which series from the dataset are included in the asset's data scope.
+    /// Returns the updated asset.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # async fn example(client: nominal::core::NominalClient) -> nominal::Result<()> {
+    /// client.assets().add_dataset_with_tags(
+    ///     "ri.scout.cerulean-staging.asset.<uuid>",
+    ///     "flight-data",
+    ///     "ri.catalog.cerulean-staging.dataset.<uuid>",
+    ///     [("vehicle", "rocket-1"), ("phase", "ascent")],
+    /// ).await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn add_dataset_with_tags<I, K, V>(
+        &self,
+        rid: &str,
+        name: &str,
+        dataset_rid: &str,
+        tags: I,
+    ) -> Result<Asset>
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        let conjure_ds = DataSource::dataset(dataset_rid).into_conjure()?;
+        let scope = CreateAssetDataScope::builder()
+            .data_scope_name(name.to_string().into())
+            .data_source(conjure_ds)
+            .series_tags(
+                tags.into_iter()
+                    .map(|(k, v)| (TagName(k.into()), TagValue(v.into()))),
+            )
+            .build();
+        let request = AddDataScopesToAssetRequest::builder()
+            .data_scopes(BTreeSet::from([scope]))
+            .build();
+        let asset_rid = parse_rid(rid)?;
+        let response = self
+            .service
+            .add_data_scopes_to_asset(&self.token, &asset_rid, &request)
+            .await
+            .map_err(Error::from)?;
+        Ok(Asset::from_conjure(response, &self.app_base_url))
     }
 
     /// Attach a video to an asset under the given scope name. See [`add_data_sources`](Self::add_data_sources).
@@ -709,6 +773,7 @@ mod tests {
     // --- AssetUpdate::into_request ---
 
     #[test]
+    #[allow(deprecated)]
     fn update_empty_request_has_no_fields() {
         let req = AssetUpdate::new().into_request();
         assert!(req.title().is_none());
@@ -732,6 +797,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn update_properties_converted_correctly() {
         let req = AssetUpdate::new()
             .properties([("k1", "v1"), ("k2", "v2")])
@@ -761,6 +827,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn update_all_fields() {
         let req = AssetUpdate::new()
             .name("name")

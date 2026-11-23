@@ -1,0 +1,4 @@
+profiles:
+  default:
+    base_url: https://api.example.com/api
+    token: example-token

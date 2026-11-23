@@ -1,6 +1,6 @@
 [package]
 name = "nominal-cli"
-version = "0.4.0"
+version = "0.7.2"
 edition = "2024"
 rust-version = "1.85"
 license = "Apache-2.0"
@@ -8,30 +8,37 @@ description = "CLI for automating Nominal workflows"
 homepage = "https://nominal.io"
 
 [[bin]]
-name = "nom"
+name = "nomctl"
 path = "src/main.rs"
 
+[features]
+unstable = []
+
 [dependencies]
-nominal = { version = "0.4.0", path = "../nominal" }
+nominal = { version = "0.7.2", path = "../nominal" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 chrono = { version = "0.4" }
+thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 # Used by generated endpoint_table.rs and api/grpc commands
-nominal-api = "0.1218"
-conjure-object = "5.10"
+nominal-api = "0.1519.0"
+conjure-object = "5.18"
 serde_json = "1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "http2", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "http2", "rustls-tls-native-roots"] }
 bytes = "1"
 url = "2"
 tonic = { version = "0.13", features = ["transport"] }
 prost = "0.13"
 prost-reflect = { version = "0.14", features = ["serde"] }
 once_cell = "1"
+inquire = "0.9"
+dirs = "6"
 
 [build-dependencies]
 cargo_metadata = "0.23"
+protoc-bin-vendored = "3.2"
 serde_json = "1"
 tonic-prost-build = "0.14"

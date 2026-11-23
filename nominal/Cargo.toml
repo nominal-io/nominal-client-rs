@@ -1,28 +1,37 @@
 [package]
 name = "nominal"
-version = "0.4.0"
+version = "0.7.2"
 edition = "2024"
 rust-version = "1.85"
 license = "Apache-2.0"
 description = "Automate Nominal workflows in Rust"
 homepage = "https://nominal.io"
 
+[features]
+unstable = []
+
 [dependencies]
 bytes = "1"
 chrono = { version = "0.4", features = ["clock", "std"] }
 futures = "0.3"
-conjure-error = "5.10"
-conjure-http = "5.10"
-conjure-object = "5.10"
+http = "1"
+http-body-util = "0.1"
+conjure-error = "5.18"
+conjure-http = "5.18"
+conjure-object = "5.18"
 conjure-runtime = { package = "conjure-runtime-rustls-platform-verifier", version = "0.2" }
 dirs = "6"
-nominal-api = "0.1218"
-nominal-streaming = "0.9.1"
+nominal-api = "0.1519.0"
+nominal-streaming = "0.11.0"
 regex = "1.12"
-reqwest = { version = "0.12", default-features = false, features = ["http2", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["http2", "rustls-tls-native-roots", "stream"] }
+rand = "0.9"
 serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1"
 serde_yaml = "0.9.34"
 thiserror = "2"
+tonic = { version = "0.13", features = ["tls-ring", "tls-native-roots"] }
+tower = "0.5"
 tokio = { version = "1", features = [
     "fs",
     "io-util",
@@ -31,4 +40,16 @@ tokio = { version = "1", features = [
     "sync",
     "time",
 ] }
+tokio-util = { version = "0.7", features = ["io"] }
 tracing = "0.1"
+# Not used directly: floors for the TLS root bundles pulled in by conjure-runtime,
+# since releases before 1.0.11 bundle the distrusted eMudhra emSign roots.
+webpki-root-certs = "1.0.11"
+webpki-roots = "1.0.11"
+
+[package.metadata.docs.rs]
+# Only build docs for the default target (x86_64-unknown-linux-gnu).
+targets = []
+# The nominal-api crates are very large, so build serially to stay under the
+# docs.rs memory limit.
+cargo-args = ["-j1"]

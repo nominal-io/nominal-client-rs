@@ -1,6 +1,9 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 mod commands;
+mod context;
+mod output;
+mod validate;
 use commands::api::ApiArgs;
 use commands::asset::AssetCommands;
 use commands::channel::ChannelCommands;
@@ -8,13 +11,14 @@ use commands::config::ConfigCommands;
 use commands::connection::ConnectionCommands;
 use commands::dataset::DatasetCommands;
 use commands::endpoint::EndpointCommands;
+use commands::fs::FsCommands;
 use commands::ingest::IngestCommands;
 use commands::run::RunCommands;
 use commands::user::UserCommands;
 use commands::video::VideoCommands;
 
 #[derive(Parser)]
-#[command(name = "nom", version, about = "Nominal CLI")]
+#[command(name = "nomctl", version, about = "Nominal CLI")]
 struct Cli {
     /// Named profile to use from config (overrides NOMINAL_PROFILE env var)
     #[arg(short, long)]
@@ -57,6 +61,11 @@ enum Commands {
         #[command(subcommand)]
         endpoint_command: EndpointCommands,
     },
+    /// File Store commands
+    Fs {
+        #[command(subcommand)]
+        fs_command: FsCommands,
+    },
     /// Upload files and ingest them as datasets
     Ingest {
         #[command(subcommand)]
@@ -84,20 +93,20 @@ Print a shell completion script for the given shell to stdout.
 Pipe the output into the location your shell loads completions from:
 
   bash:
-    nom completions bash | sudo tee /etc/bash_completion.d/nom
+    nomctl completions bash | sudo tee /etc/bash_completion.d/nomctl
 
   zsh (ensure a writable dir is on $fpath, e.g. ~/.zfunc):
-    nom completions zsh > ~/.zfunc/_nom
+    nomctl completions zsh > ~/.zfunc/_nomctl
     # in ~/.zshrc:   fpath+=(~/.zfunc); autoload -U compinit && compinit
 
   fish:
-    nom completions fish > ~/.config/fish/completions/nom.fish
+    nomctl completions fish > ~/.config/fish/completions/nomctl.fish
 
   powershell:
-    nom completions powershell >> $PROFILE
+    nomctl completions powershell >> $PROFILE
 
   elvish:
-    nom completions elvish >> ~/.config/elvish/rc.elv
+    nomctl completions elvish >> ~/.config/elvish/rc.elv
 ")]
     Completions {
         /// Shell to generate completions for
@@ -131,7 +140,7 @@ async fn run() -> anyhow::Result<()> {
             let client = commands::load_client(cli.profile.as_deref())?;
             commands::channel::handle(channel_command, client).await
         }
-        Commands::Config { config_command } => commands::config::handle(config_command),
+        Commands::Config { config_command } => commands::config::handle(config_command).await,
         Commands::Connection { connection_command } => {
             let client = commands::load_client(cli.profile.as_deref())?;
             commands::connection::handle(connection_command, client).await
@@ -141,6 +150,10 @@ async fn run() -> anyhow::Result<()> {
             commands::dataset::handle(dataset_command, client).await
         }
         Commands::Endpoint { endpoint_command } => commands::endpoint::handle(endpoint_command),
+        Commands::Fs { fs_command } => {
+            let client = commands::load_client(cli.profile.as_deref())?;
+            commands::fs::handle(fs_command, client).await
+        }
         Commands::Ingest { ingest_command } => {
             let client = commands::load_client(cli.profile.as_deref())?;
             commands::ingest::handle(*ingest_command, client).await

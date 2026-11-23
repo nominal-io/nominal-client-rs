@@ -9,12 +9,11 @@ use conjure_runtime::Client;
 use futures::{Stream, StreamExt, TryStreamExt, stream};
 use nominal_api::clients::upload::api::{AsyncUploadService, AsyncUploadServiceClient};
 use nominal_api::objects::api::rids::WorkspaceRid;
-use nominal_api::objects::ingest::api::{InitiateMultipartUploadRequest, Part};
+use nominal_api::objects::ingest::api::{InitiateMultipartUploadRequest, Part, UploadDestination};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 use crate::core::ingest::options::UploadOptions;
 use crate::core::ingest::progress::{ProgressCallback, UploadEvent};
-use crate::core::rid::parse_rid;
 use crate::{Error, Result};
 
 /// Upload a local file to Nominal-backed object storage using multipart upload.
@@ -32,19 +31,58 @@ pub(crate) async fn upload_file(
     conjure_client: Client,
     runtime: &Arc<ConjureRuntime>,
     token: BearerToken,
-    workspace_rid: Option<String>,
+    workspace_rid: Option<WorkspaceRid>,
     path: impl AsRef<Path>,
     filename: String,
     mimetype: String,
     options: UploadOptions,
 ) -> Result<String> {
-    let file = tokio::fs::File::open(path.as_ref()).await?;
-    let total_bytes = file.metadata().await?.len();
-    upload_reader(
+    Ok(upload_file_to(
         conjure_client,
         runtime,
         token,
         workspace_rid,
+        None,
+        path,
+        filename,
+        mimetype,
+        options,
+    )
+    .await?
+    .s3_path)
+}
+
+/// Like [`upload_file`], but allows targeting a non-default upload
+/// destination bucket (e.g. the File Store's dedicated bucket).
+///
+/// The returned object key identifies the completed object within its bucket;
+/// the S3 path is retained for APIs that consume the full storage location.
+#[derive(Debug, Clone)]
+pub(crate) struct CompletedUpload {
+    pub(crate) object_key: String,
+    pub(crate) s3_path: String,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn upload_file_to(
+    conjure_client: Client,
+    runtime: &Arc<ConjureRuntime>,
+    token: BearerToken,
+    workspace_rid: Option<WorkspaceRid>,
+    destination: Option<UploadDestination>,
+    path: impl AsRef<Path>,
+    filename: String,
+    mimetype: String,
+    options: UploadOptions,
+) -> Result<CompletedUpload> {
+    let file = tokio::fs::File::open(path.as_ref()).await?;
+    let total_bytes = file.metadata().await?.len();
+    upload_reader_to(
+        conjure_client,
+        runtime,
+        token,
+        workspace_rid,
+        destination,
         file,
         total_bytes,
         filename,
@@ -57,19 +95,22 @@ pub(crate) async fn upload_file(
 /// Upload an arbitrary async reader using Nominal's multipart upload.
 ///
 /// `total_bytes` is used for progress reporting and to reject empty streams
-/// (the multipart API requires at least one part).
+/// (the multipart API requires at least one part). Allows targeting a
+/// non-default upload destination bucket (e.g. the File Store's dedicated
+/// bucket) via `destination`.
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn upload_reader<R>(
+pub(crate) async fn upload_reader_to<R>(
     conjure_client: Client,
     runtime: &Arc<ConjureRuntime>,
     token: BearerToken,
-    workspace_rid: Option<String>,
+    workspace_rid: Option<WorkspaceRid>,
+    destination: Option<UploadDestination>,
     reader: R,
     total_bytes: u64,
     filename: String,
     mimetype: String,
     options: UploadOptions,
-) -> Result<String>
+) -> Result<CompletedUpload>
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
@@ -90,21 +131,19 @@ where
     }
 
     let upload_service = AsyncUploadServiceClient::new(conjure_client, runtime);
-    let workspace = workspace_rid
-        .as_deref()
-        .map(parse_rid::<WorkspaceRid>)
-        .transpose()?;
 
     let init_req = InitiateMultipartUploadRequest::builder()
         .filename(filename)
         .filetype(mimetype)
-        .workspace(workspace)
+        .workspace(workspace_rid)
+        .destination(destination)
         .build();
     let init_resp = upload_service
         .initiate_multipart_upload(&token, &init_req)
         .await?;
     let key = init_resp.key().to_string();
     let upload_id = init_resp.upload_id().to_string();
+    let bucket = init_resp.bucket().to_string();
 
     let total_parts = total_bytes.div_ceil(options.chunk_size as u64) as u32;
     emit(&options.progress, || UploadEvent::Started {
@@ -125,6 +164,7 @@ where
         http: &http,
         key: &key,
         upload_id: &upload_id,
+        bucket: &bucket,
         options: &options,
     };
     let result = upload_all_parts(&ctx, reader).await;
@@ -138,7 +178,7 @@ where
                 .map(|(n, etag)| Part::new(n, etag))
                 .collect();
             let complete_resp = upload_service
-                .complete_multipart_upload(&token, &upload_id, &key, &parts)
+                .complete_multipart_upload(&token, &upload_id, &key, Some(&bucket), &parts)
                 .await?;
             let location = complete_resp
                 .location()
@@ -149,12 +189,15 @@ where
             emit(&options.progress, || UploadEvent::Completed {
                 s3_path: location.clone(),
             });
-            Ok(location)
+            Ok(CompletedUpload {
+                object_key: key,
+                s3_path: location,
+            })
         }
         Err(e) => {
             // Best-effort abort; surface the original error regardless.
             let _ = upload_service
-                .abort_multipart_upload(&token, &upload_id, &key)
+                .abort_multipart_upload(&token, &upload_id, &key, Some(&bucket))
                 .await;
             Err(e)
         }
@@ -168,6 +211,7 @@ struct PartCtx<'a> {
     http: &'a reqwest::Client,
     key: &'a str,
     upload_id: &'a str,
+    bucket: &'a str,
     options: &'a UploadOptions,
 }
 
@@ -179,6 +223,7 @@ struct OwnedPartCtx {
     http: reqwest::Client,
     key: String,
     upload_id: String,
+    bucket: String,
     options: UploadOptions,
 }
 
@@ -190,6 +235,7 @@ impl PartCtx<'_> {
             http: self.http.clone(),
             key: self.key.to_string(),
             upload_id: self.upload_id.to_string(),
+            bucket: self.bucket.to_string(),
             options: self.options.clone(),
         }
     }
@@ -264,7 +310,13 @@ async fn put_once(ctx: &OwnedPartCtx, part_number: i32, bytes: Bytes) -> Result<
     // Re-sign on every attempt: presigned URLs can expire between retries.
     let sign_resp = ctx
         .upload_service
-        .sign_part(&ctx.token, &ctx.upload_id, &ctx.key, part_number)
+        .sign_part(
+            &ctx.token,
+            &ctx.upload_id,
+            &ctx.key,
+            part_number,
+            Some(&ctx.bucket),
+        )
         .await?;
     let mut req = ctx.http.put(sign_resp.url()).body(bytes);
     for (k, v) in sign_resp.headers() {

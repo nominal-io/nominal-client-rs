@@ -4,6 +4,52 @@ use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+#[derive(Debug, Error)]
+#[error("transport error")]
+pub struct TransportError(#[source] Box<dyn std::error::Error + Send + Sync + 'static>);
+
+impl TransportError {
+    pub(crate) fn new(error: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self(Box::new(error))
+    }
+}
+
+impl TryFrom<tonic::Status> for TransportError {
+    type Error = tonic::Status;
+
+    fn try_from(status: tonic::Status) -> std::result::Result<Self, Self::Error> {
+        match status.code() {
+            tonic::Code::Cancelled
+            | tonic::Code::DeadlineExceeded
+            | tonic::Code::Unavailable
+            | tonic::Code::DataLoss => Ok(Self::new(status)),
+            _ => Err(status),
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("unexpected API error ({code:?}): {message}")]
+pub struct UnexpectedError {
+    code: tonic::Code,
+    message: String,
+}
+
+impl UnexpectedError {
+    fn from_status(status: tonic::Status) -> Self {
+        Self {
+            code: status.code(),
+            message: status.message().to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum FileStoreError {
+    #[error("file store operation failed ({code}): {message}")]
+    ChangeFailed { code: String, message: String },
+}
+
 #[non_exhaustive]
 #[derive(Debug, Error)]
 pub enum Error {
@@ -17,7 +63,13 @@ pub enum Error {
     Yaml(#[from] serde_yaml::Error),
 
     #[error("Conjure error: {details}")]
-    Conjure { details: String },
+    Conjure {
+        details: String,
+        status: Option<u16>,
+    },
+
+    #[error("Workspace not provided, but there is no default workspace for the user.")]
+    NoDefaultWorkspace,
 
     #[error("RID conversion error: invalid RID '{rid}': {reason}")]
     Rid { rid: String, reason: String },
@@ -31,14 +83,31 @@ pub enum Error {
     #[error("invalid timestamp: seconds={seconds}, nanos={nanos}")]
     InvalidTimestamp { seconds: i64, nanos: i64 },
 
+    #[error("duration out of representable range: seconds={seconds}, nanos={nanos}")]
+    DurationOutOfRange { seconds: u64, nanos: u32 },
+
     #[error("invalid bearer token: {reason}")]
     InvalidBearerToken { reason: String },
+
+    #[error("invalid user agent: {reason}")]
+    InvalidUserAgent { reason: String },
 
     #[error("invalid service URL '{url}': {reason}")]
     InvalidServiceUrl { url: String, reason: String },
 
     #[error("profile '{name}' not found in config")]
     ProfileNotFound { name: String },
+
+    #[error(
+        "no config file found at {path}: create with `nomctl config profile add` or `nomctl config init`"
+    )]
+    ConfigNotFound { path: String },
+
+    #[error("missing 'version' key in config file: {path}")]
+    ConfigMissingVersion { path: String },
+
+    #[error("unsupported config version: {version} (expected 2)")]
+    ConfigUnsupportedVersion { version: u32, path: String },
 
     #[error("environment variable '{name}' is not set")]
     EnvVarNotSet { name: &'static str },
@@ -55,8 +124,37 @@ pub enum Error {
     #[error("multipart upload failed: {details}")]
     Upload { details: String },
 
+    #[error("file download failed: {details}")]
+    Download { details: String },
+
     #[error("ingest error: {details}")]
     Ingest { details: String },
+
+    #[error("unexpected API response: missing required field '{field}'")]
+    UnexpectedResponse { field: &'static str },
+
+    #[error(transparent)]
+    Transport(#[from] TransportError),
+
+    #[error(transparent)]
+    Unexpected(UnexpectedError),
+
+    #[error(
+        "workspace RID required for this operation: set workspace_rid on the profile or client builder"
+    )]
+    WorkspaceRequired,
+
+    #[error(transparent)]
+    FileStore(#[from] FileStoreError),
+}
+
+impl From<tonic::Status> for Error {
+    fn from(status: tonic::Status) -> Self {
+        match TransportError::try_from(status) {
+            Ok(error) => Self::Transport(error),
+            Err(status) => Self::Unexpected(UnexpectedError::from_status(status)),
+        }
+    }
 }
 
 impl From<RidConversionError> for Error {
@@ -82,8 +180,46 @@ impl From<NominalDateTimeError> for Error {
 
 impl From<conjure_error::Error> for Error {
     fn from(value: conjure_error::Error) -> Self {
+        let status = value
+            .cause()
+            .downcast_ref::<conjure_runtime::errors::RemoteError>()
+            .map(|remote| remote.status().as_u16());
         Self::Conjure {
             details: format!("{value:?}"),
+            status,
+        }
+    }
+}
+
+impl Error {
+    pub fn http_status(&self) -> Option<u16> {
+        match self {
+            Self::Conjure { status, .. } => *status,
+            _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classifies_transient_grpc_statuses_as_transport_errors() {
+        assert!(matches!(
+            Error::from(tonic::Status::unavailable("network unavailable")),
+            Error::Transport(_)
+        ));
+    }
+
+    #[test]
+    fn classifies_non_transport_grpc_statuses_as_unexpected_errors() {
+        for status in [
+            tonic::Status::not_found("missing"),
+            tonic::Status::unknown("unknown"),
+            tonic::Status::internal("internal"),
+        ] {
+            assert!(matches!(Error::from(status), Error::Unexpected(_)));
         }
     }
 }
