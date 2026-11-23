@@ -6,7 +6,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04-small
     if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'nominal-io/nominal-client-rs'
     steps:
       - name: Dependabot metadata

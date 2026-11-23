@@ -20,7 +20,7 @@ concurrency:
 jobs:
   dependency-graph:
     name: Dependency graph
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
       - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
@@ -37,7 +37,7 @@ jobs:
 
   fmt:
     name: Format
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
       - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
@@ -51,7 +51,7 @@ jobs:
 
   clippy:
     name: Clippy
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04-4
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
       - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
@@ -70,11 +70,18 @@ jobs:
 
   test:
     name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # main requires the status checks named after these OS labels.
+        include:
+          - os: ubuntu-latest
+            runner: depot-ubuntu-24.04-4
+          - os: macos-latest
+            runner: depot-macos-latest
+          - os: windows-latest
+            runner: depot-windows-2025-4
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
       - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
