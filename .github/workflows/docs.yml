@@ -41,7 +41,7 @@ jobs:
         run: just build-docs-newest
       - name: "Built docs: upload and preview"
         if: always()
-        uses: nominal-io/nominal-sphinx-theme/.github/actions/docs-preview@243a7cc937780d23876a320ca376c8fdb9f61b55 # main, 2026-11-12
+        uses: nominal-io/nominal-sphinx-theme/.github/actions/docs-preview@c4544e05c5d2ed3983b3bc8426b62f0b2aad725f # main, 2026-11-18
         with:
           path: docs/_build/dirhtml
           job-status: ${{ job.status }}
@@ -51,6 +51,6 @@ jobs:
   docs-gate:
     needs: build-docs
     if: always()
-    uses: nominal-io/nominal-sphinx-theme/.github/workflows/docs-gate.yml@243a7cc937780d23876a320ca376c8fdb9f61b55 # main, 2026-11-12
+    uses: nominal-io/nominal-sphinx-theme/.github/workflows/docs-gate.yml@c4544e05c5d2ed3983b3bc8426b62f0b2aad725f # main, 2026-11-18
     with:
       docs-result: ${{ needs.build-docs.result }}
