@@ -31,7 +31,7 @@ jobs:
         with:
           toolchain: "1.98.1"
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           enable-cache: false
           python-version: "3.13"
@@ -41,7 +41,7 @@ jobs:
         run: just build-docs-newest
       - name: "Built docs: upload and preview"
         if: always()
-        uses: nominal-io/nominal-sphinx-theme/.github/actions/docs-preview@243a7cc937780d23876a320ca376c8fdb9f61b55 # main, 2026-11-12
+        uses: nominal-io/nominal-sphinx-theme/.github/actions/docs-preview@c4544e05c5d2ed3983b3bc8426b62f0b2aad725f # main, 2026-11-18
         with:
           path: docs/_build/dirhtml
           job-status: ${{ job.status }}
@@ -51,6 +51,6 @@ jobs:
   docs-gate:
     needs: build-docs
     if: always()
-    uses: nominal-io/nominal-sphinx-theme/.github/workflows/docs-gate.yml@243a7cc937780d23876a320ca376c8fdb9f61b55 # main, 2026-11-12
+    uses: nominal-io/nominal-sphinx-theme/.github/workflows/docs-gate.yml@c4544e05c5d2ed3983b3bc8426b62f0b2aad725f # main, 2026-11-18
     with:
       docs-result: ${{ needs.build-docs.result }}

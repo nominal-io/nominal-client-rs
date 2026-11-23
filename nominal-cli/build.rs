@@ -25,6 +25,11 @@ fn main() {
     let protos_dir = proto_root.join("definitions/protos");
     let includes_dir = proto_root.join("definitions/proto-includes");
 
+    // Rebuild the endpoint tables when Cargo selects a different bindings release.
+    println!("cargo:rerun-if-changed=Cargo.toml");
+    if let Some(lockfile) = lockfile_path() {
+        println!("cargo:rerun-if-changed={}", lockfile.display());
+    }
     println!("cargo:rerun-if-changed={}", conjure_json.display());
     println!("cargo:rerun-if-changed={}", protos_dir.display());
 
@@ -100,15 +105,18 @@ fn find_api_crate_root(crate_name: &str, definitions_marker: &str) -> PathBuf {
         .unwrap_or_else(|| panic!("{crate_name} crate source not found in cargo registry"))
 }
 
-fn locked_crate_version(crate_name: &str) -> String {
+fn lockfile_path() -> Option<PathBuf> {
     let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
-    let lockfile = [
+    [
         manifest_dir.join("Cargo.lock"),
         manifest_dir.join("../Cargo.lock"),
     ]
     .into_iter()
     .find(|path| path.is_file())
-    .unwrap_or_else(|| panic!("Cargo.lock not found near {}", manifest_dir.display()));
+}
+
+fn locked_crate_version(crate_name: &str) -> String {
+    let lockfile = lockfile_path().expect("Cargo.lock not found near the CLI manifest");
     let raw = fs::read_to_string(&lockfile)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", lockfile.display()));
 

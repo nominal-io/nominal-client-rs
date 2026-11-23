@@ -23,8 +23,8 @@ use nominal_api::objects::scout::checklistexecution::api::{
     StopStreamingChecklistForAssetsRequest,
 };
 use nominal_api::objects::scout::checks::api::{
-    ArchiveChecklistsRequest, ChecklistSearchQuery, SearchChecklistsRequest,
-    UnarchiveChecklistsRequest, VersionedChecklist, VersionedChecklistPage,
+    ArchiveChecklistsRequest, ChecklistMetadata, ChecklistSearchQuery, SearchChecklistsRequest,
+    SearchVersionedChecklistPage, UnarchiveChecklistsRequest,
 };
 use nominal_api::objects::scout::integrations::api::{IntegrationRid, NotificationConfiguration};
 use nominal_api::objects::scout::rids::api::{
@@ -98,19 +98,22 @@ impl Checklist {
         format!("{}/checklists/{}", self.app_base_url, self.rid)
     }
 
-    pub(crate) fn from_versioned(vc: VersionedChecklist, app_base_url: &str) -> Self {
-        let rid = rid_to_string(vc.rid());
-        let metadata = vc.metadata();
+    fn from_metadata(
+        rid: &ChecklistRid,
+        metadata: &ChecklistMetadata,
+        commit_id: &str,
+        app_base_url: &str,
+    ) -> Self {
         let description = if metadata.description().is_empty() {
             None
         } else {
             Some(metadata.description().to_string())
         };
         Self {
-            rid,
+            rid: rid_to_string(rid),
             title: metadata.title().to_string(),
             description,
-            commit_id: vc.commit().id().to_string(),
+            commit_id: commit_id.to_owned(),
             properties: metadata
                 .properties()
                 .iter()
@@ -436,7 +439,12 @@ impl ChecklistsClient {
             .get(&self.token, &checklist_rid, None, None)
             .await
             .map_err(Error::from)?;
-        Ok(Checklist::from_versioned(response, &self.app_base_url))
+        Ok(Checklist::from_metadata(
+            response.rid(),
+            response.metadata(),
+            response.commit().id(),
+            &self.app_base_url,
+        ))
     }
 
     fn scoped_conjure_query(&self, query: ChecklistSearchQuery) -> ChecklistSearchQuery {
@@ -462,12 +470,18 @@ impl ChecklistsClient {
                 let token = token.clone();
                 async move { service.search(&token, &req).await.map_err(Error::from) }
             },
-            |resp: &VersionedChecklistPage| resp.next_page_token().cloned(),
+            |resp: &SearchVersionedChecklistPage| resp.next_page_token().cloned(),
             move |resp| {
                 resp.values()
                     .iter()
-                    .cloned()
-                    .map(|vc| Checklist::from_versioned(vc, &app_base_url))
+                    .map(|vc| {
+                        Checklist::from_metadata(
+                            vc.rid(),
+                            vc.metadata(),
+                            vc.commit().id(),
+                            &app_base_url,
+                        )
+                    })
                     .collect()
             },
         )
