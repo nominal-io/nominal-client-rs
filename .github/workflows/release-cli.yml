@@ -33,18 +33,13 @@ jobs:
             os: windows-latest
             archive: zip
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
 
       - uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
         with:
           toolchain: stable
           target: ${{ matrix.target }}
           cache: false
-
-      - uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
-        if: ${{ !matrix.cross }}
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install cross
         if: matrix.cross
@@ -65,10 +60,10 @@ jobs:
           set -euo pipefail
           tag="${{ github.event.release.tag_name }}"
           version="${tag#nominal-}"
-          name="nom-$version-${{ matrix.target }}"
+          name="nomctl-$version-${{ matrix.target }}"
           mkdir -p "dist/$name"
-          cp "target/${{ matrix.target }}/release/nom" "dist/$name/"
-          cp README.md "dist/$name/" 2>/dev/null || true
+          cp "target/${{ matrix.target }}/release/nomctl" "dist/$name/"
+          cp nominal-cli/README.md "dist/$name/README.md"
           tar -czf "dist/$name.tar.gz" -C dist "$name"
           echo "ASSET=dist/$name.tar.gz" >> $GITHUB_ENV
 
@@ -77,10 +72,10 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ github.event.release.tag_name }}" -replace '^nominal-', ''
-          $name = "nom-$version-${{ matrix.target }}"
+          $name = "nomctl-$version-${{ matrix.target }}"
           New-Item -ItemType Directory -Force -Path "dist/$name" | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/nom.exe" "dist/$name/"
-          if (Test-Path README.md) { Copy-Item README.md "dist/$name/" }
+          Copy-Item "target/${{ matrix.target }}/release/nomctl.exe" "dist/$name/"
+          Copy-Item nominal-cli/README.md "dist/$name/README.md"
           Compress-Archive -Path "dist/$name/*" -DestinationPath "dist/$name.zip"
           "ASSET=dist/$name.zip" | Out-File -Encoding ascii -Append $env:GITHUB_ENV
 

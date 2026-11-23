@@ -8,7 +8,7 @@ fn pool() -> &'static DescriptorPool {
 }
 
 /// Call a gRPC method by its full path (`pkg.ServiceName/MethodName`).
-/// Exposed for use by `nom api` auto-routing.
+/// Exposed for use by `nomctl api` auto-routing.
 pub async fn call_grpc_method(
     method_path: &str,
     body_json: &str,

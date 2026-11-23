@@ -1,6 +1,6 @@
 mod filetype;
 mod job;
-mod multipart;
+pub(crate) mod multipart;
 mod options;
 mod progress;
 mod timestamp;
@@ -25,6 +25,7 @@ use nominal_api::clients::ingest::api::{
     AsyncIngestJobService, AsyncIngestJobServiceClient, AsyncIngestService,
     AsyncIngestServiceClient,
 };
+use nominal_api::objects::api::rids::WorkspaceRid;
 use nominal_api::objects::ingest::api::{
     IngestDetails, IngestJobRid, IngestOptions, IngestRequest,
 };
@@ -41,7 +42,7 @@ pub struct IngestClient {
     conjure_client: Client,
     runtime: Arc<ConjureRuntime>,
     token: BearerToken,
-    workspace_rid: Option<String>,
+    workspace_rid: Option<WorkspaceRid>,
 }
 
 impl IngestClient {
@@ -49,7 +50,7 @@ impl IngestClient {
         client: Client,
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
-        workspace_rid: Option<String>,
+        workspace_rid: Option<WorkspaceRid>,
     ) -> Self {
         Self {
             ingest_service: AsyncIngestServiceClient::new(client.clone(), runtime),
@@ -59,6 +60,10 @@ impl IngestClient {
             token,
             workspace_rid,
         }
+    }
+
+    fn workspace_rid_str(&self) -> Option<&str> {
+        self.workspace_rid.as_ref().map(|w| w.0.as_str())
     }
 
     /// Upload a CSV file and ingest it into the given dataset.
@@ -95,7 +100,7 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
+        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
         self.trigger_ingest(IngestOptions::Csv(opts)).await
     }
 
@@ -130,7 +135,7 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
+        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
         self.trigger_ingest(IngestOptions::Parquet(opts)).await
     }
 
@@ -160,7 +165,7 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
+        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
         self.trigger_ingest(IngestOptions::McapProtobufTimeseries(opts))
             .await
     }
@@ -193,7 +198,7 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
+        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
         self.trigger_ingest(IngestOptions::JournalJson(opts)).await
     }
 
@@ -222,7 +227,7 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
+        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
         self.trigger_ingest(IngestOptions::AvroStream(opts)).await
     }
 
@@ -252,7 +257,7 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
+        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
         self.trigger_ingest(IngestOptions::Dataflash(opts)).await
     }
 
@@ -292,8 +297,10 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(target.into(), self.workspace_rid.as_deref(), s3_path)?;
-        self.trigger_video_ingest(IngestOptions::Video(opts)).await
+        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
+        #[allow(deprecated)]
+        let options = IngestOptions::Video(opts);
+        self.trigger_video_ingest(options).await
     }
 
     async fn trigger_ingest(&self, options: IngestOptions) -> Result<(IngestJob, String)> {
@@ -309,6 +316,7 @@ impl IngestClient {
         Ok((job, dataset_rid))
     }
 
+    #[allow(deprecated)]
     async fn trigger_video_ingest(&self, options: IngestOptions) -> Result<(IngestJob, String)> {
         let (job, details) = self.send_ingest(options).await?;
         let video_rid = match details {
@@ -379,6 +387,11 @@ impl IngestClient {
                 IngestJobStatus::Cancelled => {
                     return Err(Error::Ingest {
                         details: format!("ingest job {rid} was cancelled"),
+                    });
+                }
+                IngestJobStatus::DeletionInProgress | IngestJobStatus::Deleted => {
+                    return Err(Error::Ingest {
+                        details: format!("ingest job {rid} was deleted"),
                     });
                 }
                 IngestJobStatus::Unknown(s) => {

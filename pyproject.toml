@@ -1,0 +1,30 @@
+# Docs toolchain only. This repo is Rust; Python is here for Sphinx.
+# Install with `uv sync --group docs`; build with `just build-docs`.
+[project]
+name = "nominal-client-rs-docs"
+version = "0.0.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv]
+package = false
+exclude-newer = "7 days"
+[dependency-groups]
+docs = [
+    "sphinx>=9.1",
+    "myst-parser>=5.1",
+    "sphinx-design>=0.7",
+    "sphinx-copybutton>=0.5.2",
+    "nominal-sphinx-theme",
+    # the Rust API reference, from rustdoc's JSON output
+    "sphinx-rustdoc",
+    # license scanning flags docutils 0.23, though its license is the same as 0.22's
+    "docutils<0.23",
+]
+
+[tool.uv.sources]
+# github.com/nominal-io/nominal-sphinx-theme; uv.lock pins the commit. To update it:
+# `uv lock --upgrade-package nominal-sphinx-theme`
+nominal-sphinx-theme = { git = "https://github.com/nominal-io/nominal-sphinx-theme" }
+# github.com/nominal-io/sphinx-rustdoc, pinned the same way
+sphinx-rustdoc = { git = "https://github.com/nominal-io/sphinx-rustdoc" }

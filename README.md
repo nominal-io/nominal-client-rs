@@ -14,31 +14,29 @@ async fn main() -> anyhow::Result<()> {
     let client = nominal::NominalClient::from_profile("test-profile")?;
 
     let user = client.users().who_am_i().await?;
-    println!("{}", user.email);
+    println!("{}", user.email());
 
     Ok(())
 }
 ```
 
-## `nom` cli
+## `nomctl` CLI
 
-A CLI to take actions on Nominal's APIs.
+`nomctl` is the command-line interface for Nominal.
 
-### Install
+Install the latest release for your system on macOS/Linux:
+
 ```sh
-$ cargo install nominal-cli
+curl -fsSL https://raw.githubusercontent.com/nominal-io/nominal-client-rs/main/scripts/install.sh | sh
 ```
 
-### Example
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/nominal-io/nominal-client-rs/main/scripts/install.ps1 | iex
 ```
-$ nom config profile add test-profile \
-    -u https://api.gov.nominal.io/api \
-    -t $NOMINAL_TOKEN \
-    -w ri.security.cerulean-staging.workspace.8649e5e7-bf9b-45e8-897f-adfabbdd66b9
-$ nom --profile test-profile user who-am-i
-RID: ri.authn.cerulean-staging.user.3de9b720-b35d-4ebe-b724-752b66732d20
-Org RID: ri.authn.cerulean-staging.organization.c531d9b0-490d-4d5f-abe1-3b83817c20bb
-Email: name@nominal.io
-Display Name: Firstname Lastname
-$ nom config profile remove test-profile
-```
+
+On macOS/Linux, add `~/.local/bin` to your `PATH`. Windows updates your user `PATH` automatically.
+Rerun to update, or install from source with `cargo install nominal-cli --locked`.
+
+See the [CLI README](nominal-cli/README.md) for configuration and usage.

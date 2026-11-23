@@ -2,6 +2,79 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.2](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.7.1...nominal-v0.7.2) - 2026-09-18
+
+### Added
+
+- add checklist client ([#172](https://github.com/nominal-io/nominal-client-rs/pull/172))
+- align grpc retries with python client ([#154](https://github.com/nominal-io/nominal-client-rs/pull/154))
+
+## [0.7.1](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.7.0...nominal-v0.7.1) - 2026-08-20
+
+### Fixed
+
+- decode grpc error details ([#146](https://github.com/nominal-io/nominal-client-rs/pull/146))
+- drive file listing with prefix and virtual drives ([#145](https://github.com/nominal-io/nominal-client-rs/pull/145))
+
+## [0.7.0](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.6.0...nominal-v0.7.0) - 2026-08-15
+
+### Added
+
+- *(drives)* add file download, remove drives ff ([#144](https://github.com/nominal-io/nominal-client-rs/pull/144))
+
+## [0.6.0](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.5.3...nominal-v0.6.0) - 2026-07-31
+
+### Added
+
+- add unstable `nomctl fs` subcommand ([#102](https://github.com/nominal-io/nominal-client-rs/pull/102))
+
+## [0.5.3](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.5.2...nominal-v0.5.3) - 2026-07-17
+
+### Fixed
+
+- scope asset, dataset, video, run, and workbook searches by the client's workspace_rid ([#128](https://github.com/nominal-io/nominal-client-rs/pull/128))
+
+## [0.5.2](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.5.1...nominal-v0.5.2) - 2026-07-01
+
+### Other
+
+- add workspace list selector and updated validation states ([#112](https://github.com/nominal-io/nominal-client-rs/pull/112))
+
+## [0.5.1](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.5.0...nominal-v0.5.1) - 2026-06-15
+
+### Added
+
+- add archive methods to workbook client ([#100](https://github.com/nominal-io/nominal-client-rs/pull/100))
+
+## [0.5.0](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.4.3...nominal-v0.5.0) - 2026-06-12
+
+### Added
+
+- add workbook and template clients ([#96](https://github.com/nominal-io/nominal-client-rs/pull/96))
+- harden config and profile management ([#80](https://github.com/nominal-io/nominal-client-rs/pull/80))
+
+## [0.4.3](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.4.2...nominal-v0.4.3) - 2026-05-21
+
+### Added
+
+- add channel delimiter in dataset create ([#70](https://github.com/nominal-io/nominal-client-rs/pull/70))
+
+### Fixed
+
+- nominal_url method returns a valid url ([#72](https://github.com/nominal-io/nominal-client-rs/pull/72))
+
+## [0.4.2](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.4.1...nominal-v0.4.2) - 2026-05-20
+
+### Added
+
+- add dataset with tag filter to an asset ([#67](https://github.com/nominal-io/nominal-client-rs/pull/67))
+
+## [0.4.1](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.4.0...nominal-v0.4.1) - 2026-05-18
+
+### Added
+
+- add & re-export nominal-streaming ([#63](https://github.com/nominal-io/nominal-client-rs/pull/63))
+
 ## [0.4.0](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.3.0...nominal-v0.4.0) - 2026-05-18
 
 ### Added

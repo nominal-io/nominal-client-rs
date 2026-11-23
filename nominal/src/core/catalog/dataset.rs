@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use nominal_api::objects::api::rids::WorkspaceRid;
 use nominal_api::objects::api::{Label, Property, PropertyName, PropertyValue};
 use nominal_api::objects::scout::catalog::{
-    CreateDataset, DatasetOriginMetadata, SearchDatasetsQuery, UpdateDatasetMetadata,
+    ChannelConfig, CreateDataset, DatasetOriginMetadata, SearchDatasetsQuery, UpdateDatasetMetadata,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -51,7 +51,7 @@ impl Dataset {
 
     /// Get the URL to view this dataset in the Nominal web app.
     pub fn nominal_url(&self) -> String {
-        format!("{}/datasets/{}", self.app_base_url, self.rid)
+        format!("{}/data-sources/{}", self.app_base_url, self.rid)
     }
 
     pub(crate) fn from_conjure(
@@ -65,6 +65,7 @@ impl Dataset {
                 .description()
                 .filter(|s| !s.is_empty())
                 .map(|s| s.to_string()),
+            #[allow(deprecated)]
             properties: dataset
                 .properties()
                 .iter()
@@ -84,6 +85,7 @@ pub struct DatasetCreate {
     description: Option<String>,
     properties: Option<HashMap<String, String>>,
     labels: Option<Vec<String>>,
+    channel_delimiter: Option<String>,
 }
 
 impl DatasetCreate {
@@ -93,6 +95,7 @@ impl DatasetCreate {
             description: None,
             properties: None,
             labels: None,
+            channel_delimiter: None,
         }
     }
 
@@ -128,17 +131,32 @@ impl DatasetCreate {
         self
     }
 
-    pub(crate) fn into_request(self, workspace_rid: Option<&str>) -> Result<CreateDataset> {
+    #[must_use]
+    pub fn channel_delimiter(mut self, value: impl Into<String>) -> Self {
+        self.channel_delimiter = Some(value.into());
+        self
+    }
+
+    pub(crate) fn into_request(
+        self,
+        workspace_rid: Option<&WorkspaceRid>,
+    ) -> Result<CreateDataset> {
         let DatasetCreate {
             name,
             description,
             properties,
             labels,
+            channel_delimiter,
         } = self;
 
+        let mut origin = DatasetOriginMetadata::builder();
+        if let Some(d) = channel_delimiter {
+            origin =
+                origin.channel_config(ChannelConfig::builder().prefix_tree_delimiter(d).build());
+        }
         let mut b = CreateDataset::builder()
             .name(name)
-            .origin_metadata(DatasetOriginMetadata::builder().build());
+            .origin_metadata(origin.build());
 
         if let Some(d) = description {
             b = b.description(d);
@@ -154,7 +172,7 @@ impl DatasetCreate {
             b = b.labels(l.into_iter().map(Label).collect::<BTreeSet<_>>());
         }
         if let Some(wid) = workspace_rid {
-            b = b.workspace(parse_rid::<WorkspaceRid>(wid)?);
+            b = b.workspace(wid.clone());
         }
 
         Ok(b.build())
@@ -169,10 +187,18 @@ impl DatasetCreate {
             description,
             properties,
             labels,
+            channel_delimiter,
         } = self;
 
         let mut b = nominal_api::objects::ingest::api::NewDatasetIngestDestination::builder()
             .dataset_name(name);
+        if let Some(d) = channel_delimiter {
+            b = b.channel_config(
+                nominal_api::objects::ingest::api::ChannelConfig::builder()
+                    .prefix_tree_delimiter(d)
+                    .build(),
+            );
+        }
         if let Some(d) = description {
             b = b.dataset_description(d);
         }
@@ -449,6 +475,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn update_empty() {
         let req = DatasetUpdate::new().into_request();
         assert!(req.name().is_none());
@@ -465,6 +492,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn update_all_fields() {
         let req = DatasetUpdate::new()
             .name("name")
