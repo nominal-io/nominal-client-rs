@@ -17,20 +17,20 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: depot-ubuntu-24.04-4
             archive: tar.gz
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: depot-ubuntu-24.04-4
             archive: tar.gz
             cross: true
           - target: x86_64-apple-darwin
-            os: macos-15-intel
+            os: depot-macos-15
             archive: tar.gz
           - target: aarch64-apple-darwin
-            os: macos-latest
+            os: depot-macos-latest
             archive: tar.gz
           - target: x86_64-pc-windows-msvc
-            os: windows-latest
+            os: depot-windows-2025-4
             archive: zip
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
