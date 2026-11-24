@@ -137,7 +137,7 @@ pub(crate) struct GrpcConnection {
 impl GrpcConnection {
     /// Build a connection from the API base URL. The channel connects on first use.
     ///
-    /// Requests send `<product> ai-agent/<name>` as their user agent, followed by tonic's own.
+    /// Requests send `<product> ai-agent/<0|1>` as their user agent, followed by tonic's own.
     pub(crate) fn connect_lazy(
         base_url: &str,
         token: &BearerToken,
@@ -305,7 +305,7 @@ mod tests {
         );
         let expected = format!(
             "nominal-cli/1.2.3 ai-agent/{}",
-            crate::user_agent::detect_ai_agent()
+            crate::user_agent::ai_agent_version()
         );
         for user_agent in &user_agents {
             let tokens: Vec<&str> = user_agent.split_whitespace().collect();

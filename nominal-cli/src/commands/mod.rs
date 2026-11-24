@@ -54,7 +54,7 @@ pub(crate) fn load_client(flag: Option<&str>) -> anyhow::Result<NominalClient> {
         .context("Failed to create client")
 }
 
-/// An HTTP client for raw API calls; requests send `nominal-cli/<version> ai-agent/<name>` as
+/// An HTTP client for raw API calls; requests send `nominal-cli/<version> ai-agent/<0|1>` as
 /// their user agent.
 pub(crate) fn http_client() -> anyhow::Result<reqwest::Client> {
     reqwest::Client::builder()
@@ -92,7 +92,7 @@ mod tests {
         format!(
             "nominal-cli/{} ai-agent/{}",
             env!("CARGO_PKG_VERSION"),
-            nominal::user_agent::detect_ai_agent()
+            nominal::user_agent::ai_agent_version()
         )
     }
 

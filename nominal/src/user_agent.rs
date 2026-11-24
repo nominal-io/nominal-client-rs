@@ -1,286 +1,224 @@
-//! Reports which AI coding agent, if any, is running the process in the `User-Agent` header.
+//! Reports in the `User-Agent` header whether an AI coding agent is running the process.
 //!
-//! Requests carry an `ai-agent/<name>` product token, or `ai-agent/none` when no agent marks the
-//! process, so Nominal can tell agent-driven use apart from other use and from releases that never
-//! checked. The Nominal Python client sends the same token.
+//! Requests carry an `ai-agent/1` product token when an agent marks the process and `ai-agent/0`
+//! when none does, so Nominal can tell agent-driven use apart from other use and from releases
+//! that never checked. The version is a number because the Conjure HTTP client accepts only
+//! numeric versions.
 
 use std::ffi::OsString;
 
-/// The value [`detect_ai_agent`] returns when no AI agent marks the process.
-pub const NO_AI_AGENT: &str = "none";
-
 /// Product name of the AI-agent token in the `User-Agent` header.
-const AI_AGENT_PRODUCT: &str = "ai-agent";
+pub const AI_AGENT_PRODUCT: &str = "ai-agent";
 
-/// Longest agent name sent; longer names are cut.
-const MAX_AI_AGENT_LEN: usize = 64;
-
-/// Variables an AI coding agent sets in the shells it runs commands in, with the agent's name,
-/// checked in this order. Drawn from @vercel/detect-agent, laravel/agent-detector, and each
-/// agent's own source.
-const AGENT_ENV_VARS: &[(&str, &str)] = &[
-    // Kilo also sets OPENCODE, so it comes first.
-    ("KILO_PID", "kilo-code"),
-    ("CLAUDECODE", "claude-code"),
-    ("CLAUDE_CODE", "claude-code"),
-    ("CODEX_THREAD_ID", "codex"),
-    ("CODEX_SANDBOX", "codex"),
-    ("CODEX_CI", "codex"),
-    ("CURSOR_AGENT", "cursor"),
-    // Also set in Cursor terminals a person types in; counted as agent use on purpose.
-    ("CURSOR_TRACE_ID", "cursor"),
-    ("GEMINI_CLI", "gemini"),
-    ("COPILOT_ALLOW_ALL", "github-copilot"),
-    ("OPENCODE", "opencode"),
-    ("OPENCODE_CLIENT", "opencode"),
-    ("CLINE_ACTIVE", "cline"),
-    ("ROO_ACTIVE", "roo-code"),
-    ("PI_CODING_AGENT", "pi"),
-    ("GOOSE_TERMINAL", "goose"),
-    ("QWEN_CODE", "qwen-code"),
-    ("CRUSH", "crush"),
-    ("AMP_CURRENT_THREAD_ID", "amp"),
-    ("KIRO_SESSION_ID", "kiro"),
-    ("JUNIE_SHIM_PATH", "junie"),
-    ("ANTIGRAVITY_AGENT", "antigravity"),
-    ("AUGMENT_AGENT", "augment"),
+/// Variables AI coding agents set in the commands they run. Drawn from @vercel/detect-agent,
+/// laravel/agent-detector, and each agent's own source; Cursor's and Codex's were checked against
+/// current releases.
+const AGENT_ENV_VARS: &[&str] = &[
+    "KILO_PID",
+    "CLAUDECODE",
+    "CLAUDE_CODE",
+    "CODEX_THREAD_ID",
+    "CODEX_SANDBOX",
+    "CODEX_CI",
+    "CURSOR_AGENT",
+    "GEMINI_CLI",
+    "COPILOT_ALLOW_ALL",
+    "OPENCODE",
+    "OPENCODE_CLIENT",
+    "CLINE_ACTIVE",
+    "ROO_ACTIVE",
+    "PI_CODING_AGENT",
+    "GOOSE_TERMINAL",
+    "QWEN_CODE",
+    "CRUSH",
+    "AMP_CURRENT_THREAD_ID",
+    "KIRO_SESSION_ID",
+    "JUNIE_SHIM_PATH",
+    "ANTIGRAVITY_AGENT",
+    "AUGMENT_AGENT",
 ];
 
 const FALSE_VALUES: &[&str] = &["0", "false", "no", "off"];
-const TRUE_VALUES: &[&str] = &["1", "true", "yes", "on"];
 
-/// Returns the AI coding agent running this process as a user-agent token value, or
-/// [`NO_AI_AGENT`] when there is none.
+/// Whether an AI coding agent is running this process.
 ///
-/// `AI_AGENT` wins and names the agent; a false value such as `0` opts out. Otherwise a known
-/// agent's own variable, then the older generic `AGENT`, mark the process as agent-run. Nominal
-/// maps the name to the agents it knows, so an approximate name is fine. The result contains only
-/// ASCII letters, digits and `.`, `_`, `+`, `-`, and is at most 64 characters long.
-pub fn detect_ai_agent() -> String {
-    detect_ai_agent_in(|name| std::env::var_os(name))
+/// `AI_AGENT` wins: any value marks the process, and a false value such as `0` opts out.
+/// Otherwise any known agent's own variable, or a generic `AGENT` that isn't false, marks it.
+pub fn ai_agent_detected() -> bool {
+    ai_agent_detected_in(|name| std::env::var_os(name))
+}
+
+/// The AI-agent token's version: `1` when [`ai_agent_detected`], else `0`.
+pub fn ai_agent_version() -> &'static str {
+    if ai_agent_detected() { "1" } else { "0" }
 }
 
 /// Appends the AI-agent token to `product`, such as `nominal-cli/1.2.3`, giving a `User-Agent`
-/// value such as `nominal-cli/1.2.3 ai-agent/claude-code`.
+/// value such as `nominal-cli/1.2.3 ai-agent/1`.
 pub fn with_ai_agent(product: &str) -> String {
-    format!("{product} {AI_AGENT_PRODUCT}/{}", detect_ai_agent())
+    format!("{product} {AI_AGENT_PRODUCT}/{}", ai_agent_version())
 }
 
-fn detect_ai_agent_in(lookup: impl Fn(&str) -> Option<OsString>) -> String {
+fn ai_agent_detected_in(lookup: impl Fn(&str) -> Option<OsString>) -> bool {
     let value = |name: &str| {
         lookup(name)
-            .map(|value| value.to_string_lossy().trim().to_string())
+            .map(|value| value.to_string_lossy().trim().to_lowercase())
             .unwrap_or_default()
     };
     let ai_agent = value("AI_AGENT");
-    if is_one_of(&ai_agent, FALSE_VALUES) {
-        return NO_AI_AGENT.to_string();
+    if !ai_agent.is_empty() {
+        return !FALSE_VALUES.contains(&ai_agent.as_str());
     }
-    let mut name = if ai_agent.is_empty() {
-        AGENT_ENV_VARS
-            .iter()
-            .find(|(var, _)| lookup(var).is_some_and(|value| !value.is_empty()))
-            .map(|(_, agent)| agent.to_string())
-            .unwrap_or_default()
-    } else {
-        ai_agent
-    };
-    if name.is_empty() {
-        let agent = value("AGENT");
-        if !agent.is_empty() && !is_one_of(&agent, FALSE_VALUES) {
-            name = if is_one_of(&agent, TRUE_VALUES) {
-                "unknown".to_string()
-            } else {
-                agent
-            };
-        }
+    if AGENT_ENV_VARS
+        .iter()
+        .any(|var| lookup(var).is_some_and(|value| !value.is_empty()))
+    {
+        return true;
     }
-    let token: String = name
-        .chars()
-        .map(|c| match c {
-            'A'..='Z' | 'a'..='z' | '0'..='9' | '.' | '_' | '+' | '-' => c,
-            _ => '_',
-        })
-        .take(MAX_AI_AGENT_LEN)
-        .collect();
-    if token.is_empty() {
-        NO_AI_AGENT.to_string()
-    } else {
-        token
-    }
-}
-
-fn is_one_of(value: &str, values: &[&str]) -> bool {
-    let value = value.to_lowercase();
-    values.contains(&value.as_str())
+    let agent = value("AGENT");
+    !agent.is_empty() && !FALSE_VALUES.contains(&agent.as_str())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use http::HeaderValue;
     use std::collections::HashMap;
 
-    fn detect(vars: &[(&str, &str)]) -> String {
+    fn detected(vars: &[(&str, &str)]) -> bool {
         let env: HashMap<&str, OsString> = vars
             .iter()
             .map(|(name, value)| (*name, OsString::from(value)))
             .collect();
-        detect_ai_agent_in(|name| env.get(name).cloned())
+        ai_agent_detected_in(|name| env.get(name).cloned())
     }
 
-    /// The Python client's cases, with the same results.
+    /// Environment variables as name and value pairs.
+    type Vars<'a> = &'a [(&'a str, &'a str)];
+
+    /// The Python client's cases: it reports `none` exactly where this reports no agent.
     #[test]
     fn matches_python_client() {
-        let cases: &[(&[(&str, &str)], &str)] = &[
-            (&[], "none"),
-            (
-                &[("AI_AGENT", "claude-code_2-1-326_agent")],
-                "claude-code_2-1-326_agent",
-            ),
-            (&[("AI_AGENT", "devin@1"), ("CLAUDECODE", "1")], "devin_1"),
-            (&[("AI_AGENT", "0"), ("CLAUDECODE", "1")], "none"),
-            (&[("AI_AGENT", "  "), ("CLAUDECODE", "1")], "claude-code"),
-            (&[("CODEX_THREAD_ID", "019a")], "codex"),
+        let cases: &[(Vars, bool)] = &[
+            (&[], false),
+            (&[("AI_AGENT", "claude-code_2-1-326_agent")], true),
+            (&[("AI_AGENT", "devin@1"), ("CLAUDECODE", "1")], true),
+            (&[("AI_AGENT", "0"), ("CLAUDECODE", "1")], false),
+            (&[("AI_AGENT", "  "), ("CLAUDECODE", "1")], true),
+            (&[("CODEX_THREAD_ID", "019a")], true),
             (
                 &[("KILO_PID", "4242"), ("OPENCODE", "1"), ("AGENT", "1")],
-                "kilo-code",
+                true,
             ),
-            (&[("AGENT", "goose")], "goose"),
-            (&[("AGENT", "1")], "unknown"),
-            (&[("AGENT", "false")], "none"),
-            (&[("CLAUDECODE", "")], "none"),
+            (&[("AGENT", "goose")], true),
+            (&[("AGENT", "1")], true),
+            (&[("AGENT", "false")], false),
+            (&[("CLAUDECODE", "")], false),
+            (&[("CURSOR_AGENT", "1")], true),
+            (
+                &[("CURSOR_TRACE_ID", "abc"), ("TERM_PROGRAM", "vscode")],
+                false,
+            ),
         ];
         for (vars, expected) in cases {
-            assert_eq!(detect(vars), *expected, "{vars:?}");
+            assert_eq!(detected(vars), *expected, "{vars:?}");
         }
     }
 
     #[test]
-    fn each_agent_variable_names_its_agent() {
-        for (var, agent) in AGENT_ENV_VARS {
-            assert_eq!(detect(&[(var, "1")]), *agent, "{var}");
+    fn each_agent_variable_marks_the_process() {
+        for var in AGENT_ENV_VARS {
+            assert!(detected(&[(var, "1")]), "{var}");
         }
     }
 
+    /// Environments recorded on a developer machine with current releases of each tool.
     #[test]
-    fn earlier_agent_variables_win() {
-        for (i, (later_var, _)) in AGENT_ENV_VARS.iter().enumerate().skip(1) {
-            let (earlier_var, earlier_agent) = AGENT_ENV_VARS[i - 1];
-            assert_eq!(
-                detect(&[(later_var, "1"), (earlier_var, "1")]),
-                earlier_agent,
-                "{earlier_var} before {later_var}"
-            );
+    fn recorded_environments() {
+        let cases: &[(&str, Vars, bool)] = &[
+            (
+                "Claude Code agent",
+                &[
+                    ("AI_AGENT", "claude-code_2-1-326_agent"),
+                    ("CLAUDECODE", "1"),
+                    ("CLAUDE_CODE_ENTRYPOINT", "x"),
+                ],
+                true,
+            ),
+            (
+                "Cursor agent",
+                &[
+                    ("CURSOR_AGENT", "1"),
+                    ("CURSOR_CONVERSATION_ID", "x"),
+                    ("VSCODE_PID", "1"),
+                ],
+                true,
+            ),
+            (
+                "Codex agent",
+                &[
+                    ("CODEX_CI", "1"),
+                    ("CODEX_THREAD_ID", "x"),
+                    ("CODEX_SANDBOX_NETWORK_DISABLED", "1"),
+                ],
+                true,
+            ),
+            (
+                "Cursor terminal a person types in",
+                &[("TERM_PROGRAM", "vscode"), ("VSCODE_INJECTION", "1")],
+                false,
+            ),
+            (
+                "Claude desktop terminal a person types in",
+                &[("TERM_PROGRAM", "claude-desktop")],
+                false,
+            ),
+        ];
+        for (label, vars, expected) in cases {
+            assert_eq!(detected(vars), *expected, "{label}");
         }
     }
 
     #[test]
     fn opt_out_and_flags_ignore_case_and_whitespace() {
-        assert_eq!(
-            detect(&[("AI_AGENT", " OFF "), ("CLAUDECODE", "1")]),
-            "none"
-        );
-        assert_eq!(detect(&[("AI_AGENT", "No")]), "none");
-        assert_eq!(detect(&[("AGENT", " TRUE ")]), "unknown");
-        assert_eq!(detect(&[("AGENT", "Yes")]), "unknown");
-        assert_eq!(detect(&[("AGENT", "Off")]), "none");
-        assert_eq!(detect(&[("AGENT", "  ")]), "none");
+        assert!(!detected(&[("AI_AGENT", " OFF "), ("CLAUDECODE", "1")]));
+        assert!(!detected(&[("AI_AGENT", "No")]));
+        assert!(detected(&[("AGENT", " TRUE ")]));
+        assert!(!detected(&[("AGENT", "Off")]));
+        assert!(!detected(&[("AGENT", "  ")]));
     }
 
     #[test]
-    fn agent_variable_beats_generic_agent() {
-        assert_eq!(detect(&[("AGENT", "goose"), ("CODEX_CI", "1")]), "codex");
-    }
-
-    #[test]
-    fn ai_agent_value_is_trimmed_and_kept() {
-        assert_eq!(detect(&[("AI_AGENT", "  my-agent  ")]), "my-agent");
-        assert_eq!(detect(&[("AI_AGENT", "a.b+c_d-e")]), "a.b+c_d-e");
-    }
-
-    #[test]
-    fn value_is_reduced_to_one_bounded_token() {
-        let long = format!("my agent (v2)/x{}", "a".repeat(100));
-        let expected: String = format!("my_agent__v2__x{}", "a".repeat(100))
-            .chars()
-            .take(64)
-            .collect();
-        assert_eq!(detect(&[("AI_AGENT", &long)]), expected);
-        assert_eq!(detect(&[("AI_AGENT", "é/ü")]), "___");
+    fn agent_variable_beats_a_false_generic_agent() {
+        assert!(detected(&[("AGENT", "0"), ("CODEX_CI", "1")]));
     }
 
     #[cfg(unix)]
     #[test]
-    fn non_utf8_value_is_replaced() {
+    fn non_utf8_value_still_marks_the_process() {
         use std::os::unix::ffi::OsStringExt;
-        let env = OsString::from_vec(vec![b'a', 0xff, b'b']);
-        assert_eq!(
-            detect_ai_agent_in(|name| (name == "AI_AGENT").then(|| env.clone())),
-            "a_b"
-        );
+        let value = OsString::from_vec(vec![b'a', 0xff, b'b']);
+        assert!(ai_agent_detected_in(
+            |name| (name == "AI_AGENT").then(|| value.clone())
+        ));
     }
 
-    /// Every character an agent name could contain leaves a single valid `ai-agent/<name>` token,
-    /// so the header stays valid and no value can add or split tokens.
     #[test]
-    fn any_value_gives_a_valid_single_token() {
-        let mut values: Vec<String> = (0u32..=0x2FF)
-            .chain([0x2028, 0x3000, 0xFEFF, 0xFFFD, 0x1F600])
-            .filter_map(char::from_u32)
-            .map(|c| format!("a{c}b"))
-            .collect();
-        values.extend(
-            [
-                "devin@1",
-                "a b",
-                "a\tb",
-                "a\r\nX-Injected: 1",
-                "a/b",
-                "a;b",
-                "a,b",
-                "a(b)",
-                "a\"b",
-                "a\\b",
-                "a=b",
-                "a:b",
-                "a<b>",
-                "a{b}",
-                "a[b]",
-                "a?b",
-                "\u{0}",
-            ]
-            .map(String::from),
-        );
-        for value in values {
-            let token = detect(&[("AI_AGENT", &value)]);
-            assert!(
-                !token.is_empty() && token.len() <= MAX_AI_AGENT_LEN,
-                "{value:?} -> {token:?}"
-            );
-            // A subset of RFC 9110 tchar.
-            assert!(
-                token
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || ".+_-".contains(c)),
-                "{value:?} -> {token:?}"
-            );
-            let header = format!("nominal-rust/1.2.3 {AI_AGENT_PRODUCT}/{token}");
-            HeaderValue::from_str(&header)
-                .unwrap_or_else(|e| panic!("{value:?} -> {header:?}: {e}"));
-            assert_eq!(
-                header.split_whitespace().collect::<Vec<_>>(),
-                ["nominal-rust/1.2.3", &format!("ai-agent/{token}")],
-                "{value:?}"
-            );
+    fn token_is_a_valid_conjure_agent_and_header() {
+        for version in ["0", "1"] {
+            let agent = conjure_runtime::Agent::new(AI_AGENT_PRODUCT, version);
+            assert_eq!(agent.version(), version, "Conjure keeps the version");
+            http::HeaderValue::from_str(&format!(
+                "nominal-rust/1.2.3 {AI_AGENT_PRODUCT}/{version}"
+            ))
+            .unwrap();
         }
     }
 
     #[test]
-    fn with_ai_agent_appends_the_detected_token() {
+    fn with_ai_agent_appends_the_token() {
         assert_eq!(
             with_ai_agent("nominal-cli/1.2.3"),
-            format!("nominal-cli/1.2.3 ai-agent/{}", detect_ai_agent())
+            format!("nominal-cli/1.2.3 ai-agent/{}", ai_agent_version())
         );
     }
 }
