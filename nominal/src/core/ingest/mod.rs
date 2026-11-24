@@ -18,9 +18,9 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::core::conjure::ConjureClient;
 use conjure_http::client::{AsyncService, ConjureRuntime};
 use conjure_object::BearerToken;
-use conjure_runtime::Client;
 use nominal_api::clients::ingest::api::{
     AsyncIngestJobService, AsyncIngestJobServiceClient, AsyncIngestService,
     AsyncIngestServiceClient,
@@ -37,9 +37,9 @@ const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Client for uploading files and managing ingest jobs.
 pub struct IngestClient {
-    ingest_service: AsyncIngestServiceClient<Client>,
-    ingest_job_service: AsyncIngestJobServiceClient<Client>,
-    conjure_client: Client,
+    ingest_service: AsyncIngestServiceClient<ConjureClient>,
+    ingest_job_service: AsyncIngestJobServiceClient<ConjureClient>,
+    conjure_client: ConjureClient,
     runtime: Arc<ConjureRuntime>,
     token: BearerToken,
     workspace_rid: Option<WorkspaceRid>,
@@ -47,7 +47,7 @@ pub struct IngestClient {
 
 impl IngestClient {
     pub(crate) fn new(
-        client: Client,
+        client: ConjureClient,
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
         workspace_rid: Option<WorkspaceRid>,

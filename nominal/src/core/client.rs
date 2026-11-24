@@ -3,6 +3,8 @@ use std::sync::Arc;
 use conjure_http::client::ConjureRuntime;
 use conjure_object::BearerToken;
 use conjure_runtime::{Agent, Client, UserAgent};
+
+use crate::core::conjure::ConjureClient;
 use nominal_api::objects::api::rids::WorkspaceRid;
 use nominal_streaming::client::ProductAgent;
 
@@ -13,7 +15,6 @@ use crate::core::{
     run::RunsClient, template::TemplatesClient, user::UsersClient,
     utils::api_base_url_to_app_base_url, workbook::WorkbooksClient, workspace::WorkspacesClient,
 };
-use crate::user_agent::{AI_AGENT_PRODUCT, ai_agent_version};
 use crate::{Error, Result};
 
 const SDK_USER_AGENT_NAME: &str = "nominal-rust";
@@ -22,7 +23,7 @@ const DEFAULT_BASE_URL: &str = "https://api.gov.nominal.io/api";
 
 #[derive(Clone)]
 pub struct NominalClient {
-    client: Client,
+    client: ConjureClient,
     runtime: Arc<ConjureRuntime>,
     token: BearerToken,
     workspace_rid: Option<WorkspaceRid>,
@@ -219,8 +220,7 @@ impl NominalClientBuilder {
 
     /// Override the default `User-Agent` value.
     ///
-    /// The generated header starts with `name/version ai-agent/<0|1>` (see
-    /// [`crate::user_agent`]). [`Self::build`] returns
+    /// The generated header starts with `name/version`. [`Self::build`] returns
     /// [`Error::InvalidUserAgent`] unless the name and version satisfy [`ProductAgent::new`].
     pub fn user_agent(mut self, name: &str, version: &str) -> Self {
         self.user_agent_name = name.to_string();
@@ -262,20 +262,21 @@ fn create_bearer_token(token: &str) -> Result<BearerToken> {
     })
 }
 
-fn create_client(url: &str, user_agent: &ProductAgent) -> Result<Client> {
+fn create_client(url: &str, user_agent: &ProductAgent) -> Result<ConjureClient> {
     let uri = url.try_into().map_err(|e| Error::InvalidServiceUrl {
         url: url.to_string(),
         reason: format!("{e:?}"),
     })?;
 
-    let mut user_agent = UserAgent::new(Agent::new(user_agent.name(), user_agent.version()));
-    user_agent.push_agent(Agent::new(AI_AGENT_PRODUCT, ai_agent_version()));
-    Client::builder()
+    let client = Client::builder()
         .service(SDK_USER_AGENT_NAME)
-        .user_agent(user_agent)
+        .user_agent(UserAgent::new(Agent::new(
+            user_agent.name(),
+            user_agent.version(),
+        )))
         .uri(uri)
-        .build()
-        .map_err(Error::from)
+        .build()?;
+    Ok(ConjureClient::new(client))
 }
 
 #[cfg(test)]
@@ -294,7 +295,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn conjure_requests_send_the_product_and_ai_agent_as_user_agent() {
+    async fn conjure_requests_send_the_product_as_user_agent_and_the_ai_agent_header() {
         use wiremock::matchers::any;
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -316,17 +317,14 @@ mod tests {
         for request in requests {
             let user_agent = request.headers.get("user-agent").unwrap().to_str().unwrap();
             let tokens: Vec<&str> = user_agent.split_whitespace().collect();
-            assert_eq!(
-                tokens[..2],
-                [
-                    "nominal-cli/1.2.3",
-                    &format!("ai-agent/{}", crate::user_agent::ai_agent_version())
-                ],
-                "{user_agent:?}"
-            );
+            assert_eq!(tokens[0], "nominal-cli/1.2.3", "{user_agent:?}");
             assert!(
                 tokens.last().unwrap().starts_with("conjure-rust-runtime/"),
                 "{user_agent:?}"
+            );
+            assert_eq!(
+                request.headers.get(crate::ai_agent::AI_AGENT_HEADER),
+                Some(&crate::ai_agent::ai_agent_header_value()),
             );
         }
     }

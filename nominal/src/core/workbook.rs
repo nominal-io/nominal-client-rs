@@ -1,10 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
+use crate::core::conjure::ConjureClient;
 use chrono::{DateTime, Utc};
 use conjure_http::client::{AsyncService, ConjureRuntime};
 use conjure_object::BearerToken;
-use conjure_runtime::Client;
 use futures::{Stream, TryStreamExt};
 use nominal_api::clients::scout::{AsyncNotebookService, AsyncNotebookServiceClient};
 use nominal_api::objects::api::rids::WorkspaceRid;
@@ -315,7 +315,7 @@ impl WorkbookQuery {
 
 /// Client for workbook collection operations (get, search).
 pub struct WorkbooksClient {
-    service: AsyncNotebookServiceClient<Client>,
+    service: AsyncNotebookServiceClient<ConjureClient>,
     token: BearerToken,
     workspace_rid: Option<WorkspaceRid>,
     app_base_url: String,
@@ -323,7 +323,7 @@ pub struct WorkbooksClient {
 
 impl WorkbooksClient {
     pub(crate) fn new(
-        client: Client,
+        client: ConjureClient,
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
         workspace_rid: Option<WorkspaceRid>,

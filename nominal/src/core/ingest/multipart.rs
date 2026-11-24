@@ -2,10 +2,10 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::core::conjure::ConjureClient;
 use bytes::{Bytes, BytesMut};
 use conjure_http::client::{AsyncService, ConjureRuntime};
 use conjure_object::BearerToken;
-use conjure_runtime::Client;
 use futures::{Stream, StreamExt, TryStreamExt, stream};
 use nominal_api::clients::upload::api::{AsyncUploadService, AsyncUploadServiceClient};
 use nominal_api::objects::api::rids::WorkspaceRid;
@@ -28,7 +28,7 @@ use crate::{Error, Result};
 /// Returns the storage location (S3 path) of the completed upload.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn upload_file(
-    conjure_client: Client,
+    conjure_client: ConjureClient,
     runtime: &Arc<ConjureRuntime>,
     token: BearerToken,
     workspace_rid: Option<WorkspaceRid>,
@@ -65,7 +65,7 @@ pub(crate) struct CompletedUpload {
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn upload_file_to(
-    conjure_client: Client,
+    conjure_client: ConjureClient,
     runtime: &Arc<ConjureRuntime>,
     token: BearerToken,
     workspace_rid: Option<WorkspaceRid>,
@@ -100,7 +100,7 @@ pub(crate) async fn upload_file_to(
 /// bucket) via `destination`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn upload_reader_to<R>(
-    conjure_client: Client,
+    conjure_client: ConjureClient,
     runtime: &Arc<ConjureRuntime>,
     token: BearerToken,
     workspace_rid: Option<WorkspaceRid>,
@@ -200,7 +200,7 @@ where
 
 /// Everything needed to sign and PUT an individual part.
 struct PartCtx<'a> {
-    upload_service: &'a AsyncUploadServiceClient<Client>,
+    upload_service: &'a AsyncUploadServiceClient<ConjureClient>,
     token: &'a BearerToken,
     http: &'a reqwest::Client,
     key: &'a str,
@@ -212,7 +212,7 @@ struct PartCtx<'a> {
 /// Owned version of [`PartCtx`] used inside per-part async tasks.
 #[derive(Clone)]
 struct OwnedPartCtx {
-    upload_service: AsyncUploadServiceClient<Client>,
+    upload_service: AsyncUploadServiceClient<ConjureClient>,
     token: BearerToken,
     http: reqwest::Client,
     key: String,

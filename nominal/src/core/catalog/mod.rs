@@ -10,9 +10,9 @@ pub use video::{Video, VideoCreate, VideoQuery, VideoUpdate};
 
 use std::sync::Arc;
 
+use crate::core::conjure::ConjureClient;
 use conjure_http::client::{AsyncService, ConjureRuntime};
 use conjure_object::BearerToken;
-use conjure_runtime::Client;
 use futures::Stream;
 use nominal_api::clients::scout::catalog::{AsyncCatalogService, AsyncCatalogServiceClient};
 use nominal_api::clients::scout::datasource::connection::{
@@ -53,12 +53,12 @@ use futures::TryStreamExt;
 
 /// Client for catalog operations: datasets, videos, connections, and channels.
 pub struct CatalogClient {
-    catalog_service: AsyncCatalogServiceClient<Client>,
-    video_service: AsyncVideoServiceClient<Client>,
-    connection_service: AsyncConnectionServiceClient<Client>,
-    data_source_service: AsyncDataSourceServiceClient<Client>,
-    channel_metadata_service: AsyncChannelMetadataServiceClient<Client>,
-    series_metadata_service: AsyncSeriesMetadataServiceClient<Client>,
+    catalog_service: AsyncCatalogServiceClient<ConjureClient>,
+    video_service: AsyncVideoServiceClient<ConjureClient>,
+    connection_service: AsyncConnectionServiceClient<ConjureClient>,
+    data_source_service: AsyncDataSourceServiceClient<ConjureClient>,
+    channel_metadata_service: AsyncChannelMetadataServiceClient<ConjureClient>,
+    series_metadata_service: AsyncSeriesMetadataServiceClient<ConjureClient>,
     token: BearerToken,
     workspace_rid: Option<WorkspaceRid>,
     app_base_url: String,
@@ -66,7 +66,7 @@ pub struct CatalogClient {
 
 impl CatalogClient {
     pub(crate) fn new(
-        client: Client,
+        client: ConjureClient,
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
         workspace_rid: Option<WorkspaceRid>,

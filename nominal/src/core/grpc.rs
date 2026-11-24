@@ -14,7 +14,7 @@ use tonic::transport::{Channel, ClientTlsConfig};
 use tonic::{Code, Status, body::Body, client::GrpcService};
 use tower::{Layer, Service};
 
-use crate::user_agent::with_ai_agent;
+use crate::ai_agent::{AI_AGENT_HEADER, ai_agent_header_value};
 use crate::{Error, Result, TransportError};
 use nominal_streaming::client::ProductAgent;
 
@@ -104,10 +104,12 @@ fn jittered_backoff(attempt: u32) -> Duration {
     Duration::from_secs_f64(rand::rng().random_range(0.0..ceiling.as_secs_f64()))
 }
 
-/// Adds `authorization: Bearer <token>` to every outgoing gRPC request.
+/// Adds `authorization: Bearer <token>` and the [`AI_AGENT_HEADER`] header to every outgoing gRPC
+/// request, keeping either when the request already sets it.
 #[derive(Clone)]
 pub(crate) struct AuthInterceptor {
     header: MetadataValue<Ascii>,
+    ai_agent: MetadataValue<Ascii>,
 }
 
 pub(crate) type GrpcTransport = InterceptedService<RetryService<Channel>, AuthInterceptor>;
@@ -121,6 +123,11 @@ impl Interceptor for AuthInterceptor {
             request
                 .metadata_mut()
                 .insert("authorization", self.header.clone());
+        }
+        if !request.metadata().contains_key(AI_AGENT_HEADER) {
+            request
+                .metadata_mut()
+                .insert(AI_AGENT_HEADER, self.ai_agent.clone());
         }
         Ok(request)
     }
@@ -137,7 +144,8 @@ pub(crate) struct GrpcConnection {
 impl GrpcConnection {
     /// Build a connection from the API base URL. The channel connects on first use.
     ///
-    /// Requests send `<product> ai-agent/<0|1>` as their user agent, followed by tonic's own.
+    /// Requests send `<product>` as their user agent, followed by tonic's own, and the
+    /// [`AI_AGENT_HEADER`] header.
     pub(crate) fn connect_lazy(
         base_url: &str,
         token: &BearerToken,
@@ -149,7 +157,7 @@ impl GrpcConnection {
                 url: url.clone(),
                 reason: e.to_string(),
             })?
-            .user_agent(with_ai_agent(&product.to_string()))
+            .user_agent(product.to_string())
             .map_err(|e| Error::InvalidUserAgent {
                 reason: e.to_string(),
             })?;
@@ -165,7 +173,11 @@ impl GrpcConnection {
             })?;
         Ok(Self {
             channel: RetryLayer.layer(endpoint.connect_lazy()),
-            auth: AuthInterceptor { header },
+            auth: AuthInterceptor {
+                header,
+                ai_agent: MetadataValue::try_from(ai_agent_header_value().as_bytes())
+                    .expect("the AI agent header value is ASCII"),
+            },
         })
     }
 
@@ -219,11 +231,11 @@ mod tests {
         assert!(grpc_root_url("not a url").is_err());
     }
 
-    /// A gRPC server for the drives service that records each request's user agent, failing the
-    /// first `unavailable` requests with UNAVAILABLE so the client retries.
+    /// A gRPC server for the drives service that records each request's user agent and AI agent
+    /// header, failing the first `unavailable` requests with UNAVAILABLE so the client retries.
     #[derive(Clone)]
     struct UserAgentRecorder {
-        user_agents: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+        user_agents: std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>,
         unavailable: std::sync::Arc<std::sync::Mutex<usize>>,
     }
 
@@ -244,12 +256,15 @@ mod tests {
         }
 
         fn call(&mut self, request: Request<Body>) -> Self::Future {
-            let user_agent = request
-                .headers()
-                .get(http::header::USER_AGENT)
-                .map(|value| value.to_str().unwrap().to_string())
-                .unwrap_or_default();
-            self.user_agents.lock().unwrap().push(user_agent);
+            let header = |name: &str| {
+                request
+                    .headers()
+                    .get(name)
+                    .map(|value| value.to_str().unwrap().to_string())
+                    .unwrap_or_default()
+            };
+            let recorded = (header("user-agent"), header(AI_AGENT_HEADER));
+            self.user_agents.lock().unwrap().push(recorded);
             let mut unavailable = self.unavailable.lock().unwrap();
             let retry = *unavailable > 0;
             if retry {
@@ -281,7 +296,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn requests_send_the_product_and_ai_agent_as_user_agent() {
+    async fn requests_send_the_product_as_user_agent_and_the_ai_agent_header() {
         let recorder = UserAgentRecorder {
             user_agents: Default::default(),
             unavailable: std::sync::Arc::new(std::sync::Mutex::new(1)),
@@ -303,15 +318,13 @@ mod tests {
             2,
             "one retry after UNAVAILABLE: {user_agents:?}"
         );
-        let expected = format!(
-            "nominal-cli/1.2.3 ai-agent/{}",
-            crate::user_agent::ai_agent_version()
-        );
-        for user_agent in &user_agents {
+        let ai_agent = ai_agent_header_value();
+        for (user_agent, recorded_ai_agent) in &user_agents {
             let tokens: Vec<&str> = user_agent.split_whitespace().collect();
-            assert_eq!(tokens.len(), 3, "{user_agent:?}");
-            assert_eq!(tokens[..2].join(" "), expected, "{user_agent:?}");
-            assert!(tokens[2].starts_with("tonic/"), "{user_agent:?}");
+            assert_eq!(tokens.len(), 2, "{user_agent:?}");
+            assert_eq!(tokens[0], "nominal-cli/1.2.3", "{user_agent:?}");
+            assert!(tokens[1].starts_with("tonic/"), "{user_agent:?}");
+            assert_eq!(recorded_ai_agent, ai_agent.to_str().unwrap());
         }
     }
 
@@ -319,6 +332,7 @@ mod tests {
     fn auth_interceptor_preserves_an_existing_authorization_header() {
         let mut interceptor = AuthInterceptor {
             header: "Bearer default".parse().unwrap(),
+            ai_agent: "none".parse().unwrap(),
         };
         let mut request = tonic::Request::new(());
         request

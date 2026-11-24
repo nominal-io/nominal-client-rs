@@ -13,6 +13,7 @@ pub mod user;
 pub mod video;
 
 use anyhow::Context;
+use nominal::ai_agent::{AI_AGENT_HEADER, ai_agent_header_value};
 use nominal::core::{NominalClient, NominalClientBuilder};
 use nominal::{Config, Error, Profile};
 use once_cell::sync::OnceCell;
@@ -54,50 +55,28 @@ pub(crate) fn load_client(flag: Option<&str>) -> anyhow::Result<NominalClient> {
         .context("Failed to create client")
 }
 
-/// An HTTP client for raw API calls; requests send `nominal-cli/<version> ai-agent/<0|1>` as
-/// their user agent.
+/// An HTTP client for raw API calls; requests send `nominal-cli/<version>` as their user agent
+/// and the [`AI_AGENT_HEADER`] header.
 pub(crate) fn http_client() -> anyhow::Result<reqwest::Client> {
+    let headers = reqwest::header::HeaderMap::from_iter([(
+        reqwest::header::HeaderName::from_static(AI_AGENT_HEADER),
+        ai_agent_header_value(),
+    )]);
     reqwest::Client::builder()
-        .user_agent(nominal::user_agent::with_ai_agent(&format!(
-            "{USER_AGENT_NAME}/{}",
-            env!("CARGO_PKG_VERSION")
-        )))
+        .user_agent(format!("{USER_AGENT_NAME}/{}", env!("CARGO_PKG_VERSION")))
+        .default_headers(headers)
         .build()
         .context("failed to create HTTP client")
 }
 
 #[cfg(test)]
 mod tests {
+    use nominal::ai_agent::{AI_AGENT_HEADER, ai_agent_header_value};
     use wiremock::matchers::any;
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    /// The `User-Agent` of each request `server` received.
-    async fn user_agents(server: &MockServer) -> Vec<String> {
-        server
-            .received_requests()
-            .await
-            .unwrap()
-            .iter()
-            .map(|request| {
-                request
-                    .headers
-                    .get("user-agent")
-                    .map(|value| value.to_str().unwrap().to_string())
-                    .unwrap_or_default()
-            })
-            .collect()
-    }
-
-    fn expected_user_agent() -> String {
-        format!(
-            "nominal-cli/{} ai-agent/{}",
-            env!("CARGO_PKG_VERSION"),
-            nominal::user_agent::ai_agent_version()
-        )
-    }
-
     #[tokio::test]
-    async fn raw_api_requests_send_the_cli_and_ai_agent_as_user_agent() {
+    async fn raw_api_requests_send_the_cli_as_user_agent_and_the_ai_agent_header() {
         let server = MockServer::start().await;
         Mock::given(any())
             .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
@@ -108,6 +87,13 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(user_agents(&server).await, [expected_user_agent()]);
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 1);
+        let headers = &requests[0].headers;
+        assert_eq!(
+            headers.get("user-agent").unwrap(),
+            &format!("nominal-cli/{}", env!("CARGO_PKG_VERSION"))
+        );
+        assert_eq!(headers.get(AI_AGENT_HEADER), Some(&ai_agent_header_value()));
     }
 }

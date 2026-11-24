@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use crate::core::conjure::ConjureClient;
 use chrono::{DateTime, Utc};
 use conjure_http::client::{AsyncService, ConjureRuntime};
 use conjure_object::BearerToken;
-use conjure_runtime::Client;
 use nominal_api::clients::scout::{AsyncTemplateService, AsyncTemplateServiceClient};
 use nominal_api::objects::scout::layout::api::WorkbookLayout;
 use nominal_api::objects::scout::workbookcommon::api::WorkbookContent;
@@ -105,14 +105,14 @@ impl Template {
 
 /// Client for template operations (get).
 pub struct TemplatesClient {
-    service: AsyncTemplateServiceClient<Client>,
+    service: AsyncTemplateServiceClient<ConjureClient>,
     token: BearerToken,
     app_base_url: String,
 }
 
 impl TemplatesClient {
     pub(crate) fn new(
-        client: Client,
+        client: ConjureClient,
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
         app_base_url: String,

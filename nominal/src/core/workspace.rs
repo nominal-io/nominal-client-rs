@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
+use crate::core::conjure::ConjureClient;
 use conjure_http::client::{AsyncService, ConjureRuntime};
 use conjure_object::BearerToken;
-use conjure_runtime::Client;
 use nominal_api::clients::security::api::workspace::{
     AsyncWorkspaceService, AsyncWorkspaceServiceClient,
 };
@@ -40,12 +40,16 @@ impl Workspace {
 /// Thin wrapper around the workspace API, used during profile
 /// validation to confirm that credentials can reach a workspace.
 pub struct WorkspacesClient {
-    service: AsyncWorkspaceServiceClient<Client>,
+    service: AsyncWorkspaceServiceClient<ConjureClient>,
     token: BearerToken,
 }
 
 impl WorkspacesClient {
-    pub(crate) fn new(client: Client, runtime: &Arc<ConjureRuntime>, token: BearerToken) -> Self {
+    pub(crate) fn new(
+        client: ConjureClient,
+        runtime: &Arc<ConjureRuntime>,
+        token: BearerToken,
+    ) -> Self {
         Self {
             service: AsyncWorkspaceServiceClient::new(client, runtime),
             token,

@@ -2,10 +2,10 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::core::conjure::ConjureClient;
 use chrono::{DateTime, Utc};
 use conjure_http::client::{AsyncService, ConjureRuntime};
 use conjure_object::{BearerToken, SafeLong};
-use conjure_runtime::Client;
 use futures::{Stream, TryStreamExt};
 use nominal_api::clients::scout::checklistexecution::api::{
     AsyncChecklistExecutionService, AsyncChecklistExecutionServiceClient,
@@ -407,8 +407,8 @@ fn duration_to_api(d: Duration) -> Result<ApiDuration> {
 
 /// Client for checklist collection operations (get, search) and streaming attachment.
 pub struct ChecklistsClient {
-    checks_service: AsyncChecklistServiceClient<Client>,
-    execution_service: AsyncChecklistExecutionServiceClient<Client>,
+    checks_service: AsyncChecklistServiceClient<ConjureClient>,
+    execution_service: AsyncChecklistExecutionServiceClient<ConjureClient>,
     token: BearerToken,
     workspace_rid: Option<WorkspaceRid>,
     app_base_url: String,
@@ -416,7 +416,7 @@ pub struct ChecklistsClient {
 
 impl ChecklistsClient {
     pub(crate) fn new(
-        client: Client,
+        client: ConjureClient,
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
         workspace_rid: Option<WorkspaceRid>,
