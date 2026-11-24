@@ -43,10 +43,71 @@ pub(crate) fn load_profile(flag: Option<&str>) -> anyhow::Result<Profile> {
         .ok_or_else(|| anyhow::anyhow!("Profile '{profile_name}' not found"))
 }
 
+/// The CLI's product name in the `User-Agent` header.
+const USER_AGENT_NAME: &str = "nominal-cli";
+
 pub(crate) fn load_client(flag: Option<&str>) -> anyhow::Result<NominalClient> {
     let profile = load_profile(flag)?;
     NominalClientBuilder::from_profile_config(&profile)
-        .user_agent("nominal-cli", env!("CARGO_PKG_VERSION"))
+        .user_agent(USER_AGENT_NAME, env!("CARGO_PKG_VERSION"))
         .build()
         .context("Failed to create client")
+}
+
+/// An HTTP client for raw API calls; requests send `nominal-cli/<version> ai-agent/<name>` as
+/// their user agent.
+pub(crate) fn http_client() -> anyhow::Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .user_agent(nominal::user_agent::with_ai_agent(&format!(
+            "{USER_AGENT_NAME}/{}",
+            env!("CARGO_PKG_VERSION")
+        )))
+        .build()
+        .context("failed to create HTTP client")
+}
+
+#[cfg(test)]
+mod tests {
+    use wiremock::matchers::any;
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// The `User-Agent` of each request `server` received.
+    async fn user_agents(server: &MockServer) -> Vec<String> {
+        server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .map(|request| {
+                request
+                    .headers
+                    .get("user-agent")
+                    .map(|value| value.to_str().unwrap().to_string())
+                    .unwrap_or_default()
+            })
+            .collect()
+    }
+
+    fn expected_user_agent() -> String {
+        format!(
+            "nominal-cli/{} ai-agent/{}",
+            env!("CARGO_PKG_VERSION"),
+            nominal::user_agent::detect_ai_agent()
+        )
+    }
+
+    #[tokio::test]
+    async fn raw_api_requests_send_the_cli_and_ai_agent_as_user_agent() {
+        let server = MockServer::start().await;
+        Mock::given(any())
+            .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+            .mount(&server)
+            .await;
+
+        super::api::send_request("GET", &format!("{}/api/x", server.uri()), None, "token")
+            .await
+            .unwrap();
+
+        assert_eq!(user_agents(&server).await, [expected_user_agent()]);
+    }
 }

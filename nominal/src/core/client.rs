@@ -218,7 +218,8 @@ impl NominalClientBuilder {
 
     /// Override the default `User-Agent` value.
     ///
-    /// The generated header starts with `name/version`. [`Self::build`] returns
+    /// The generated header starts with `name/version`. On gRPC requests it is followed by
+    /// `ai-agent/<name>` (see [`crate::user_agent`]). [`Self::build`] returns
     /// [`Error::InvalidUserAgent`] unless the name and version satisfy [`ProductAgent::new`].
     pub fn user_agent(mut self, name: &str, version: &str) -> Self {
         self.user_agent_name = name.to_string();
@@ -233,7 +234,11 @@ impl NominalClientBuilder {
             })?;
         let bearer_token = create_bearer_token(&self.token)?;
         let client = create_client(&self.base_url, &user_agent)?;
-        let grpc = crate::core::grpc::GrpcConnection::connect_lazy(&self.base_url, &bearer_token)?;
+        let grpc = crate::core::grpc::GrpcConnection::connect_lazy(
+            &self.base_url,
+            &bearer_token,
+            &user_agent,
+        )?;
         let workspace_rid = self
             .workspace_rid
             .as_deref()
