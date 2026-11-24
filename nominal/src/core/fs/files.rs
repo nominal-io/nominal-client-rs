@@ -11,6 +11,7 @@ use conjure_http::client::ConjureRuntime;
 use conjure_object::BearerToken;
 use conjure_runtime::Client;
 use futures::TryStreamExt;
+use nominal_api::objects::api::rids::WorkspaceRid;
 use nominal_api::objects::ingest::api::UploadDestination;
 use nominal_api::tonic::nominal::file_store::v1::{
     self as proto, files_service_client::FilesServiceClient,
@@ -230,6 +231,7 @@ pub struct DriveFilesClient {
     conjure_client: Client,
     runtime: Arc<ConjureRuntime>,
     token: BearerToken,
+    workspace_rid: Option<WorkspaceRid>,
     drive_rid: String,
 }
 
@@ -239,6 +241,7 @@ impl DriveFilesClient {
         conjure_client: Client,
         runtime: Arc<ConjureRuntime>,
         token: BearerToken,
+        workspace_rid: Option<WorkspaceRid>,
         drive_rid: impl Into<String>,
     ) -> Self {
         Self {
@@ -249,6 +252,7 @@ impl DriveFilesClient {
             conjure_client,
             runtime,
             token,
+            workspace_rid,
             drive_rid: drive_rid.into(),
         }
     }
@@ -279,7 +283,7 @@ impl DriveFilesClient {
             self.conjure_client.clone(),
             &self.runtime,
             self.token.clone(),
-            None,
+            self.workspace_rid.clone(),
             Some(UploadDestination::FileStore),
             local_path,
             filename,
