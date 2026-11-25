@@ -2,6 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use super::RequiredField;
+use crate::core::conjure::ConjureClient;
 use crate::core::grpc::{GrpcConnection, GrpcTransport};
 use crate::core::ingest::UploadOptions;
 use crate::core::ingest::multipart;
@@ -9,7 +10,6 @@ use crate::{FileStoreError, Result};
 use chrono::{DateTime, Utc};
 use conjure_http::client::ConjureRuntime;
 use conjure_object::BearerToken;
-use conjure_runtime::Client;
 use futures::TryStreamExt;
 use nominal_api::objects::ingest::api::UploadDestination;
 use nominal_api::tonic::nominal::file_store::v1::{
@@ -227,7 +227,7 @@ fn attribution_parts(
 /// Client for file operations scoped to a single drive in the Nominal file store.
 pub struct DriveFilesClient {
     service: FilesService,
-    conjure_client: Client,
+    conjure_client: ConjureClient,
     runtime: Arc<ConjureRuntime>,
     token: BearerToken,
     drive_rid: String,
@@ -236,7 +236,7 @@ pub struct DriveFilesClient {
 impl DriveFilesClient {
     pub(crate) fn new(
         connection: &GrpcConnection,
-        conjure_client: Client,
+        conjure_client: ConjureClient,
         runtime: Arc<ConjureRuntime>,
         token: BearerToken,
         drive_rid: impl Into<String>,

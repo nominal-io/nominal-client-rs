@@ -68,7 +68,7 @@ async fn grpc_unary(
         grpc_path.trim_start_matches('/')
     );
 
-    let client = reqwest::Client::new();
+    let client = super::http_client()?;
     let response = client
         .post(&url)
         .bearer_auth(token)

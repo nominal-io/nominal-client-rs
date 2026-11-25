@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use crate::core::conjure::ConjureClient;
 use chrono::{DateTime, Utc};
 use conjure_http::client::{AsyncService, ConjureRuntime};
 use conjure_object::BearerToken;
-use conjure_runtime::Client;
 use futures::Stream;
 use nominal_api::clients::scout::{AsyncRunService, AsyncRunServiceClient};
 use nominal_api::objects::api::rids::WorkspaceRid;
@@ -496,7 +496,7 @@ impl RunQuery {
 
 /// Client for run collection operations (list, get).
 pub struct RunsClient {
-    service: AsyncRunServiceClient<Client>,
+    service: AsyncRunServiceClient<ConjureClient>,
     token: BearerToken,
     workspace_rid: Option<WorkspaceRid>,
     app_base_url: String,
@@ -504,7 +504,7 @@ pub struct RunsClient {
 
 impl RunsClient {
     pub(crate) fn new(
-        client: Client,
+        client: ConjureClient,
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
         workspace_rid: Option<WorkspaceRid>,

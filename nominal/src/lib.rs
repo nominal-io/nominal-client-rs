@@ -1,5 +1,6 @@
 #![recursion_limit = "256"]
 
+pub mod ai_agent;
 pub mod config;
 pub mod core;
 pub mod error;

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
+use crate::core::conjure::ConjureClient;
 use conjure_http::client::{AsyncService, ConjureRuntime};
 use conjure_object::BearerToken;
-use conjure_runtime::Client;
 use nominal_api::clients::authentication::api::{
     AsyncAuthenticationServiceV2, AsyncAuthenticationServiceV2Client,
 };
@@ -47,12 +47,16 @@ impl User {
 
 /// Client for user operations.
 pub struct UsersClient {
-    service: AsyncAuthenticationServiceV2Client<Client>,
+    service: AsyncAuthenticationServiceV2Client<ConjureClient>,
     token: BearerToken,
 }
 
 impl UsersClient {
-    pub(crate) fn new(client: Client, runtime: &Arc<ConjureRuntime>, token: BearerToken) -> Self {
+    pub(crate) fn new(
+        client: ConjureClient,
+        runtime: &Arc<ConjureRuntime>,
+        token: BearerToken,
+    ) -> Self {
         Self {
             service: AsyncAuthenticationServiceV2Client::new(client, runtime),
             token,

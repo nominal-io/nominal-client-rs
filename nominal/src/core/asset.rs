@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use crate::core::conjure::ConjureClient;
 use chrono::{DateTime, Utc};
 use conjure_http::client::{AsyncService, ConjureRuntime};
 use conjure_object::BearerToken;
-use conjure_runtime::Client;
 use futures::Stream;
 use nominal_api::clients::scout::assets::{AsyncAssetService, AsyncAssetServiceClient};
 use nominal_api::objects::api::rids::WorkspaceRid;
@@ -358,7 +358,7 @@ impl AssetQuery {
 
 /// Client for asset collection operations (list, get).
 pub struct AssetsClient {
-    service: AsyncAssetServiceClient<Client>,
+    service: AsyncAssetServiceClient<ConjureClient>,
     token: BearerToken,
     workspace_rid: Option<WorkspaceRid>,
     app_base_url: String,
@@ -366,7 +366,7 @@ pub struct AssetsClient {
 
 impl AssetsClient {
     pub(crate) fn new(
-        client: Client,
+        client: ConjureClient,
         runtime: &Arc<ConjureRuntime>,
         token: BearerToken,
         workspace_rid: Option<WorkspaceRid>,

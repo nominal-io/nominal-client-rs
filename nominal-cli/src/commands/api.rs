@@ -306,7 +306,7 @@ pub(crate) async fn send_request(
     body: Option<&str>,
     token: &str,
 ) -> anyhow::Result<()> {
-    let client = reqwest::Client::new();
+    let client = super::http_client()?;
 
     let mut builder = match method.to_uppercase().as_str() {
         "GET" => client.get(url),

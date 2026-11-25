@@ -2,6 +2,7 @@ pub(crate) mod asset;
 pub(crate) mod catalog;
 pub(crate) mod checklist;
 pub(crate) mod client;
+pub(crate) mod conjure;
 pub(crate) mod datasource;
 pub(crate) mod datetime;
 pub(crate) mod fs;
