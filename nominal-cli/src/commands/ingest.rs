@@ -6,8 +6,8 @@ use chrono::{DateTime, Utc};
 use clap::{ArgGroup, Args, Subcommand};
 use nominal::core::{
     AvroStreamIngest, CsvIngest, DataflashIngest, DatasetCreate, DatasetTarget, IngestJob,
-    JournalJsonIngest, McapIngest, NominalClient, ParquetIngest, TimeUnit, Timestamp, VideoCreate,
-    VideoIngest, VideoTarget,
+    JournalJsonIngest, McapIngest, NominalClient, ParquetIngest, TimeUnit, Timestamp,
+    VideoChannelIngest, VideoCreate, VideoIngest, VideoTarget,
 };
 
 #[derive(Subcommand)]
@@ -28,6 +28,22 @@ pub enum IngestCommands {
     Video(VideoArgs),
     /// Upload an MCAP file and ingest a single video stream from it by topic
     McapVideo(McapVideoArgs),
+    /// Upload a standalone video to a dataset channel
+    VideoChannel {
+        #[command(flatten)]
+        destination: DatasetVideoArgs,
+        /// RFC3339 timestamp of the first frame
+        #[arg(long, value_name = "RFC3339")]
+        start: DateTime<Utc>,
+    },
+    /// Extract an MCAP video topic into a dataset channel
+    McapVideoChannel {
+        #[command(flatten)]
+        destination: DatasetVideoArgs,
+        /// MCAP topic containing the video stream
+        #[arg(long)]
+        topic: String,
+    },
 }
 
 #[derive(Args)]
@@ -102,6 +118,15 @@ pub struct DataflashArgs {
         action = clap::ArgAction::Append,
     )]
     file_tags: Vec<String>,
+}
+
+#[derive(Args)]
+pub struct DatasetVideoArgs {
+    #[command(flatten)]
+    target: TargetArgs,
+    /// Name of the video channel within the dataset
+    #[arg(long)]
+    channel: String,
 }
 
 #[derive(Args)]
@@ -295,6 +320,14 @@ pub async fn handle(cmd: IngestCommands, client: NominalClient) -> anyhow::Resul
         IngestCommands::JournalJson(args) => handle_journal_json(args, client).await,
         IngestCommands::AvroStream(args) => handle_avro_stream(args, client).await,
         IngestCommands::ArdupilotDataflash(args) => handle_dataflash(args, client).await,
+        IngestCommands::VideoChannel { destination, start } => {
+            let ingest = VideoChannelIngest::starting_at(destination.channel, start);
+            handle_dataset_video(destination.target, ingest, client).await
+        }
+        IngestCommands::McapVideoChannel { destination, topic } => {
+            let ingest = VideoChannelIngest::mcap_topic(destination.channel, topic);
+            handle_dataset_video(destination.target, ingest, client).await
+        }
         IngestCommands::Video(args) => handle_video(args, client).await,
         IngestCommands::McapVideo(args) => handle_mcap_video(args, client).await,
     }
@@ -455,6 +488,19 @@ async fn handle_dataflash(args: DataflashArgs, client: NominalClient) -> anyhow:
     print_result(&job, &dataset_rid, "Dataset", target_args.no_wait, client).await
 }
 
+async fn handle_dataset_video(
+    args: TargetArgs,
+    ingest: VideoChannelIngest,
+    client: NominalClient,
+) -> anyhow::Result<()> {
+    let (job, dataset_rid) = client
+        .ingest()
+        .upload_video_to_dataset(&args.path, build_target(&args), ingest)
+        .await
+        .with_context(|| format!("Failed to upload video '{}'", args.path.display()))?;
+    print_result(&job, &dataset_rid, "Dataset", args.no_wait, client).await
+}
+
 async fn handle_video(args: VideoArgs, client: NominalClient) -> anyhow::Result<()> {
     let VideoArgs {
         target: target_args,
@@ -464,6 +510,7 @@ async fn handle_video(args: VideoArgs, client: NominalClient) -> anyhow::Result<
     let ingest = VideoIngest::starting_at(start);
 
     let path = target_args.path.clone();
+    #[allow(deprecated)] // This command explicitly targets a standalone video.
     let (job, video_rid) = client
         .ingest()
         .upload_video(&path, target, ingest)
@@ -482,6 +529,7 @@ async fn handle_mcap_video(args: McapVideoArgs, client: NominalClient) -> anyhow
     let ingest = VideoIngest::mcap_topic(topic);
 
     let path = target_args.path.clone();
+    #[allow(deprecated)] // This command explicitly targets a standalone video.
     let (job, video_rid) = client
         .ingest()
         .upload_video(&path, target, ingest)
@@ -582,4 +630,64 @@ async fn print_result(
 
     println!("{resource_label} RID: {resource_rid}");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Cli;
+    use clap::Parser;
+
+    #[test]
+    fn legacy_and_dataset_mcap_video_commands_keep_distinct_destinations() {
+        let parse = |args: &[&str]| {
+            Cli::try_parse_from(["nomctl", "ingest"].into_iter().chain(args.iter().copied()))
+        };
+        assert!(
+            parse(&[
+                "mcap-video",
+                "file.mcap",
+                "--video",
+                "video-rid",
+                "--topic",
+                "/cam",
+                "--no-wait"
+            ])
+            .is_ok()
+        );
+        assert!(
+            parse(&[
+                "mcap-video",
+                "file.mcap",
+                "--name",
+                "Camera",
+                "--topic",
+                "/cam"
+            ])
+            .is_ok()
+        );
+        assert!(
+            parse(&[
+                "mcap-video-channel",
+                "file.mcap",
+                "--dataset",
+                "dataset-rid",
+                "--channel",
+                "camera",
+                "--topic",
+                "/cam"
+            ])
+            .is_ok()
+        );
+        assert!(
+            parse(&[
+                "mcap-video-channel",
+                "file.mcap",
+                "--dataset",
+                "dataset-rid",
+                "--topic",
+                "/cam"
+            ])
+            .is_err()
+        );
+    }
 }
