@@ -161,6 +161,7 @@ impl NominalClient {
             self.client.clone(),
             self.runtime.clone(),
             self.token.clone(),
+            self.workspace_rid.clone(),
             drive_rid,
         )
     }

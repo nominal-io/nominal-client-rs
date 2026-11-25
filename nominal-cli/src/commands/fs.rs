@@ -21,10 +21,14 @@ pub enum FsCommands {
         include_removed: bool,
     },
     /// Put a local file in a drive.
+    #[command(
+        after_help = "Examples:\n  nomctl fs put run-12.pdf eng:/reports/run-12.pdf\n  nomctl fs put run-12.pdf eng:/reports/"
+    )]
     Put {
         /// Path to the local file to upload
         local_path: std::path::PathBuf,
-        /// Drive-qualified destination path, formatted as DRIVE:/PATH.
+        /// Drive-qualified destination path, formatted as DRIVE:/PATH. A path
+        /// ending in `/` puts the file in that folder under its local name.
         #[arg(value_name = "DRIVE:/PATH")]
         destination_path: String,
     },
@@ -131,7 +135,7 @@ pub async fn handle(cmd: FsCommands, client: NominalClient) -> anyhow::Result<()
             local_path,
             destination_path,
         } => {
-            let (drive, destination_path) = parse_qualified_path(&destination_path)?;
+            let (drive, destination_path) = put_destination(&destination_path, &local_path)?;
             let drive_rid = drive_rid_for_id(&client.drives(), &drive).await?;
             let file = client
                 .files(drive_rid)
@@ -372,6 +376,28 @@ fn parse_qualified_path(path: &str) -> anyhow::Result<(String, String)> {
     Ok((drive.to_string(), path.trim_end_matches('/').to_string()))
 }
 
+/// The drive and file path for `nomctl fs put`. A destination ending in `/`
+/// names a folder, so the file keeps its local name inside it.
+fn put_destination(
+    destination: &str,
+    local_path: &std::path::Path,
+) -> anyhow::Result<(String, String)> {
+    let (drive, path) = parse_qualified_path(destination)?;
+    if !destination.ends_with('/') {
+        return Ok((drive, path));
+    }
+    let name = local_path
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("'{}' has no file name", local_path.display()))?
+        .to_string_lossy();
+    let path = if path.is_empty() {
+        name.into_owned()
+    } else {
+        format!("{path}/{name}")
+    };
+    Ok((drive, path))
+}
+
 /// A file's current revision RID, or an error if the file has no managed
 /// current revision (e.g. it lives in a virtual, read-only drive).
 fn current_revision_rid<'a>(
@@ -450,6 +476,23 @@ mod tests {
         assert_eq!(
             format_file_listing_line("old.csv", FileState::Removed, true),
             "old.csv  [removed]"
+        );
+    }
+
+    #[test]
+    fn put_destination_ending_in_a_slash_keeps_the_local_file_name() {
+        let local_path = std::path::Path::new("data/telemetry.parquet");
+        assert_eq!(
+            put_destination("eng:/", local_path).unwrap(),
+            ("eng".to_string(), "telemetry.parquet".to_string())
+        );
+        assert_eq!(
+            put_destination("eng:/flights/", local_path).unwrap(),
+            ("eng".to_string(), "flights/telemetry.parquet".to_string())
+        );
+        assert_eq!(
+            put_destination("eng:/flights/run-1.parquet", local_path).unwrap(),
+            ("eng".to_string(), "flights/run-1.parquet".to_string())
         );
     }
 
