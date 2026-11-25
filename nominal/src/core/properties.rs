@@ -18,6 +18,16 @@ use nominal_api::objects::api::{
 /// ]);
 /// # let _ = update;
 /// ```
+///
+/// Pass a resource's properties directly to a create or update builder.
+///
+/// ```
+/// use nominal::core::{Dataset, DatasetUpdate};
+///
+/// fn copy_properties(source: &Dataset) -> DatasetUpdate {
+///     DatasetUpdate::new().properties(source.properties())
+/// }
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 pub enum PropertyValue {
     String(String),
@@ -61,6 +71,12 @@ impl fmt::Display for PropertyValue {
             Self::String(s) => f.write_str(s),
             Self::Number(n) => write!(f, "{n}"),
         }
+    }
+}
+
+impl From<&PropertyValue> for PropertyValue {
+    fn from(value: &PropertyValue) -> Self {
+        value.clone()
     }
 }
 
@@ -156,7 +172,10 @@ mod tests {
     #[test]
     fn round_trips_through_api() {
         let props = collect_properties([("s", PropertyValue::from("v")), ("n", 3.into())]);
-        let api = typed_properties_to_api(props.clone());
+        let request = crate::core::DatasetUpdate::new()
+            .properties(&props)
+            .into_request();
+        let api = request.typed_properties().unwrap();
 
         assert_eq!(
             api.get(&PropertyName("s".into())),
@@ -168,7 +187,7 @@ mod tests {
             api.get(&PropertyName("n".into())),
             Some(&TypedPropertyValue::NumericValue(3.0))
         );
-        assert_eq!(properties_from_api(&api), props);
+        assert_eq!(properties_from_api(api), props);
     }
 
     #[tokio::test]

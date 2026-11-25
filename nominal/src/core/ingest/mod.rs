@@ -27,7 +27,7 @@ use nominal_api::clients::ingest::api::{
 };
 use nominal_api::objects::api::rids::WorkspaceRid;
 use nominal_api::objects::ingest::api::{
-    IngestDetails, IngestJobRid, IngestOptions, IngestRequest,
+    DatasetIngestTarget, IngestDetails, IngestJobRid, IngestOptions, IngestRequest,
 };
 
 use crate::core::rid::{parse_rid, rid_to_string};
@@ -66,6 +66,29 @@ impl IngestClient {
         self.workspace_rid.as_ref().map(|w| w.0.as_str())
     }
 
+    async fn upload_dataset_file(
+        &self,
+        path: &Path,
+        target: DatasetTarget,
+        file_type: FileType,
+        upload_options: UploadOptions,
+    ) -> Result<(DatasetIngestTarget, String)> {
+        let target = target.into_api(self.workspace_rid_str())?;
+        let filename = upload_filename(path, file_type);
+        let s3_path = multipart::upload_file(
+            self.conjure_client.clone(),
+            &self.runtime,
+            self.token.clone(),
+            self.workspace_rid.clone(),
+            path,
+            filename,
+            file_type.mime_type().to_string(),
+            upload_options,
+        )
+        .await?;
+        Ok((target, s3_path))
+    }
+
     /// Upload a CSV file and ingest it into the given dataset.
     ///
     /// The target accepts anything that converts to [`DatasetTarget`]:
@@ -84,22 +107,14 @@ impl IngestClient {
         target: impl Into<DatasetTarget>,
         ingest: CsvIngest,
     ) -> Result<(IngestJob, String)> {
-        let target = target.into().into_api(self.workspace_rid_str())?;
-        let path = path.as_ref();
-        let upload_options = ingest.upload_options.clone();
-        let file_type = FileType::Csv;
-        let filename = upload_filename(path, file_type);
-        let s3_path = multipart::upload_file(
-            self.conjure_client.clone(),
-            &self.runtime,
-            self.token.clone(),
-            self.workspace_rid.clone(),
-            path,
-            filename,
-            file_type.mime_type().to_string(),
-            upload_options,
-        )
-        .await?;
+        let (target, s3_path) = self
+            .upload_dataset_file(
+                path.as_ref(),
+                target.into(),
+                FileType::Csv,
+                ingest.upload_options.clone(),
+            )
+            .await?;
 
         let opts = ingest.into_opts(target, s3_path);
         self.trigger_ingest(IngestOptions::Csv(opts)).await
@@ -120,22 +135,14 @@ impl IngestClient {
         target: impl Into<DatasetTarget>,
         ingest: ParquetIngest,
     ) -> Result<(IngestJob, String)> {
-        let target = target.into().into_api(self.workspace_rid_str())?;
-        let path = path.as_ref();
-        let upload_options = ingest.upload_options.clone();
-        let file_type = FileType::Parquet;
-        let filename = upload_filename(path, file_type);
-        let s3_path = multipart::upload_file(
-            self.conjure_client.clone(),
-            &self.runtime,
-            self.token.clone(),
-            self.workspace_rid.clone(),
-            path,
-            filename,
-            file_type.mime_type().to_string(),
-            upload_options,
-        )
-        .await?;
+        let (target, s3_path) = self
+            .upload_dataset_file(
+                path.as_ref(),
+                target.into(),
+                FileType::Parquet,
+                ingest.upload_options.clone(),
+            )
+            .await?;
 
         let opts = ingest.into_opts(target, s3_path);
         self.trigger_ingest(IngestOptions::Parquet(opts)).await
@@ -151,22 +158,14 @@ impl IngestClient {
         target: impl Into<DatasetTarget>,
         ingest: McapIngest,
     ) -> Result<(IngestJob, String)> {
-        let target = target.into().into_api(self.workspace_rid_str())?;
-        let path = path.as_ref();
-        let upload_options = ingest.upload_options.clone();
-        let file_type = FileType::Mcap;
-        let filename = upload_filename(path, file_type);
-        let s3_path = multipart::upload_file(
-            self.conjure_client.clone(),
-            &self.runtime,
-            self.token.clone(),
-            self.workspace_rid.clone(),
-            path,
-            filename,
-            file_type.mime_type().to_string(),
-            upload_options,
-        )
-        .await?;
+        let (target, s3_path) = self
+            .upload_dataset_file(
+                path.as_ref(),
+                target.into(),
+                FileType::Mcap,
+                ingest.upload_options.clone(),
+            )
+            .await?;
 
         let opts = ingest.into_opts(target, s3_path)?;
         self.trigger_ingest(IngestOptions::McapProtobufTimeseries(opts))
@@ -183,24 +182,18 @@ impl IngestClient {
         target: impl Into<DatasetTarget>,
         ingest: JournalJsonIngest,
     ) -> Result<(IngestJob, String)> {
-        let target = target.into().into_api(self.workspace_rid_str())?;
         let path = path.as_ref();
-        let upload_options = ingest.upload_options.clone();
         let file_type = FileType::from_path(path)
             .filter(|ft| matches!(ft, FileType::JournalJsonl | FileType::JournalJsonlGz))
             .unwrap_or(FileType::JournalJsonl);
-        let filename = upload_filename(path, file_type);
-        let s3_path = multipart::upload_file(
-            self.conjure_client.clone(),
-            &self.runtime,
-            self.token.clone(),
-            self.workspace_rid.clone(),
-            path,
-            filename,
-            file_type.mime_type().to_string(),
-            upload_options,
-        )
-        .await?;
+        let (target, s3_path) = self
+            .upload_dataset_file(
+                path,
+                target.into(),
+                file_type,
+                ingest.upload_options.clone(),
+            )
+            .await?;
 
         let opts = ingest.into_opts(target, s3_path);
         self.trigger_ingest(IngestOptions::JournalJson(opts)).await
@@ -215,22 +208,14 @@ impl IngestClient {
         target: impl Into<DatasetTarget>,
         ingest: AvroStreamIngest,
     ) -> Result<(IngestJob, String)> {
-        let target = target.into().into_api(self.workspace_rid_str())?;
-        let path = path.as_ref();
-        let upload_options = ingest.upload_options.clone();
-        let file_type = FileType::AvroStream;
-        let filename = upload_filename(path, file_type);
-        let s3_path = multipart::upload_file(
-            self.conjure_client.clone(),
-            &self.runtime,
-            self.token.clone(),
-            self.workspace_rid.clone(),
-            path,
-            filename,
-            file_type.mime_type().to_string(),
-            upload_options,
-        )
-        .await?;
+        let (target, s3_path) = self
+            .upload_dataset_file(
+                path.as_ref(),
+                target.into(),
+                FileType::AvroStream,
+                ingest.upload_options.clone(),
+            )
+            .await?;
 
         let opts = ingest.into_opts(target, s3_path);
         self.trigger_ingest(IngestOptions::AvroStream(opts)).await
@@ -246,22 +231,14 @@ impl IngestClient {
         target: impl Into<DatasetTarget>,
         ingest: DataflashIngest,
     ) -> Result<(IngestJob, String)> {
-        let target = target.into().into_api(self.workspace_rid_str())?;
-        let path = path.as_ref();
-        let upload_options = ingest.upload_options.clone();
-        let file_type = FileType::Dataflash;
-        let filename = upload_filename(path, file_type);
-        let s3_path = multipart::upload_file(
-            self.conjure_client.clone(),
-            &self.runtime,
-            self.token.clone(),
-            self.workspace_rid.clone(),
-            path,
-            filename,
-            file_type.mime_type().to_string(),
-            upload_options,
-        )
-        .await?;
+        let (target, s3_path) = self
+            .upload_dataset_file(
+                path.as_ref(),
+                target.into(),
+                FileType::Dataflash,
+                ingest.upload_options.clone(),
+            )
+            .await?;
 
         let opts = ingest.into_opts(target, s3_path);
         self.trigger_ingest(IngestOptions::Dataflash(opts)).await
