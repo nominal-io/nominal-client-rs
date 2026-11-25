@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.7.2...nominal-v0.8.0) - 2026-11-24
+
+### Added
+
+- [**breaking**] upgrade nominal-api to 0.1519.0 and nominal-streaming to 0.11.0 ([#217](https://github.com/nominal-io/nominal-client-rs/pull/217))
+- add installer scripts ([#183](https://github.com/nominal-io/nominal-client-rs/pull/183))
+
+### Other
+
+- *(deps)* bump nominal-api from 0.1519.0 to 0.1546.0 ([#233](https://github.com/nominal-io/nominal-client-rs/pull/233))
+- *(deps)* bump prost from 0.13.5 to 0.14.3 ([#16](https://github.com/nominal-io/nominal-client-rs/pull/16))
+- *(deps)* bump dirs from 5.0.1 to 6.0.0 ([#24](https://github.com/nominal-io/nominal-client-rs/pull/24))
+- generate page for dev.nom.io ([#219](https://github.com/nominal-io/nominal-client-rs/pull/219))
+
+## [0.8.0](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.7.2...nominal-v0.8.0) - 2026-11-24
+
+### Added
+
+- [**breaking**] upgrade nominal-api to 0.1519.0 and nominal-streaming to 0.11.0 ([#217](https://github.com/nominal-io/nominal-client-rs/pull/217))
+
+### Fixed
+
+- recover missing multipart ETags without repeating successful uploads ([#234](https://github.com/nominal-io/nominal-client-rs/pull/234))
+- serialize build for docs.rs OOM kill ([#196](https://github.com/nominal-io/nominal-client-rs/pull/196))
+
+### Other
+
+- *(deps)* bump the external-deps group with 6 updates ([#236](https://github.com/nominal-io/nominal-client-rs/pull/236))
+- *(deps)* bump actions-rust-lang/setup-rust-toolchain from 1.16.1 to 2.0.1 ([#212](https://github.com/nominal-io/nominal-client-rs/pull/212))
+- *(deps)* bump nominal-api from 0.1519.0 to 0.1546.0 ([#233](https://github.com/nominal-io/nominal-client-rs/pull/233))
+- *(deps)* bump dirs from 5.0.1 to 6.0.0 ([#24](https://github.com/nominal-io/nominal-client-rs/pull/24))
+- *(deps)* bump webpki-roots and webpki-root-certs to 1.0.11 ([#210](https://github.com/nominal-io/nominal-client-rs/pull/210))
+
 ## [0.7.2](https://github.com/nominal-io/nominal-client-rs/compare/nominal-v0.7.1...nominal-v0.7.2) - 2026-09-18
 
 ### Added
