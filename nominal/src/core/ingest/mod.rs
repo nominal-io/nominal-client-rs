@@ -265,6 +265,7 @@ impl IngestClient {
     ///
     /// Use [`VideoChannelIngest::starting_at`] for a standalone file or
     /// [`VideoChannelIngest::mcap_topic`] to select a stream from an MCAP.
+    /// Standalone paths must end in `.mp4`, `.mkv`, `.avi`, or `.ts`. MCAP paths must end in `.mcap`.
     /// Returns `(job, dataset_rid)` when the ingest is submitted.
     pub async fn upload_video_to_dataset(
         &self,
@@ -273,7 +274,11 @@ impl IngestClient {
         ingest: VideoChannelIngest,
     ) -> Result<(IngestJob, String)> {
         let target = target.into().into_api(self.workspace_rid_str())?;
-        let s3_path = self.upload_video_file(path.as_ref(), &ingest.video).await?;
+        let path = path.as_ref();
+        let file_type = ingest.file_type(path)?;
+        let s3_path = self
+            .upload_video_file(path, file_type, ingest.video.upload_options.clone())
+            .await?;
         let opts = ingest.into_opts(target, s3_path)?;
         self.trigger_ingest(IngestOptions::VideoV2(opts)).await
     }
@@ -292,7 +297,17 @@ impl IngestClient {
         target: impl Into<VideoTarget>,
         ingest: VideoIngest,
     ) -> Result<(IngestJob, String)> {
-        let s3_path = self.upload_video_file(path.as_ref(), &ingest).await?;
+        let path = path.as_ref();
+        let file_type = if ingest.is_mcap() {
+            FileType::Mcap
+        } else {
+            FileType::from_path(path)
+                .filter(|ft| ft.is_video())
+                .unwrap_or(FileType::Mp4)
+        };
+        let s3_path = self
+            .upload_video_file(path, file_type, ingest.upload_options.clone())
+            .await?;
         let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
         let (job, details) = self.send_ingest(IngestOptions::Video(opts)).await?;
         let video_rid = match details {
@@ -306,14 +321,12 @@ impl IngestClient {
         Ok((job, video_rid))
     }
 
-    async fn upload_video_file(&self, path: &Path, ingest: &VideoIngest) -> Result<String> {
-        let file_type = if ingest.is_mcap() {
-            FileType::Mcap
-        } else {
-            FileType::from_path(path)
-                .filter(|ft| ft.is_video())
-                .unwrap_or(FileType::Mp4)
-        };
+    async fn upload_video_file(
+        &self,
+        path: &Path,
+        file_type: FileType,
+        upload_options: UploadOptions,
+    ) -> Result<String> {
         let filename = upload_filename(path, file_type);
         multipart::upload_file(
             self.conjure_client.clone(),
@@ -323,7 +336,7 @@ impl IngestClient {
             path,
             filename,
             file_type.mime_type().to_string(),
-            ingest.upload_options.clone(),
+            upload_options,
         )
         .await
     }

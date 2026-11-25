@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -18,6 +19,7 @@ use nominal_api::objects::scout::video::api::{
 };
 
 use crate::core::catalog::{DatasetCreate, VideoCreate};
+use crate::core::ingest::FileType;
 use crate::core::ingest::progress::{ProgressCallback, UploadEvent};
 use crate::core::ingest::timestamp::Timestamp;
 use crate::core::rid::parse_rid;
@@ -721,6 +723,23 @@ impl VideoChannelIngest {
         self
     }
 
+    pub(super) fn file_type(&self, path: &Path) -> Result<FileType> {
+        let file_type = FileType::from_path(path);
+        let (matched, expected) = match self.video.manifest {
+            VideoManifest::StartingAt(_) => (
+                file_type.filter(|ft| ft.is_video()),
+                ".mp4, .mkv, .avi, or .ts",
+            ),
+            VideoManifest::McapTopic(_) => (file_type.filter(|ft| *ft == FileType::Mcap), ".mcap"),
+        };
+        matched.ok_or_else(|| Error::Ingest {
+            details: format!(
+                "expected a path ending in {expected}, got {}",
+                path.display()
+            ),
+        })
+    }
+
     pub(crate) fn into_opts(
         self,
         target: ApiDatasetIngestTarget,
@@ -767,6 +786,49 @@ fn api_timestamp_from_datetime(dt: DateTime<Utc>) -> Result<ApiTimestamp> {
 #[cfg(test)]
 mod video_channel_tests {
     use super::*;
+
+    #[test]
+    fn matching_video_paths_keep_their_file_type() {
+        let standalone = VideoChannelIngest::starting_at("camera", DateTime::UNIX_EPOCH);
+        let mcap = VideoChannelIngest::mcap_topic("camera", "/front");
+        assert_eq!(
+            standalone.file_type(Path::new("flight.MKV")).unwrap(),
+            FileType::Mkv
+        );
+        assert_eq!(
+            mcap.file_type(Path::new("flight.mcap")).unwrap(),
+            FileType::Mcap
+        );
+    }
+
+    #[tokio::test]
+    async fn mismatched_video_paths_fail_before_upload() {
+        let client = crate::core::NominalClient::builder("token")
+            .base_url("http://127.0.0.1:1")
+            .build()
+            .unwrap();
+        for (path, options, expected) in [
+            (
+                "flight.mcap",
+                VideoChannelIngest::starting_at("camera", DateTime::UNIX_EPOCH),
+                ".mp4",
+            ),
+            (
+                "flight.mp4",
+                VideoChannelIngest::mcap_topic("camera", "/front"),
+                ".mcap",
+            ),
+        ] {
+            let err = client
+                .ingest()
+                .upload_video_to_dataset(path, DatasetCreate::new("Flight"), options)
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(err, Error::Ingest { details } if details.contains(path) && details.contains(expected))
+            );
+        }
+    }
 
     #[test]
     fn mcap_topic_is_independent_of_the_destination_channel() {
