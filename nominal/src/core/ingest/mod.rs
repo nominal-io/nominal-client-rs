@@ -84,6 +84,7 @@ impl IngestClient {
         target: impl Into<DatasetTarget>,
         ingest: CsvIngest,
     ) -> Result<(IngestJob, String)> {
+        let target = target.into().into_api(self.workspace_rid_str())?;
         let path = path.as_ref();
         let upload_options = ingest.upload_options.clone();
         let file_type = FileType::Csv;
@@ -100,7 +101,7 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
+        let opts = ingest.into_opts(target, s3_path);
         self.trigger_ingest(IngestOptions::Csv(opts)).await
     }
 
@@ -119,6 +120,7 @@ impl IngestClient {
         target: impl Into<DatasetTarget>,
         ingest: ParquetIngest,
     ) -> Result<(IngestJob, String)> {
+        let target = target.into().into_api(self.workspace_rid_str())?;
         let path = path.as_ref();
         let upload_options = ingest.upload_options.clone();
         let file_type = FileType::Parquet;
@@ -135,7 +137,7 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
+        let opts = ingest.into_opts(target, s3_path);
         self.trigger_ingest(IngestOptions::Parquet(opts)).await
     }
 
@@ -149,6 +151,7 @@ impl IngestClient {
         target: impl Into<DatasetTarget>,
         ingest: McapIngest,
     ) -> Result<(IngestJob, String)> {
+        let target = target.into().into_api(self.workspace_rid_str())?;
         let path = path.as_ref();
         let upload_options = ingest.upload_options.clone();
         let file_type = FileType::Mcap;
@@ -165,7 +168,7 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
+        let opts = ingest.into_opts(target, s3_path)?;
         self.trigger_ingest(IngestOptions::McapProtobufTimeseries(opts))
             .await
     }
@@ -180,6 +183,7 @@ impl IngestClient {
         target: impl Into<DatasetTarget>,
         ingest: JournalJsonIngest,
     ) -> Result<(IngestJob, String)> {
+        let target = target.into().into_api(self.workspace_rid_str())?;
         let path = path.as_ref();
         let upload_options = ingest.upload_options.clone();
         let file_type = FileType::from_path(path)
@@ -198,7 +202,7 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
+        let opts = ingest.into_opts(target, s3_path);
         self.trigger_ingest(IngestOptions::JournalJson(opts)).await
     }
 
@@ -211,6 +215,7 @@ impl IngestClient {
         target: impl Into<DatasetTarget>,
         ingest: AvroStreamIngest,
     ) -> Result<(IngestJob, String)> {
+        let target = target.into().into_api(self.workspace_rid_str())?;
         let path = path.as_ref();
         let upload_options = ingest.upload_options.clone();
         let file_type = FileType::AvroStream;
@@ -227,7 +232,7 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
+        let opts = ingest.into_opts(target, s3_path);
         self.trigger_ingest(IngestOptions::AvroStream(opts)).await
     }
 
@@ -241,6 +246,7 @@ impl IngestClient {
         target: impl Into<DatasetTarget>,
         ingest: DataflashIngest,
     ) -> Result<(IngestJob, String)> {
+        let target = target.into().into_api(self.workspace_rid_str())?;
         let path = path.as_ref();
         let upload_options = ingest.upload_options.clone();
         let file_type = FileType::Dataflash;
@@ -257,7 +263,7 @@ impl IngestClient {
         )
         .await?;
 
-        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
+        let opts = ingest.into_opts(target, s3_path);
         self.trigger_ingest(IngestOptions::Dataflash(opts)).await
     }
 

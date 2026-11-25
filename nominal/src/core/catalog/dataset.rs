@@ -1,12 +1,15 @@
 use chrono::{DateTime, Utc};
 use nominal_api::objects::api::rids::WorkspaceRid;
-use nominal_api::objects::api::{Label, Property, PropertyName, PropertyValue};
+use nominal_api::objects::api::{Label, Property, PropertyName, PropertyValue as ApiPropertyValue};
 use nominal_api::objects::scout::catalog::{
     ChannelConfig, CreateDataset, DatasetOriginMetadata, SearchDatasetsQuery, UpdateDatasetMetadata,
 };
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 
 use crate::Result;
+use crate::core::properties::{
+    PropertyValue, collect_properties, properties_from_api, typed_properties_to_api,
+};
 use crate::core::rid::{parse_rid, rid_to_string};
 
 /// Represents a dataset in Nominal.
@@ -18,7 +21,7 @@ pub struct Dataset {
     rid: String,
     name: String,
     description: Option<String>,
-    properties: HashMap<String, String>,
+    properties: HashMap<String, PropertyValue>,
     labels: Vec<String>,
     created_at: DateTime<Utc>,
     app_base_url: String,
@@ -37,7 +40,7 @@ impl Dataset {
         self.description.as_deref()
     }
 
-    pub fn properties(&self) -> &HashMap<String, String> {
+    pub fn properties(&self) -> &HashMap<String, PropertyValue> {
         &self.properties
     }
 
@@ -65,12 +68,7 @@ impl Dataset {
                 .description()
                 .filter(|s| !s.is_empty())
                 .map(|s| s.to_string()),
-            #[allow(deprecated)]
-            properties: dataset
-                .properties()
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect(),
+            properties: properties_from_api(dataset.typed_properties()),
             labels: dataset.labels().iter().map(|l| l.to_string()).collect(),
             created_at: dataset.ingest_date().to_utc(),
             app_base_url: app_base_url.to_string(),
@@ -83,7 +81,7 @@ impl Dataset {
 pub struct DatasetCreate {
     name: String,
     description: Option<String>,
-    properties: Option<HashMap<String, String>>,
+    properties: Option<HashMap<String, PropertyValue>>,
     labels: Option<Vec<String>>,
     channel_delimiter: Option<String>,
 }
@@ -105,19 +103,16 @@ impl DatasetCreate {
         self
     }
 
+    /// Atomic create-and-ingest accepts string properties only. To use numeric properties,
+    /// create the dataset with the catalog client and upload to its RID.
     #[must_use]
     pub fn properties<I, K, V>(mut self, value: I) -> Self
     where
         I: IntoIterator<Item = (K, V)>,
         K: Into<String>,
-        V: Into<String>,
+        V: Into<PropertyValue>,
     {
-        self.properties = Some(
-            value
-                .into_iter()
-                .map(|(k, v)| (k.into(), v.into()))
-                .collect(),
-        );
+        self.properties = Some(collect_properties(value));
         self
     }
 
@@ -162,11 +157,7 @@ impl DatasetCreate {
             b = b.description(d);
         }
         if let Some(p) = properties {
-            b = b.properties(
-                p.into_iter()
-                    .map(|(k, v)| (PropertyName(k), PropertyValue(v)))
-                    .collect::<BTreeMap<_, _>>(),
-            );
+            b = b.typed_properties(typed_properties_to_api(p));
         }
         if let Some(l) = labels {
             b = b.labels(l.into_iter().map(Label).collect::<BTreeSet<_>>());
@@ -203,11 +194,18 @@ impl DatasetCreate {
             b = b.dataset_description(d);
         }
         if let Some(p) = properties {
-            b = b.properties(
-                p.into_iter()
-                    .map(|(k, v)| (PropertyName(k), PropertyValue(v)))
-                    .collect::<BTreeMap<_, _>>(),
-            );
+            let mut strings = std::collections::BTreeMap::new();
+            for (key, value) in p {
+                let PropertyValue::String(text) = value else {
+                    return Err(crate::Error::Ingest {
+                        details: format!(
+                            "numeric property {key:?} cannot be set during atomic dataset ingest; create the dataset with catalog().create_dataset() and upload to its RID"
+                        ),
+                    });
+                };
+                strings.insert(PropertyName(key), ApiPropertyValue(text));
+            }
+            b = b.properties(strings);
         }
         if let Some(l) = labels {
             b = b.labels(l.into_iter().map(Label).collect::<BTreeSet<_>>());
@@ -225,7 +223,7 @@ impl DatasetCreate {
 pub struct DatasetUpdate {
     name: Option<String>,
     description: Option<String>,
-    properties: Option<HashMap<String, String>>,
+    properties: Option<HashMap<String, PropertyValue>>,
     labels: Option<Vec<String>>,
 }
 
@@ -252,14 +250,9 @@ impl DatasetUpdate {
     where
         I: IntoIterator<Item = (K, V)>,
         K: Into<String>,
-        V: Into<String>,
+        V: Into<PropertyValue>,
     {
-        self.properties = Some(
-            value
-                .into_iter()
-                .map(|(k, v)| (k.into(), v.into()))
-                .collect(),
-        );
+        self.properties = Some(collect_properties(value));
         self
     }
 
@@ -289,11 +282,7 @@ impl DatasetUpdate {
             b = b.description(d);
         }
         if let Some(p) = properties {
-            b = b.properties(Some(
-                p.into_iter()
-                    .map(|(k, v)| (PropertyName(k), PropertyValue(v)))
-                    .collect::<BTreeMap<_, _>>(),
-            ));
+            b = b.typed_properties(typed_properties_to_api(p));
         }
         if let Some(l) = labels {
             b = b.labels(Some(l.into_iter().map(Label).collect::<BTreeSet<_>>()));
@@ -366,7 +355,7 @@ impl DatasetQuery {
             Self::SubstringMatch(s) => SearchDatasetsQuery::ExactMatch(s),
             Self::Label(l) => SearchDatasetsQuery::Label(Label(l)),
             Self::Property(k, v) => {
-                SearchDatasetsQuery::Properties(Property::new(PropertyName(k), PropertyValue(v)))
+                SearchDatasetsQuery::Properties(Property::new(PropertyName(k), ApiPropertyValue(v)))
             }
             Self::And(qs) => SearchDatasetsQuery::And(
                 qs.into_iter()
@@ -475,12 +464,11 @@ mod tests {
     }
 
     #[test]
-    #[allow(deprecated)]
     fn update_empty() {
         let req = DatasetUpdate::new().into_request();
         assert!(req.name().is_none());
         assert!(req.description().is_none());
-        assert!(req.properties().is_none());
+        assert!(req.typed_properties().is_none());
         assert!(req.labels().is_none());
     }
 
@@ -492,7 +480,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(deprecated)]
     fn update_all_fields() {
         let req = DatasetUpdate::new()
             .name("name")
@@ -502,7 +489,7 @@ mod tests {
             .into_request();
         assert_eq!(req.name(), Some("name"));
         assert_eq!(req.description(), Some("desc"));
-        assert_eq!(req.properties().unwrap().len(), 1);
+        assert_eq!(req.typed_properties().unwrap().len(), 1);
         assert_eq!(req.labels().unwrap().len(), 2); // deduplicated
     }
 }
