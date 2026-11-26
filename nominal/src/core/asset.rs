@@ -8,7 +8,7 @@ use futures::Stream;
 use nominal_api::clients::scout::assets::{AsyncAssetService, AsyncAssetServiceClient};
 use nominal_api::objects::api::rids::WorkspaceRid;
 use nominal_api::objects::api::{
-    Label, PropertyName, PropertyValue, SetOperator, TagName, TagValue,
+    Label, PropertyName, PropertyValue as ApiPropertyValue, SetOperator, TagName, TagValue,
 };
 use nominal_api::objects::scout::asset::api::{
     AddDataScopesToAssetRequest, AssetSortField, AssetSortOptions, CreateAssetDataScope,
@@ -16,9 +16,12 @@ use nominal_api::objects::scout::asset::api::{
     UpdateAssetRequest,
 };
 use nominal_api::objects::scout::rids::api::{LabelsFilter, PropertiesFilter};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 
 use crate::core::datasource::DataSource;
+use crate::core::properties::{
+    PropertyValue, collect_properties, properties_from_api, typed_properties_to_api,
+};
 use crate::core::rid::{parse_rid, rid_to_string};
 use crate::core::utils::paginate_stream;
 use crate::{Error, Result};
@@ -33,7 +36,7 @@ pub struct Asset {
     rid: String,
     name: String,
     description: Option<String>,
-    properties: HashMap<String, String>,
+    properties: HashMap<String, PropertyValue>,
     labels: Vec<String>,
     data_sources: HashMap<String, DataSource>,
     created_at: DateTime<Utc>,
@@ -53,7 +56,7 @@ impl Asset {
         self.description.as_deref()
     }
 
-    pub fn properties(&self) -> &HashMap<String, String> {
+    pub fn properties(&self) -> &HashMap<String, PropertyValue> {
         &self.properties
     }
 
@@ -94,12 +97,7 @@ impl Asset {
                 .description()
                 .filter(|s| !s.is_empty())
                 .map(|s| s.to_string()),
-            #[allow(deprecated)]
-            properties: asset
-                .properties()
-                .iter()
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect(),
+            properties: properties_from_api(asset.typed_properties()),
             labels: asset.labels().iter().map(|l| l.to_string()).collect(),
             data_sources,
             created_at: asset.created_at().to_utc(),
@@ -112,7 +110,7 @@ impl Asset {
 pub struct AssetUpdate {
     name: Option<String>,
     description: Option<String>,
-    properties: Option<HashMap<String, String>>,
+    properties: Option<HashMap<String, PropertyValue>>,
     labels: Option<Vec<String>>,
 }
 
@@ -139,14 +137,9 @@ impl AssetUpdate {
     where
         I: IntoIterator<Item = (K, V)>,
         K: Into<String>,
-        V: Into<String>,
+        V: Into<PropertyValue>,
     {
-        self.properties = Some(
-            value
-                .into_iter()
-                .map(|(k, v)| (k.into(), v.into()))
-                .collect(),
-        );
+        self.properties = Some(collect_properties(value));
         self
     }
 
@@ -176,11 +169,7 @@ impl AssetUpdate {
             b = b.description(d);
         }
         if let Some(p) = properties {
-            b = b.properties(
-                p.into_iter()
-                    .map(|(k, v)| (k.into(), v.into()))
-                    .collect::<BTreeMap<_, _>>(),
-            );
+            b = b.typed_properties(typed_properties_to_api(p));
         }
         if let Some(l) = labels {
             b = b.labels(l.into_iter().map(|s| s.into()).collect::<BTreeSet<_>>());
@@ -194,7 +183,7 @@ impl AssetUpdate {
 pub struct AssetCreate {
     name: String,
     description: Option<String>,
-    properties: Option<HashMap<String, String>>,
+    properties: Option<HashMap<String, PropertyValue>>,
     labels: Option<Vec<String>>,
 }
 
@@ -219,14 +208,9 @@ impl AssetCreate {
     where
         I: IntoIterator<Item = (K, V)>,
         K: Into<String>,
-        V: Into<String>,
+        V: Into<PropertyValue>,
     {
-        self.properties = Some(
-            value
-                .into_iter()
-                .map(|(k, v)| (k.into(), v.into()))
-                .collect(),
-        );
+        self.properties = Some(collect_properties(value));
         self
     }
 
@@ -257,11 +241,7 @@ impl AssetCreate {
             b = b.description(d);
         }
         if let Some(p) = properties {
-            b = b.properties(
-                p.into_iter()
-                    .map(|(k, v)| (PropertyName(k), PropertyValue(v)))
-                    .collect::<BTreeMap<_, _>>(),
-            );
+            b = b.typed_properties(typed_properties_to_api(p));
         }
         if let Some(l) = labels {
             b = b.labels(l.into_iter().map(Label).collect::<BTreeSet<_>>());
@@ -345,7 +325,7 @@ impl AssetQuery {
             Self::Property(k, v) => SearchAssetsQuery::Properties(
                 PropertiesFilter::builder()
                     .name(PropertyName(k))
-                    .extend_values([PropertyValue(v)])
+                    .extend_values([ApiPropertyValue(v)])
                     .build(),
             ),
             Self::And(qs) => {
@@ -773,12 +753,11 @@ mod tests {
     // --- AssetUpdate::into_request ---
 
     #[test]
-    #[allow(deprecated)]
     fn update_empty_request_has_no_fields() {
         let req = AssetUpdate::new().into_request();
         assert!(req.title().is_none());
         assert!(req.description().is_none());
-        assert!(req.properties().is_none());
+        assert!(req.typed_properties().is_none());
         assert!(req.labels().is_none());
     }
 
@@ -797,20 +776,23 @@ mod tests {
     }
 
     #[test]
-    #[allow(deprecated)]
     fn update_properties_converted_correctly() {
         let req = AssetUpdate::new()
             .properties([("k1", "v1"), ("k2", "v2")])
             .into_request();
-        let props = req.properties().expect("properties should be set");
+        let props = req.typed_properties().expect("properties should be set");
         assert_eq!(props.len(), 2);
         assert_eq!(
             props.get(&nominal_api::objects::api::PropertyName("k1".into())),
-            Some(&nominal_api::objects::api::PropertyValue("v1".into()))
+            Some(&nominal_api::objects::api::TypedPropertyValue::StringValue(
+                nominal_api::objects::api::PropertyValue("v1".into())
+            ))
         );
         assert_eq!(
             props.get(&nominal_api::objects::api::PropertyName("k2".into())),
-            Some(&nominal_api::objects::api::PropertyValue("v2".into()))
+            Some(&nominal_api::objects::api::TypedPropertyValue::StringValue(
+                nominal_api::objects::api::PropertyValue("v2".into())
+            ))
         );
     }
 
@@ -827,7 +809,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(deprecated)]
     fn update_all_fields() {
         let req = AssetUpdate::new()
             .name("name")
@@ -837,7 +818,7 @@ mod tests {
             .into_request();
         assert_eq!(req.title(), Some("name"));
         assert_eq!(req.description(), Some("desc"));
-        assert!(req.properties().is_some());
+        assert!(req.typed_properties().is_some());
         assert!(req.labels().is_some());
     }
 }

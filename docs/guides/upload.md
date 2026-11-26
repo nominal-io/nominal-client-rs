@@ -22,7 +22,7 @@ let (job, dataset_rid) = client
 client.ingest().wait_for_ingest_job(job.rid()).await?;
 ```
 
-To upload into an existing dataset, pass its RID in place of the {rust:struct}`DatasetCreate`.
+To upload into an existing dataset, pass its RID in place of the {rust:struct}`DatasetCreate`. Creating a dataset during ingest accepts string properties. For numeric properties, [create the dataset](datasets.md#create-a-dataset) first and pass its RID to the upload method.
 
 ## Check an ingest job
 

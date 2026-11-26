@@ -207,13 +207,7 @@ impl CsvIngest {
         self
     }
 
-    pub(crate) fn into_opts(
-        self,
-        target: DatasetTarget,
-        workspace_rid: Option<&str>,
-        s3_path: String,
-    ) -> Result<CsvOpts> {
-        let target = target.into_api(workspace_rid)?;
+    pub(crate) fn into_opts(self, target: ApiDatasetIngestTarget, s3_path: String) -> CsvOpts {
         let source = IngestSource::S3(S3IngestSource::new(s3_path));
 
         let mut b = CsvOpts::builder()
@@ -242,7 +236,7 @@ impl CsvIngest {
         if !self.exclude_columns.is_empty() {
             b = b.exclude_columns(self.exclude_columns.into_iter().map(ColumnName));
         }
-        Ok(b.build())
+        b.build()
     }
 }
 
@@ -309,13 +303,7 @@ impl ParquetIngest {
         self
     }
 
-    pub(crate) fn into_opts(
-        self,
-        target: DatasetTarget,
-        workspace_rid: Option<&str>,
-        s3_path: String,
-    ) -> Result<ParquetOpts> {
-        let target = target.into_api(workspace_rid)?;
+    pub(crate) fn into_opts(self, target: ApiDatasetIngestTarget, s3_path: String) -> ParquetOpts {
         let source = IngestSource::S3(S3IngestSource::new(s3_path));
 
         let mut b = ParquetOpts::builder()
@@ -347,7 +335,7 @@ impl ParquetIngest {
         if !self.exclude_columns.is_empty() {
             b = b.exclude_columns(self.exclude_columns.into_iter().map(ColumnName));
         }
-        Ok(b.build())
+        b.build()
     }
 }
 
@@ -406,11 +394,9 @@ impl McapIngest {
 
     pub(crate) fn into_opts(
         self,
-        target: DatasetTarget,
-        workspace_rid: Option<&str>,
+        target: ApiDatasetIngestTarget,
         s3_path: String,
     ) -> Result<McapProtobufTimeseriesOpts> {
-        let target = target.into_api(workspace_rid)?;
         let source = IngestSource::S3(S3IngestSource::new(s3_path));
 
         let channel_filter = match (
@@ -484,18 +470,16 @@ impl JournalJsonIngest {
 
     pub(crate) fn into_opts(
         self,
-        target: DatasetTarget,
-        workspace_rid: Option<&str>,
+        target: ApiDatasetIngestTarget,
         s3_path: String,
-    ) -> Result<JournalJsonOpts> {
-        let target = target.into_api(workspace_rid)?;
+    ) -> JournalJsonOpts {
         let source = IngestSource::S3(S3IngestSource::new(s3_path));
 
         let mut b = JournalJsonOpts::builder().source(source).target(target);
         if let Some(ch) = self.channel {
             b = b.channel(Channel(ch));
         }
-        Ok(b.build())
+        b.build()
     }
 }
 
@@ -519,16 +503,14 @@ impl AvroStreamIngest {
 
     pub(crate) fn into_opts(
         self,
-        target: DatasetTarget,
-        workspace_rid: Option<&str>,
+        target: ApiDatasetIngestTarget,
         s3_path: String,
-    ) -> Result<AvroStreamOpts> {
-        let target = target.into_api(workspace_rid)?;
+    ) -> AvroStreamOpts {
         let source = IngestSource::S3(S3IngestSource::new(s3_path));
-        Ok(AvroStreamOpts::builder()
+        AvroStreamOpts::builder()
             .source(source)
             .target(target)
-            .build())
+            .build()
     }
 }
 
@@ -559,11 +541,9 @@ impl DataflashIngest {
 
     pub(crate) fn into_opts(
         self,
-        target: DatasetTarget,
-        workspace_rid: Option<&str>,
+        target: ApiDatasetIngestTarget,
         s3_path: String,
-    ) -> Result<DataflashOpts> {
-        let target = target.into_api(workspace_rid)?;
+    ) -> DataflashOpts {
         let source = IngestSource::S3(S3IngestSource::new(s3_path));
 
         let mut b = DataflashOpts::builder().source(source).target(target);
@@ -575,7 +555,7 @@ impl DataflashIngest {
                     .collect::<BTreeMap<_, _>>(),
             );
         }
-        Ok(b.build())
+        b.build()
     }
 }
 

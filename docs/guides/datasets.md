@@ -10,13 +10,14 @@ To use this page, first make sure you can [Connect to Nominal](connect.md) and o
 ## Create a dataset
 
 ```rust
-use nominal::core::DatasetCreate;
+use nominal::core::{DatasetCreate, PropertyValue};
 
 let dataset = client
     .catalog()
     .create_dataset(
         DatasetCreate::new("Flight telemetry")
             .description("Quadcopter 456 flight logs")
+            .properties([("serial", PropertyValue::from("0012")), ("mass_kg", 12.5.into())])
             .labels(["flight-test"])
             .channel_delimiter("."), // show motor.temperature and motor.current in a tree, under motor
     )
