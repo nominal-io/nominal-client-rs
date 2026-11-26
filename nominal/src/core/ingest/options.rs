@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -11,13 +12,14 @@ use nominal_api::objects::ingest::api::{
     DatasetIngestTarget as ApiDatasetIngestTarget, ExistingDatasetIngestDestination,
     ExistingVideoIngestDestination, IngestSource, JournalJsonOpts, LogTime, McapChannels,
     McapProtobufTimeseriesOpts, McapTimestampType, ParquetOpts, S3IngestSource,
-    VideoIngestTarget as ApiVideoIngestTarget, VideoOpts,
+    VideoIngestTarget as ApiVideoIngestTarget, VideoOpts, VideoOptsV2,
 };
 use nominal_api::objects::scout::video::api::{
     McapTimestampManifest, NoTimestampManifest, VideoFileTimestampManifest,
 };
 
 use crate::core::catalog::{DatasetCreate, VideoCreate};
+use crate::core::ingest::FileType;
 use crate::core::ingest::progress::{ProgressCallback, UploadEvent};
 use crate::core::ingest::timestamp::Timestamp;
 use crate::core::rid::parse_rid;
@@ -638,7 +640,7 @@ enum VideoManifest {
     McapTopic(String),
 }
 
-/// Configuration for ingesting a video into an existing or new video resource.
+/// Configuration for ingesting a video, either as a channel on a dataset or into a video resource.
 #[derive(Debug, Clone)]
 pub struct VideoIngest {
     manifest: VideoManifest,
@@ -682,9 +684,79 @@ impl VideoIngest {
         workspace_rid: Option<&str>,
         s3_path: String,
     ) -> Result<VideoOpts> {
-        let target = target.into_api(workspace_rid)?;
-        let source = IngestSource::S3(S3IngestSource::new(s3_path));
-        let manifest = match self.manifest {
+        Ok(VideoOpts::builder()
+            .source(IngestSource::S3(S3IngestSource::new(s3_path)))
+            .target(target.into_api(workspace_rid)?)
+            .timestamp_manifest(self.manifest.into_api()?)
+            .build())
+    }
+}
+
+/// Options for uploading a video to a named dataset channel.
+#[derive(Debug, Clone)]
+pub struct VideoChannelIngest {
+    channel: String,
+    pub(crate) video: VideoIngest,
+}
+
+impl VideoChannelIngest {
+    /// Place the first frame of a standalone video at an absolute timestamp.
+    pub fn starting_at(channel: impl Into<String>, start: DateTime<Utc>) -> Self {
+        Self {
+            channel: channel.into(),
+            video: VideoIngest::starting_at(start),
+        }
+    }
+
+    /// Extract the video stream on an MCAP topic into the named dataset channel.
+    pub fn mcap_topic(channel: impl Into<String>, topic: impl Into<String>) -> Self {
+        Self {
+            channel: channel.into(),
+            video: VideoIngest::mcap_topic(topic),
+        }
+    }
+
+    /// Override multipart upload settings.
+    #[must_use]
+    pub fn upload_options(mut self, options: UploadOptions) -> Self {
+        self.video = self.video.upload_options(options);
+        self
+    }
+
+    pub(super) fn file_type(&self, path: &Path) -> Result<FileType> {
+        let file_type = FileType::from_path(path);
+        let (matched, expected) = match self.video.manifest {
+            VideoManifest::StartingAt(_) => (
+                file_type.filter(|ft| ft.is_video()),
+                ".mp4, .mkv, .avi, or .ts",
+            ),
+            VideoManifest::McapTopic(_) => (file_type.filter(|ft| *ft == FileType::Mcap), ".mcap"),
+        };
+        matched.ok_or_else(|| Error::Ingest {
+            details: format!(
+                "expected a path ending in {expected}, got {}",
+                path.display()
+            ),
+        })
+    }
+
+    pub(crate) fn into_opts(
+        self,
+        target: ApiDatasetIngestTarget,
+        s3_path: String,
+    ) -> Result<VideoOptsV2> {
+        Ok(VideoOptsV2::builder()
+            .source(IngestSource::S3(S3IngestSource::new(s3_path)))
+            .target(target)
+            .timestamp_manifest(self.video.manifest.into_api()?)
+            .channel(Channel(self.channel))
+            .build())
+    }
+}
+
+impl VideoManifest {
+    fn into_api(self) -> Result<VideoFileTimestampManifest> {
+        Ok(match self {
             VideoManifest::StartingAt(dt) => VideoFileTimestampManifest::NoManifest(
                 NoTimestampManifest::builder()
                     .starting_timestamp(api_timestamp_from_datetime(dt)?)
@@ -695,12 +767,7 @@ impl VideoIngest {
                     .mcap_channel_locator(McapChannelLocator::Topic(McapChannelTopic(topic)))
                     .build(),
             ),
-        };
-        Ok(VideoOpts::builder()
-            .source(source)
-            .target(target)
-            .timestamp_manifest(manifest)
-            .build())
+        })
     }
 }
 
@@ -714,4 +781,70 @@ fn api_timestamp_from_datetime(dt: DateTime<Utc>) -> Result<ApiTimestamp> {
         details: format!("video starting timestamp nanos out of range: {nanos}"),
     })?;
     Ok(ApiTimestamp::new(seconds_safe, nanos_safe))
+}
+
+#[cfg(test)]
+mod video_channel_tests {
+    use super::*;
+
+    #[test]
+    fn matching_video_paths_keep_their_file_type() {
+        let standalone = VideoChannelIngest::starting_at("camera", DateTime::UNIX_EPOCH);
+        let mcap = VideoChannelIngest::mcap_topic("camera", "/front");
+        assert_eq!(
+            standalone.file_type(Path::new("flight.MKV")).unwrap(),
+            FileType::Mkv
+        );
+        assert_eq!(
+            mcap.file_type(Path::new("flight.mcap")).unwrap(),
+            FileType::Mcap
+        );
+    }
+
+    #[tokio::test]
+    async fn mismatched_video_paths_fail_before_upload() {
+        let client = crate::core::NominalClient::builder("token")
+            .base_url("http://127.0.0.1:1")
+            .build()
+            .unwrap();
+        for (path, options, expected) in [
+            (
+                "flight.mcap",
+                VideoChannelIngest::starting_at("camera", DateTime::UNIX_EPOCH),
+                ".mp4",
+            ),
+            (
+                "flight.mp4",
+                VideoChannelIngest::mcap_topic("camera", "/front"),
+                ".mcap",
+            ),
+        ] {
+            let err = client
+                .ingest()
+                .upload_video_to_dataset(path, DatasetCreate::new("Flight"), options)
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(err, Error::Ingest { details } if details.contains(path) && details.contains(expected))
+            );
+        }
+    }
+
+    #[test]
+    fn mcap_topic_is_independent_of_the_destination_channel() {
+        let target = DatasetTarget::from(DatasetCreate::new("Flight"))
+            .into_api(None)
+            .unwrap();
+        let opts = VideoChannelIngest::mcap_topic("nose_camera", "/camera/h264")
+            .into_opts(target, "object-key".to_string())
+            .unwrap();
+        assert_eq!(opts.channel().0, "nose_camera");
+        let VideoFileTimestampManifest::Mcap(manifest) = opts.timestamp_manifest() else {
+            panic!("expected MCAP timestamps");
+        };
+        assert_eq!(
+            manifest.mcap_channel_locator(),
+            &McapChannelLocator::Topic(McapChannelTopic("/camera/h264".into()))
+        );
+    }
 }

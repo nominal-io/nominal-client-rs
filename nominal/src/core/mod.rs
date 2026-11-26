@@ -34,7 +34,7 @@ pub use fs::{
 pub use ingest::{
     AvroStreamIngest, CsvIngest, DataflashIngest, DatasetTarget, FileType, IngestClient, IngestJob,
     IngestJobStatus, IngestType, JournalJsonIngest, McapIngest, ParquetIngest, ProgressCallback,
-    TimeUnit, Timestamp, UploadEvent, UploadOptions, VideoIngest, VideoTarget,
+    TimeUnit, Timestamp, UploadEvent, UploadOptions, VideoChannelIngest, VideoIngest, VideoTarget,
 };
 pub use run::{Run, RunCreate, RunQuery, RunUpdate, RunsClient};
 pub use template::{Template, TemplatesClient};
