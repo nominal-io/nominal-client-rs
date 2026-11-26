@@ -262,21 +262,59 @@ impl IngestClient {
     }
 
     /// Upload a video file (`.mp4` / `.mkv` / `.avi` / `.ts`) or an MCAP file
-    /// containing a video stream and ingest it into the given video resource.
+    /// containing a video stream and ingest it as `channel` on a dataset.
     ///
     /// Build the `ingest` argument with [`VideoIngest::starting_at`] for a
     /// plain video file, or [`VideoIngest::mcap_topic`] to extract a single
     /// stream out of an MCAP.
     ///
+    /// Returns `(job, dataset_rid)`.
+    pub async fn upload_video_to_dataset(
+        &self,
+        path: impl AsRef<Path>,
+        target: impl Into<DatasetTarget>,
+        channel: impl Into<String>,
+        ingest: VideoIngest,
+    ) -> Result<(IngestJob, String)> {
+        let s3_path = self.upload_video_file(path.as_ref(), &ingest).await?;
+        let opts = ingest.into_dataset_opts(
+            target.into(),
+            channel.into(),
+            self.workspace_rid_str(),
+            s3_path,
+        )?;
+        self.trigger_ingest(IngestOptions::VideoV2(opts)).await
+    }
+
+    /// Upload a video file (`.mp4` / `.mkv` / `.avi` / `.ts`) or an MCAP file
+    /// containing a video stream and ingest it into the given video resource.
+    ///
     /// Returns `(job, video_rid)`.
+    #[deprecated(
+        note = "video resource ingest is deprecated by the Nominal API; use `upload_video_to_dataset`"
+    )]
+    #[allow(deprecated)]
     pub async fn upload_video(
         &self,
         path: impl AsRef<Path>,
         target: impl Into<VideoTarget>,
         ingest: VideoIngest,
     ) -> Result<(IngestJob, String)> {
-        let path = path.as_ref();
-        let upload_options = ingest.upload_options.clone();
+        let s3_path = self.upload_video_file(path.as_ref(), &ingest).await?;
+        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
+        let (job, details) = self.send_ingest(IngestOptions::Video(opts)).await?;
+        let video_rid = match details {
+            IngestDetails::Video(d) => d.video_rid().to_string(),
+            _ => {
+                return Err(Error::Ingest {
+                    details: "ingest response did not include a video RID".into(),
+                });
+            }
+        };
+        Ok((job, video_rid))
+    }
+
+    async fn upload_video_file(&self, path: &Path, ingest: &VideoIngest) -> Result<String> {
         let file_type = if ingest.is_mcap() {
             FileType::Mcap
         } else {
@@ -285,7 +323,7 @@ impl IngestClient {
                 .unwrap_or(FileType::Mp4)
         };
         let filename = upload_filename(path, file_type);
-        let s3_path = multipart::upload_file(
+        multipart::upload_file(
             self.conjure_client.clone(),
             &self.runtime,
             self.token.clone(),
@@ -293,14 +331,9 @@ impl IngestClient {
             path,
             filename,
             file_type.mime_type().to_string(),
-            upload_options,
+            ingest.upload_options.clone(),
         )
-        .await?;
-
-        let opts = ingest.into_opts(target.into(), self.workspace_rid_str(), s3_path)?;
-        #[allow(deprecated)]
-        let options = IngestOptions::Video(opts);
-        self.trigger_video_ingest(options).await
+        .await
     }
 
     async fn trigger_ingest(&self, options: IngestOptions) -> Result<(IngestJob, String)> {
@@ -314,20 +347,6 @@ impl IngestClient {
             }
         };
         Ok((job, dataset_rid))
-    }
-
-    #[allow(deprecated)]
-    async fn trigger_video_ingest(&self, options: IngestOptions) -> Result<(IngestJob, String)> {
-        let (job, details) = self.send_ingest(options).await?;
-        let video_rid = match details {
-            IngestDetails::Video(d) => d.video_rid().to_string(),
-            _ => {
-                return Err(Error::Ingest {
-                    details: "ingest response did not include a video RID".into(),
-                });
-            }
-        };
-        Ok((job, video_rid))
     }
 
     async fn send_ingest(&self, options: IngestOptions) -> Result<(IngestJob, IngestDetails)> {
